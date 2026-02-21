@@ -1,0 +1,196 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── KaTeX stylesheet (loaded via CDN in layout.tsx) ────────────────────── */
+
+/* ── Base styles ────────────────────────────────────────────────────────── */
+:root {
+  --bg-primary: #0a0a0f;
+  --bg-secondary: #111118;
+  --bg-tertiary: #1a1a24;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --accent: #3b82f6;
+  --accent-glow: rgba(59, 130, 246, 0.3);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2d2d3d #111118;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #111118;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #2d2d3d;
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #3b82f6;
+}
+
+body {
+  @apply bg-surface-0 text-slate-200 font-sans;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Markdown rendering ─────────────────────────────────────────────────── */
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3 {
+  @apply text-white font-bold mt-4 mb-2;
+}
+
+.prose-chat h1 { @apply text-xl; }
+.prose-chat h2 { @apply text-lg; }
+.prose-chat h3 { @apply text-base; }
+
+.prose-chat p {
+  @apply mb-3 leading-relaxed;
+}
+
+.prose-chat ul,
+.prose-chat ol {
+  @apply ml-5 mb-3 space-y-1;
+}
+
+.prose-chat ul { @apply list-disc; }
+.prose-chat ol { @apply list-decimal; }
+
+.prose-chat code {
+  @apply bg-surface-3 text-blue-300 px-1.5 py-0.5 rounded text-sm font-mono;
+}
+
+.prose-chat pre {
+  @apply bg-surface-3 rounded-lg p-4 mb-3 overflow-x-auto;
+}
+
+.prose-chat pre code {
+  @apply bg-transparent p-0;
+}
+
+.prose-chat blockquote {
+  @apply border-l-4 border-brand-500 pl-4 italic text-slate-400 my-3;
+}
+
+.prose-chat table {
+  @apply w-full border-collapse mb-3;
+}
+
+.prose-chat th,
+.prose-chat td {
+  @apply border border-surface-4 px-3 py-2 text-sm;
+}
+
+.prose-chat th {
+  @apply bg-surface-3 font-semibold;
+}
+
+/* ── Thinking/CoT block ─────────────────────────────────────────────────── */
+.thinking-block {
+  @apply bg-surface-2 border border-surface-4 rounded-lg p-4 mb-4;
+  @apply text-sm text-slate-400 italic;
+}
+
+.thinking-block summary {
+  @apply cursor-pointer text-brand-400 not-italic font-medium;
+}
+
+/* ── Animations ─────────────────────────────────────────────────────────── */
+@keyframes typing {
+  0%, 60%, 100% { opacity: 0; }
+  30% { opacity: 1; }
+}
+
+.typing-dot {
+  animation: typing 1.4s infinite;
+}
+
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* ── Chart container ────────────────────────────────────────────────── */
+.chart-container {
+  @apply overflow-hidden;
+}
+
+.chart-container .recharts-wrapper {
+  @apply mx-auto;
+}
+
+/* ── KaTeX overrides for dark theme ─────────────────────────────────── */
+.katex {
+  font-size: 1.05em !important;
+  color: #e2e8f0;
+}
+
+.katex-display {
+  @apply my-4 overflow-x-auto;
+}
+
+.katex-display > .katex {
+  @apply text-center;
+}
+
+/* ── Drag & Drop overlay ────────────────────────────────────────────── */
+.drag-overlay {
+  @apply pointer-events-none;
+  backdrop-filter: blur(4px);
+}
+
+/* ── Mermaid diagram container ──────────────────────────────────────── */
+.mermaid {
+  @apply bg-surface-2 rounded-lg p-4 my-3 overflow-x-auto text-center;
+}
+
+.mermaid svg {
+  @apply mx-auto;
+  max-width: 100%;
+}
+
+/* ── Flashcard styles ───────────────────────────────────────────────── */
+.flashcard {
+  @apply bg-surface-2 border border-surface-4 rounded-xl p-4 cursor-pointer;
+  @apply transition-transform duration-300;
+  perspective: 1000px;
+}
+
+.flashcard:hover {
+  @apply scale-[1.02];
+}
+
+.flashcard-front,
+.flashcard-back {
+  backface-visibility: hidden;
+}
+
+/* ── Quiz question styles ───────────────────────────────────────────── */
+.quiz-option {
+  @apply px-4 py-2.5 bg-surface-3 border border-surface-4 rounded-lg;
+  @apply text-sm text-slate-300 cursor-pointer transition-all;
+}
+
+.quiz-option:hover {
+  @apply bg-surface-4 text-white border-brand-500/30;
+}
+
+.quiz-option.correct {
+  @apply bg-green-500/15 border-green-500/40 text-green-300;
+}
+
+.quiz-option.incorrect {
+  @apply bg-red-500/15 border-red-500/40 text-red-300;
+}
+
+/* ── Model badge ────────────────────────────────────────────────────── */
+.model-badge {
+  @apply text-[9px] px-1.5 py-0.5 rounded-full bg-surface-3 text-slate-500 border border-surface-4;
+}
