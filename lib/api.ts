@@ -59,20 +59,38 @@ export interface ChatResponse {
 }
 
 export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
-  const res = await fetchWithTimeout(`${API_URL}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  });
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    const msg =
-      body?.message || body?.detail || `Server error (${res.status}). Please try again.`;
-    throw new Error(msg);
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(`${API_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+  } catch (err) {
+    // Network-level failure (offline, DNS, CORS, timeout, Vercel 504)
+    const msg = err instanceof Error ? err.message : "Network error";
+    if (msg.includes("timed out") || msg.includes("abort")) {
+      throw new Error("The request timed out. Try a shorter question or switch to a faster model.");
+    }
+    throw new Error("Could not connect to the server. Please check your connection and try again.");
   }
 
-  return res.json();
+  // Try to parse JSON regardless of status code — our API always returns JSON
+  let body: ChatResponse | null = null;
+  try {
+    body = await res.json();
+  } catch {
+    // Server returned non-JSON (e.g. Vercel 502/504 HTML page)
+    throw new Error(`Server error (${res.status}). The service may be temporarily unavailable.`);
+  }
+
+  if (!res.ok && !body?.response) {
+    const b = body as unknown as Record<string, unknown>;
+    const msg = b?.message || b?.detail || `Server error (${res.status})`;
+    throw new Error(String(msg));
+  }
+
+  return body!;
 }
 
 // ── Personas ─────────────────────────────────────────────────────────────────

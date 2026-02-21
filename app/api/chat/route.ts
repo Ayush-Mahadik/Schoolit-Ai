@@ -14,6 +14,10 @@ import { authOptions, isAdminEmail } from "@/lib/auth";
 import { buildSystemPrompt, VALID_SUBJECTS, type TeacherStyle } from "@/lib/server/prompts";
 import { TOOL_DEFINITIONS, executeTool } from "@/lib/server/tools";
 
+// ── Next.js route config ──────────────────────────────────────────────
+export const dynamic = "force-dynamic";
+export const maxDuration = 60; // seconds — prevents Vercel from killing AI calls at 10s
+
 // ── Constants ─────────────────────────────────────────────────────────
 const MAX_TOOL_ROUNDS = 8;
 const MAX_MESSAGE_LENGTH = 12_000;
@@ -89,6 +93,7 @@ function sanitizeString(str: string, maxLen: number): string {
 // ══════════════════════════════════════════════════════════════════════
 
 export async function POST(req: NextRequest) {
+ try {
   // Check auth & admin status
   let isAdmin = false;
   let userEmail = "";
@@ -378,6 +383,22 @@ export async function POST(req: NextRequest) {
       charts: [],
       model: modelId,
     });
+  }
+ } catch (fatal: unknown) {
+    // Top-level safety net — ensures we ALWAYS return JSON, never a naked 500
+    console.error("FATAL chat route error:", fatal);
+    return NextResponse.json(
+      {
+        response: "An unexpected error occurred. Please try again.",
+        conversation_id: crypto.randomUUID(),
+        error: "internal_error",
+        sources: [],
+        tool_calls: [],
+        charts: [],
+        model: "unknown",
+      },
+      { status: 200 }
+    );
   }
 }
 
