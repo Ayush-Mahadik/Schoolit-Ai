@@ -74,10 +74,10 @@ function checkRateLimit(ip: string, isAdmin: boolean): { allowed: boolean; remai
 
 // ── OpenAI Client ─────────────────────────────────────────────────────
 function getClient(): OpenAI | null {
-  const token = process.env.GITHUB_TOKEN;
+  const token = process.env.GITHUB_TOKEN?.trim();
   if (!token) return null;
   return new OpenAI({
-    baseURL: process.env.AI_BASE_URL || "https://models.inference.ai.azure.com",
+    baseURL: (process.env.AI_BASE_URL || "https://models.inference.ai.azure.com").trim(),
     apiKey: token,
   });
 }
