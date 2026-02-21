@@ -31,6 +31,9 @@ const MODEL_MAP: Record<string, string> = {
   "gpt-5-mini": "gpt-5-mini",
 };
 
+// Models that require max_completion_tokens instead of max_tokens
+const USES_MAX_COMPLETION_TOKENS = new Set(["gpt-5-mini"]);
+
 // Token limits per thinking mode
 const THINKING_MODE_TOKENS: Record<string, number> = {
   fast: 2048,
@@ -251,10 +254,15 @@ export async function POST(req: NextRequest) {
   const charts: unknown[] = [];
 
   try {
+    // Newer models (gpt-5-mini) require max_completion_tokens, older ones use max_tokens
+    const tokenParam = USES_MAX_COMPLETION_TOKENS.has(modelId)
+      ? { max_completion_tokens: maxTokens }
+      : { max_tokens: maxTokens };
+
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const response = await client.chat.completions.create({
         model: modelId,
-        max_tokens: maxTokens,
+        ...tokenParam,
         messages,
         tools: tools.length > 0 ? tools : undefined,
         tool_choice: tools.length > 0 ? "auto" : undefined,
