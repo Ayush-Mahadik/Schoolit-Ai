@@ -10,7 +10,7 @@ export interface ModelOption {
   id: AIModel;
   name: string;
   description: string;
-  icon: string;
+  icon: string; // Lucide icon name
   speed: "fast" | "medium" | "slow";
 }
 
@@ -19,21 +19,21 @@ export const MODEL_OPTIONS: ModelOption[] = [
     id: "gpt-4.1",
     name: "GPT-4.1",
     description: "Most capable — deep reasoning & complex tasks",
-    icon: "🧠",
+    icon: "brain",
     speed: "slow",
   },
   {
     id: "gpt-4o",
     name: "GPT-4o",
     description: "Balanced — fast with great quality",
-    icon: "⚡",
+    icon: "zap",
     speed: "medium",
   },
   {
     id: "gpt-5-mini",
     name: "GPT-5 Mini",
     description: "Lightning fast — quick answers & simple tasks",
-    icon: "🚀",
+    icon: "rocket",
     speed: "fast",
   },
 ];
@@ -44,7 +44,7 @@ export interface ThinkingModeOption {
   id: ThinkingMode;
   name: string;
   description: string;
-  icon: string;
+  icon: string; // Lucide icon name
   chainOfThought: boolean;
   maxTokens: number;
 }
@@ -54,7 +54,7 @@ export const THINKING_MODES: ThinkingModeOption[] = [
     id: "fast",
     name: "Fast",
     description: "Quick, direct answers",
-    icon: "⚡",
+    icon: "zap",
     chainOfThought: false,
     maxTokens: 2048,
   },
@@ -62,7 +62,7 @@ export const THINKING_MODES: ThinkingModeOption[] = [
     id: "balanced",
     name: "Balanced",
     description: "Good quality with moderate speed",
-    icon: "⚖️",
+    icon: "scale",
     chainOfThought: false,
     maxTokens: 4096,
   },
@@ -70,11 +70,25 @@ export const THINKING_MODES: ThinkingModeOption[] = [
     id: "deep",
     name: "Deep Think",
     description: "Rigorous step-by-step reasoning",
-    icon: "🧠",
+    icon: "brain",
     chainOfThought: true,
     maxTokens: 8192,
   },
 ];
+
+// ── Subject icon mapping (Lucide icon names) ──────────────────────────
+
+export const SUBJECT_ICONS: Record<string, string> = {
+  math: "calculator",
+  physics: "atom",
+  chemistry: "flask-conical",
+  biology: "dna",
+  cs: "code-2",
+  english: "book-open",
+  sst: "globe",
+  sanskrit: "scroll-text",
+  general: "library",
+};
 
 // ── Messages ──────────────────────────────────────────────────────────
 
@@ -95,7 +109,7 @@ export interface Message {
 export interface Subject {
   id: string;
   name: string;
-  icon: string;
+  icon: string; // Lucide icon name
   color: string;
 }
 

@@ -92,11 +92,11 @@ export async function fetchPersonas(): Promise<PersonaInfo[]> {
     return data.personas;
   } catch {
     return [
-      { id: "formal", name: "Professor Precise", icon: "🎓", description: "Strict, formal, textbook-accurate." },
-      { id: "creative", name: "Ms. Visual", icon: "🎨", description: "Uses analogies and visual thinking." },
-      { id: "socratic", name: "Socrates", icon: "🤔", description: "Guides through questions." },
-      { id: "balanced", name: "Teacher AI", icon: "📚", description: "Clear and balanced teaching." },
-      { id: "exam_coach", name: "Exam Crusher", icon: "🏆", description: "Focused on exam technique." },
+      { id: "formal", name: "Professor Precise", icon: "graduation-cap", description: "Strict, formal, textbook-accurate." },
+      { id: "creative", name: "Ms. Visual", icon: "palette", description: "Uses analogies and visual thinking." },
+      { id: "socratic", name: "Socrates", icon: "help-circle", description: "Guides through questions." },
+      { id: "balanced", name: "Teacher AI", icon: "book-open", description: "Clear and balanced teaching." },
+      { id: "exam_coach", name: "Exam Crusher", icon: "trophy", description: "Focused on exam technique." },
     ];
   }
 }

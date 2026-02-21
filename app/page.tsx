@@ -1,35 +1,32 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatInterface } from "@/components/ChatInterface";
-import { SubjectTabs } from "@/components/SubjectTabs";
-import { PersonaToggle } from "@/components/PersonaToggle";
-import { PdfUploader } from "@/components/PdfUploader";
 import { ModelSelector } from "@/components/ModelSelector";
 import { ThinkingModeToggle } from "@/components/ThinkingModeToggle";
 import { ScheduleManager } from "@/components/ScheduleManager";
 import { sendMessage, fetchPersonas } from "@/lib/api";
 import { getUserSettings, saveUserSettings } from "@/lib/store";
+import { Icon, Menu, Globe } from "@/components/Icons";
 import type { Message, Persona, Subject, ChatSettings, AIModel, ThinkingMode } from "@/lib/types";
 import type { FileAttachment } from "@/components/FileUploadButton";
 
-// ── Subject definitions ──────────────────────────────────────────────
+// ── Subject definitions (now with Lucide icon names) ─────────────────
 const SUBJECTS: Subject[] = [
-  { id: "math", name: "Mathematics", icon: "📐", color: "#3b82f6" },
-  { id: "physics", name: "Physics", icon: "⚛️", color: "#8b5cf6" },
-  { id: "chemistry", name: "Chemistry", icon: "🧪", color: "#10b981" },
-  { id: "biology", name: "Biology", icon: "🧬", color: "#f59e0b" },
-  { id: "cs", name: "Computer Science", icon: "💻", color: "#ef4444" },
-  { id: "english", name: "English", icon: "📝", color: "#ec4899" },
-  { id: "sst", name: "Social Studies", icon: "🌍", color: "#f97316" },
-  { id: "sanskrit", name: "Sanskrit", icon: "🕉️", color: "#a855f7" },
-  { id: "general", name: "General", icon: "📚", color: "#6b7280" },
+  { id: "math", name: "Mathematics", icon: "calculator", color: "#3b82f6" },
+  { id: "physics", name: "Physics", icon: "atom", color: "#8b5cf6" },
+  { id: "chemistry", name: "Chemistry", icon: "flask-conical", color: "#10b981" },
+  { id: "biology", name: "Biology", icon: "dna", color: "#f59e0b" },
+  { id: "cs", name: "Computer Science", icon: "code-2", color: "#ef4444" },
+  { id: "english", name: "English", icon: "book-open", color: "#ec4899" },
+  { id: "sst", name: "Social Studies", icon: "globe", color: "#f97316" },
+  { id: "sanskrit", name: "Sanskrit", icon: "scroll-text", color: "#a855f7" },
+  { id: "general", name: "General", icon: "library", color: "#6b7280" },
 ];
 
 export default function Home() {
-  // ── State ───────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<Record<string, Message[]>>({});
   const [activeSubject, setActiveSubject] = useState<string>("general");
   const [personas, setPersonas] = useState<Persona[]>([]);
@@ -42,9 +39,9 @@ export default function Home() {
   });
   const [contextFiles, setContextFiles] = useState<Record<string, FileAttachment[]>>({});
   const [isLoading, setIsLoading] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [showPdfUploader, setShowPdfUploader] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // ── Load saved settings & personas on mount ─────────────────────────
   useEffect(() => {
@@ -58,9 +55,10 @@ export default function Home() {
         persona: saved.persona || prev.persona,
       }));
     }
+    // Open sidebar by default on desktop
+    if (window.innerWidth >= 1024) setSidebarOpen(true);
   }, []);
 
-  // Persist settings whenever they change
   useEffect(() => {
     saveUserSettings(settings);
   }, [settings]);
@@ -72,14 +70,10 @@ export default function Home() {
     async (text: string, files?: FileAttachment[]) => {
       if (!text.trim() || isLoading) return;
 
-      // Merge any attached files into the subject's context
       const currentFiles = [...(contextFiles[activeSubject] || [])];
       if (files && files.length > 0) {
         currentFiles.push(...files);
-        setContextFiles((prev) => ({
-          ...prev,
-          [activeSubject]: currentFiles,
-        }));
+        setContextFiles((prev) => ({ ...prev, [activeSubject]: currentFiles }));
       }
 
       const userMsg: Message = {
@@ -98,12 +92,10 @@ export default function Home() {
       setIsLoading(true);
 
       try {
-        // Build conversation history for the API
         const history = (messages[activeSubject] || [])
           .slice(-20)
           .map((m) => ({ role: m.role, content: m.content }));
 
-        // Build file context
         const textFiles = currentFiles
           .filter((f) => !f.type.startsWith("image/"))
           .map((f) => ({ name: f.name, content: f.content, type: f.type }));
@@ -169,14 +161,25 @@ export default function Home() {
   const currentSubjectInfo = SUBJECTS.find((s) => s.id === activeSubject) || SUBJECTS[SUBJECTS.length - 1];
 
   return (
-    <div className="flex h-screen overflow-hidden bg-surface-0">
-      {/* ── Sidebar ──────────────────────────────────────────────────── */}
+    <div className="flex h-[100dvh] overflow-hidden bg-surface-0">
+      {/* ── Mobile overlay ─────────────────────────────────────────── */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-30 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* ── Sidebar ──────────────────────────────────────────────── */}
       <AnimatePresence>
         {sidebarOpen && (
           <Sidebar
             subjects={SUBJECTS}
             activeSubject={activeSubject}
-            onSelectSubject={setActiveSubject}
+            onSelectSubject={(id) => {
+              setActiveSubject(id);
+              if (window.innerWidth < 1024) setSidebarOpen(false);
+            }}
             onClose={() => setSidebarOpen(false)}
             onToggleSchedule={() => setShowSchedule((p) => !p)}
             messageCount={Object.fromEntries(
@@ -186,112 +189,111 @@ export default function Home() {
         )}
       </AnimatePresence>
 
-      {/* ── Main Content ─────────────────────────────────────────────── */}
+      {/* ── Main Content ─────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* ── Top Bar ──────────────────────────────────────────────── */}
-        <header className="flex items-center justify-between px-4 py-3 border-b border-surface-3 bg-surface-1/80 backdrop-blur-sm">
-          <div className="flex items-center gap-3">
-            {!sidebarOpen && (
-              <button
-                onClick={() => setSidebarOpen(true)}
-                className="p-2 hover:bg-surface-3 rounded-lg transition-colors"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
-              </button>
-            )}
-            <div className="flex items-center gap-2">
-              <span className="text-2xl">{currentSubjectInfo.icon}</span>
-              <div>
-                <h1 className="text-lg font-semibold text-white">
-                  SchoolIT AI
-                </h1>
-                <p className="text-xs text-slate-400">
-                  {currentSubjectInfo.name} · Multi-Model · Charts & Deep Reasoning
+        {/* ── Header ─────────────────────────────────────────────── */}
+        <header className="flex items-center justify-between px-3 sm:px-5 h-14 border-b border-surface-3/60 bg-surface-0/90 backdrop-blur-md shrink-0 z-20">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="p-2 hover:bg-surface-3 rounded-lg transition-colors text-slate-400 hover:text-white"
+              aria-label="Toggle sidebar"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center shrink-0">
+                <Icon name="graduation-cap" className="w-4 h-4 text-white" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-sm font-semibold text-white truncate">SchoolIT AI</h1>
+                <p className="text-[10px] text-slate-500 truncate hidden sm:block">
+                  <Icon name={currentSubjectInfo.icon} className="w-3 h-3 inline mr-1" />
+                  {currentSubjectInfo.name}
                 </p>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Thinking Mode */}
+          {/* ── Desktop Controls ────────────────────────────────── */}
+          <div className="hidden md:flex items-center gap-2">
             <ThinkingModeToggle
               activeMode={settings.thinkingMode}
               onSelect={(mode: ThinkingMode) =>
                 setSettings((prev) => ({ ...prev, thinkingMode: mode }))
               }
             />
-
-            {/* Model Selector */}
             <ModelSelector
               activeModel={settings.model}
               onSelect={(model: AIModel) =>
                 setSettings((prev) => ({ ...prev, model }))
               }
             />
-
             <button
-              onClick={() => setShowPdfUploader(!showPdfUploader)}
-              className="px-3 py-1.5 text-sm bg-surface-3 hover:bg-surface-4 rounded-lg transition-colors flex items-center gap-1.5"
-              title="Upload PDF textbooks"
+              onClick={() => setSettings((prev) => ({ ...prev, useWebSearch: !prev.useWebSearch }))}
+              className={`p-2 rounded-lg transition-colors ${
+                settings.useWebSearch
+                  ? "bg-brand-600/20 text-brand-400"
+                  : "bg-surface-3 text-slate-500"
+              }`}
+              title={`Web search ${settings.useWebSearch ? "ON" : "OFF"}`}
             >
-              📄 PDFs
+              <Globe className="w-4 h-4" />
             </button>
+          </div>
 
-            <PersonaToggle
-              personas={personas}
-              activePersona={settings.persona}
-              onSelect={(persona) =>
-                setSettings((prev) => ({ ...prev, persona }))
+          {/* ── Mobile Controls ─────────────────────────────────── */}
+          <div className="flex md:hidden items-center gap-1">
+            <ModelSelector
+              activeModel={settings.model}
+              onSelect={(model: AIModel) =>
+                setSettings((prev) => ({ ...prev, model }))
               }
             />
-
             <button
-              onClick={() =>
-                setSettings((prev) => ({
-                  ...prev,
-                  useWebSearch: !prev.useWebSearch,
-                }))
-              }
-              className={`px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center gap-1.5 ${
-                settings.useWebSearch
-                  ? "bg-brand-600/20 text-brand-400 border border-brand-500/30"
-                  : "bg-surface-3 text-slate-400"
-              }`}
-              title="Toggle autonomous web search"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="p-2 hover:bg-surface-3 rounded-lg transition-colors text-slate-400"
+              aria-label="More options"
             >
-              🌐 {settings.useWebSearch ? "ON" : "OFF"}
+              <Icon name="settings" className="w-4 h-4" />
             </button>
           </div>
         </header>
 
-        {/* ── Subject Tabs ─────────────────────────────────────────── */}
-        <SubjectTabs
-          subjects={SUBJECTS}
-          activeSubject={activeSubject}
-          onSelect={setActiveSubject}
-        />
-
-        {/* ── PDF Uploader ─────────────────────────────────────────── */}
+        {/* ── Mobile Menu Dropdown ──────────────────────────────── */}
         <AnimatePresence>
-          {showPdfUploader && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="overflow-hidden border-b border-surface-3"
-            >
-              <PdfUploader
-                subject={activeSubject}
-                onClose={() => setShowPdfUploader(false)}
+          {mobileMenuOpen && (
+            <div className="md:hidden border-b border-surface-3 bg-surface-1 px-3 py-2 flex flex-wrap items-center gap-2 z-10">
+              <ThinkingModeToggle
+                activeMode={settings.thinkingMode}
+                onSelect={(mode: ThinkingMode) => {
+                  setSettings((prev) => ({ ...prev, thinkingMode: mode }));
+                }}
               />
-            </motion.div>
+              <button
+                onClick={() => setSettings((prev) => ({ ...prev, useWebSearch: !prev.useWebSearch }))}
+                className={`px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition-colors ${
+                  settings.useWebSearch
+                    ? "bg-brand-600/20 text-brand-400"
+                    : "bg-surface-3 text-slate-500"
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5" />
+                Search {settings.useWebSearch ? "ON" : "OFF"}
+              </button>
+              <button
+                onClick={() => { setShowSchedule((p) => !p); setMobileMenuOpen(false); }}
+                className="px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 bg-surface-3 text-slate-400"
+              >
+                <Icon name="calendar" className="w-3.5 h-3.5" />
+                Schedule
+              </button>
+            </div>
           )}
         </AnimatePresence>
 
-        {/* ── Chat + Schedule side-by-side ─────────────────────────── */}
+        {/* ── Chat + Schedule ──────────────────────────────────── */}
         <div className="flex-1 flex min-h-0">
           <ChatInterface
             messages={currentMessages}
@@ -300,7 +302,6 @@ export default function Home() {
             subject={activeSubject}
             activeModel={settings.model}
           />
-
           <AnimatePresence>
             {showSchedule && (
               <ScheduleManager onClose={() => setShowSchedule(false)} />

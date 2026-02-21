@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { clsx } from "clsx";
 import { useSession, signIn, signOut } from "next-auth/react";
+import { Icon, GraduationCap, PanelLeftClose, Plus, Calendar, LogOut, Star } from "@/components/Icons";
 import type { Subject } from "@/lib/types";
 
 interface SidebarProps {
@@ -28,70 +29,72 @@ export function Sidebar({
 
   return (
     <motion.aside
-      initial={{ x: -280 }}
+      initial={{ x: -260 }}
       animate={{ x: 0 }}
-      exit={{ x: -280 }}
+      exit={{ x: -260 }}
       transition={{ type: "spring", damping: 25, stiffness: 200 }}
-      className="w-[280px] h-full bg-surface-1 border-r border-surface-3 flex flex-col shrink-0"
+      className="w-[260px] h-full bg-surface-1 border-r border-surface-3/60 flex flex-col shrink-0 z-40 fixed lg:relative"
     >
       {/* ── Header ────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between p-4 border-b border-surface-3">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm">
-            S
+      <div className="flex items-center justify-between px-4 h-14 border-b border-surface-3/60">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center">
+            <GraduationCap className="w-4 h-4 text-white" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-white">SchoolIT AI</h2>
-            <p className="text-[10px] text-slate-500">v2.0 · Multi-Model</p>
+            <h2 className="text-sm font-semibold text-white leading-tight">SchoolIT AI</h2>
+            <p className="text-[10px] text-slate-500">v2.0</p>
           </div>
         </div>
         <button
           onClick={onClose}
-          className="p-1.5 hover:bg-surface-3 rounded-md transition-colors text-slate-400 hover:text-white"
+          className="p-1.5 hover:bg-surface-3 rounded-md transition-colors text-slate-500 hover:text-white"
+          aria-label="Close sidebar"
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-          </svg>
+          <PanelLeftClose className="w-4 h-4" />
         </button>
       </div>
 
       {/* ── New Chat + Schedule ────────────────────────────────────── */}
-      <div className="p-3 space-y-2">
-        <button className="w-full py-2.5 px-3 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
+      <div className="p-3 space-y-1.5">
+        <button className="w-full py-2 px-3 bg-surface-3 hover:bg-surface-4 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2.5">
+          <Plus className="w-4 h-4 text-slate-400" />
           New Conversation
         </button>
         <button
           onClick={onToggleSchedule}
-          className="w-full py-2 px-3 bg-surface-3 hover:bg-surface-4 text-slate-300 text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+          className="w-full py-2 px-3 hover:bg-surface-3 text-slate-400 text-sm rounded-lg transition-colors flex items-center gap-2.5"
         >
-          📅 Schedule Manager
+          <Calendar className="w-4 h-4" />
+          Schedule
         </button>
       </div>
 
       {/* ── Subject List ──────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto px-3 py-1">
-        <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold px-2 mb-2">
+        <p className="text-[10px] uppercase tracking-wider text-slate-600 font-semibold px-2 mb-2">
           Subjects
         </p>
-        <nav className="space-y-1">
+        <nav className="space-y-0.5">
           {subjects.map((subject) => (
             <button
               key={subject.id}
               onClick={() => onSelectSubject(subject.id)}
               className={clsx(
-                "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-150",
+                "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150",
                 activeSubject === subject.id
-                  ? "bg-brand-600/15 text-brand-400 border border-brand-500/20"
-                  : "text-slate-400 hover:bg-surface-3 hover:text-slate-200"
+                  ? "bg-surface-3 text-white"
+                  : "text-slate-400 hover:bg-surface-3/50 hover:text-slate-200"
               )}
             >
-              <span className="text-lg">{subject.icon}</span>
-              <span className="flex-1 text-left">{subject.name}</span>
+              <Icon
+                name={subject.icon}
+                className="w-4 h-4 shrink-0"
+                style={activeSubject === subject.id ? { color: subject.color } : undefined}
+              />
+              <span className="flex-1 text-left truncate">{subject.name}</span>
               {(messageCount[subject.id] || 0) > 0 && (
-                <span className="text-[10px] bg-surface-4 text-slate-500 px-1.5 py-0.5 rounded-full">
+                <span className="text-[10px] text-slate-600 tabular-nums">
                   {messageCount[subject.id]}
                 </span>
               )}
@@ -101,13 +104,13 @@ export function Sidebar({
       </div>
 
       {/* ── Social Links ──────────────────────────────────────────── */}
-      <div className="px-3 py-2 border-t border-surface-3">
-        <div className="flex items-center justify-center gap-3">
+      <div className="px-3 py-2 border-t border-surface-3/60">
+        <div className="flex items-center justify-center gap-2">
           <a
-            href="https://github.com/notleaped84"
+            href="https://github.com/Ayush-Mahadik"
             target="_blank"
             rel="noopener noreferrer"
-            className="p-2 hover:bg-surface-3 rounded-lg transition-colors text-slate-500 hover:text-white"
+            className="p-2 hover:bg-surface-3 rounded-lg transition-colors text-slate-600 hover:text-white"
             title="GitHub"
           >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -118,7 +121,7 @@ export function Sidebar({
             href="https://discord.com/users/notleaped84"
             target="_blank"
             rel="noopener noreferrer"
-            className="p-2 hover:bg-surface-3 rounded-lg transition-colors text-slate-500 hover:text-[#5865F2]"
+            className="p-2 hover:bg-surface-3 rounded-lg transition-colors text-slate-600 hover:text-[#5865F2]"
             title="Discord: notleaped84"
           >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -129,18 +132,18 @@ export function Sidebar({
       </div>
 
       {/* ── User Footer ───────────────────────────────────────────── */}
-      <div className="p-3 border-t border-surface-3">
+      <div className="p-3 border-t border-surface-3/60">
         {status === "authenticated" && user ? (
-          <div className="flex items-center gap-2 px-2 py-2 rounded-lg bg-surface-2">
+          <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-surface-2/50">
             {user.image ? (
               <img
                 src={user.image}
                 alt={user.name || "User"}
-                className="w-7 h-7 rounded-full"
+                className="w-7 h-7 rounded-full shrink-0"
                 referrerPolicy="no-referrer"
               />
             ) : (
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center text-[10px] font-bold text-white">
+              <div className="w-7 h-7 rounded-full bg-brand-600 flex items-center justify-center text-[10px] font-bold text-white shrink-0">
                 {(user.name || "U")[0].toUpperCase()}
               </div>
             )}
@@ -148,24 +151,23 @@ export function Sidebar({
               <p className="text-xs font-medium text-slate-200 truncate">
                 {user.name || "User"}
               </p>
-              <p className="text-[10px] text-slate-500 truncate">
-                {isAdmin ? "⭐ Admin" : "Student"}
+              <p className="text-[10px] text-slate-500 truncate flex items-center gap-1">
+                {isAdmin && <Star className="w-2.5 h-2.5 text-amber-400" />}
+                {isAdmin ? "Admin" : "Student"}
               </p>
             </div>
             <button
               onClick={() => signOut()}
-              className="p-1 hover:bg-surface-4 rounded text-slate-500 hover:text-red-400 transition-colors"
+              className="p-1.5 hover:bg-surface-4 rounded-md text-slate-600 hover:text-red-400 transition-colors"
               title="Sign out"
             >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
+              <LogOut className="w-3.5 h-3.5" />
             </button>
           </div>
         ) : (
           <button
             onClick={() => signIn("google")}
-            className="w-full py-2 px-3 bg-white/10 hover:bg-white/15 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+            className="w-full py-2.5 px-3 bg-white/5 hover:bg-white/10 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>

@@ -331,27 +331,48 @@ export async function POST(req: NextRequest) {
   } catch (error: unknown) {
     console.error("Chat API error:", error);
 
-    const msg = String(error instanceof Error ? error.message : "").toLowerCase();
-    let userError = "An error occurred while communicating with the AI service. Please try again.";
+    const rawMsg = error instanceof Error ? error.message : String(error);
+    const msg = rawMsg.toLowerCase();
+    const statusCode = (error as { status?: number })?.status;
+    let userError = "Something went wrong. Please try again in a moment.";
+    let statusHint = "";
 
-    if (msg.includes("rate") || msg.includes("429")) {
-      userError = "The AI service is rate-limited. Please wait a moment and try again.";
-    } else if (msg.includes("auth") || msg.includes("401") || msg.includes("api_key") || msg.includes("unauthorized")) {
-      userError = "API token is invalid or expired. Please check GITHUB_TOKEN.";
-    } else if (msg.includes("quota") || msg.includes("billing") || msg.includes("exceeded")) {
-      userError = "API quota exceeded. Check your GitHub Copilot limits.";
-    } else if (msg.includes("connect") || msg.includes("network") || msg.includes("econnrefused")) {
-      userError = "Could not reach the AI service. Please check your internet connection.";
-    } else if (msg.includes("timeout")) {
-      userError = "The AI service timed out. Please try a simpler question.";
-    } else if (msg.includes("model") || msg.includes("not found") || msg.includes("does not exist")) {
-      userError = `Model "${modelId}" is not available. Try switching to GPT-4o.`;
+    if (statusCode === 429 || msg.includes("rate") || msg.includes("429")) {
+      userError = "The AI service is rate-limited. Please wait 30 seconds and try again.";
+      statusHint = "rate_limited";
+    } else if (statusCode === 401 || msg.includes("auth") || msg.includes("401") || msg.includes("api_key") || msg.includes("unauthorized") || msg.includes("invalid")) {
+      userError = "API authentication failed. The server token may be expired — please contact the admin.";
+      statusHint = "auth_error";
+    } else if (statusCode === 403 || msg.includes("403") || msg.includes("forbidden") || msg.includes("permission")) {
+      userError = "Access denied by the AI service. The API token may not have the required permissions.";
+      statusHint = "forbidden";
+    } else if (msg.includes("quota") || msg.includes("billing") || msg.includes("exceeded") || msg.includes("insufficient")) {
+      userError = "API quota exceeded. Please try again later or contact the admin.";
+      statusHint = "quota_exceeded";
+    } else if (msg.includes("connect") || msg.includes("network") || msg.includes("econnrefused") || msg.includes("fetch") || msg.includes("enotfound")) {
+      userError = "Could not reach the AI service. This is usually a temporary issue — please try again.";
+      statusHint = "network_error";
+    } else if (msg.includes("timeout") || msg.includes("timed out") || msg.includes("deadline")) {
+      userError = "The request timed out. Try asking a shorter question or switch to a faster model.";
+      statusHint = "timeout";
+    } else if (statusCode === 404 || msg.includes("model") || msg.includes("not found") || msg.includes("does not exist") || msg.includes("404")) {
+      userError = `Model "${modelId}" is not available right now. Try switching to GPT-4o.`;
+      statusHint = "model_not_found";
+    } else if (msg.includes("content_filter") || msg.includes("content policy") || msg.includes("safety")) {
+      userError = "Your message was flagged by the content safety filter. Please rephrase your question.";
+      statusHint = "content_filter";
+    } else if (statusCode && statusCode >= 500) {
+      userError = "The AI service is experiencing issues. Please try again in a moment.";
+      statusHint = "server_error";
     }
 
+    console.error(`Chat error [${statusHint || "unknown"}]: ${rawMsg}`);
+
     return NextResponse.json({
-      response: "I wasn't able to process your request right now.",
+      response: userError,
       conversation_id: crypto.randomUUID(),
-      error: userError,
+      error: statusHint || "unknown_error",
+      error_detail: process.env.NODE_ENV === "development" ? rawMsg : undefined,
       sources: [],
       tool_calls: [],
       charts: [],

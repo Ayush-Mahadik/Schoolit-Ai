@@ -1,6 +1,7 @@
 "use client";
 
 import { clsx } from "clsx";
+import { Icon } from "@/components/Icons";
 import type { Subject } from "@/lib/types";
 
 interface SubjectTabsProps {
@@ -28,7 +29,7 @@ export function SubjectTabs({ subjects, activeSubject, onSelect }: SubjectTabsPr
               : undefined
           }
         >
-          <span>{subject.icon}</span>
+          <Icon name={subject.icon} className="w-3.5 h-3.5" />
           <span>{subject.name}</span>
         </button>
       ))}

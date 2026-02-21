@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useCallback } from "react";
+import { Paperclip, X as XIcon } from "@/components/Icons";
 
 export interface FileAttachment {
   name: string;
@@ -127,17 +128,10 @@ export function FileUploadButton({ onFilesSelected, disabled }: FileUploadButton
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={disabled}
-        className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-surface-3 disabled:opacity-40 transition-colors shrink-0"
+        className="p-2 rounded-lg text-slate-500 hover:text-white hover:bg-surface-3 disabled:opacity-40 transition-colors shrink-0"
         title="Attach files (images, text, CSV, code) for context"
       >
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-          />
-        </svg>
+        <Paperclip className="w-4 h-4" />
       </button>
     </>
   );
@@ -153,27 +147,21 @@ export function FileChips({
 }) {
   if (files.length === 0) return null;
 
-  const getIcon = (type: string) => {
-    if (type.startsWith("image/")) return "🖼️";
-    if (type === "application/pdf") return "📄";
-    if (type === "text/csv" || type === "application/json") return "📊";
-    return "📝";
-  };
-
   return (
     <div className="flex flex-wrap gap-1.5 px-1 py-1.5">
       {files.map((f, i) => (
         <span
           key={`${f.name}-${i}`}
-          className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface-3 text-slate-300 rounded-lg text-[11px] border border-surface-4"
+          className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface-3 text-slate-300 rounded-md text-[11px] border border-surface-3/80"
         >
-          {getIcon(f.type)} {f.name.length > 20 ? f.name.slice(0, 18) + "…" : f.name}
+          <Paperclip className="w-3 h-3 text-slate-500" />
+          {f.name.length > 20 ? f.name.slice(0, 18) + "…" : f.name}
           <button
             onClick={() => onRemove(i)}
-            className="text-slate-500 hover:text-red-400 ml-0.5 transition-colors"
+            className="text-slate-600 hover:text-red-400 ml-0.5 transition-colors"
             aria-label={`Remove ${f.name}`}
           >
-            ×
+            <XIcon className="w-3 h-3" />
           </button>
         </span>
       ))}
