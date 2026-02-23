@@ -141,7 +141,7 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
     }
   };
 
-  const modelInfo = MODEL_OPTIONS.find((m) => m.id === activeModel) || MODEL_OPTIONS[1];
+  const modelInfo = MODEL_OPTIONS.find((m) => m.id === activeModel) || MODEL_OPTIONS[0];
 
   return (
     <div
@@ -246,13 +246,13 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
             <button
               onClick={handleSubmit}
               disabled={!input.trim() || isLoading}
-              className="p-2 rounded-xl bg-white hover:bg-slate-200 disabled:opacity-20 disabled:hover:bg-white text-black transition-colors shrink-0"
+              className="p-2 rounded-xl bg-orange-500 hover:bg-orange-400 disabled:opacity-20 disabled:hover:bg-orange-500 text-black transition-colors shrink-0 font-bold"
             >
               <Send className="w-4 h-4" />
             </button>
           </div>
-          <p className="text-[10px] text-slate-600 mt-1.5 text-center">
-            SchoolIT AI · {modelInfo.name} · Responses may not always be accurate
+          <p className="text-[10px] text-slate-600 mt-1.5 text-center font-medium">
+            SchoolIT AI <span className="text-orange-500">·</span> {modelInfo.name} via GitHub Models <span className="text-orange-500">·</span> Responses may not always be accurate
           </p>
         </div>
       </div>
@@ -372,7 +372,7 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
             {message.toolCalls.map((tool, i) => (
               <span
                 key={i}
-                className="text-[10px] px-2 py-0.5 rounded-full bg-surface-3 text-slate-500 flex items-center gap-1 border border-surface-4"
+                className="text-[10px] px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400 flex items-center gap-1 border border-orange-500/20 font-medium"
               >
                 <Wrench className="w-2.5 h-2.5" />
                 {tool.replace(/_/g, " ")}
@@ -607,11 +607,11 @@ function EmptyState({ subject, onSuggestion }: { subject: string; onSuggestion: 
         transition={{ duration: 0.5 }}
         className="text-center space-y-6 w-full"
       >
-        <div className="w-12 h-12 mx-auto rounded-2xl bg-surface-3 flex items-center justify-center">
-          <Icon name="graduation-cap" className="w-6 h-6 text-brand-400" />
+        <div className="w-12 h-12 mx-auto rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center">
+          <Icon name="graduation-cap" className="w-6 h-6 text-orange-400" />
         </div>
         <div>
-          <h2 className="text-xl font-semibold text-white mb-1">
+          <h2 className="text-xl font-bold text-white mb-1">
             What can I help with?
           </h2>
           <p className="text-sm text-slate-500 max-w-sm mx-auto">
@@ -625,7 +625,7 @@ function EmptyState({ subject, onSuggestion }: { subject: string; onSuggestion: 
             <button
               key={i}
               onClick={() => onSuggestion(suggestion)}
-              className="text-left px-4 py-3 bg-surface-2 hover:bg-surface-3 border border-surface-3 rounded-xl text-sm text-slate-400 hover:text-white transition-all duration-150"
+              className="text-left px-4 py-3 bg-surface-2 hover:bg-surface-3 border border-surface-3 hover:border-orange-500/30 rounded-xl text-sm text-slate-400 hover:text-white transition-all duration-150 font-medium"
             >
               {suggestion}
             </button>

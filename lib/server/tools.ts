@@ -244,15 +244,23 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
           mermaid_code: {
             type: "string",
             description:
-              'Complete Mermaid.js diagram code. Supported types:\n' +
-              '- flowchart (graph TD/LR): Process flows, algorithms\n' +
+              'Complete Mermaid.js diagram code. CRITICAL SYNTAX RULES:\n' +
+              '- Use ONLY straight quotes " never smart/curly quotes\n' +
+              '- Use --> for arrows (with spaces around them)\n' +
+              '- Wrap labels with special chars in ["quotes"]: A["Label (with parens)"]\n' +
+              '- Use |text| for edge labels: A -->|Yes| B\n' +
+              '- Every subgraph must have a name and end with "end"\n' +
+              '- Start flowcharts with "graph TD" or "graph LR"\n' +
+              '- Do NOT use semicolons at end of lines\n' +
+              '- Keep node IDs simple alphanumeric (A, B, Step1, etc.)\n' +
+              'Supported types:\n' +
+              '- graph TD/LR: Process flows, algorithms\n' +
               '- sequenceDiagram: Interactions between components\n' +
               '- classDiagram: Class relationships\n' +
               '- stateDiagram-v2: State machines\n' +
               '- erDiagram: Entity relationships\n' +
-              '- gantt: Project timelines\n' +
-              '- mindmap: Brainstorming, concept maps\n' +
-              'Example: "graph TD\\n    A[Start] --> B{Decision}\\n    B -->|Yes| C[Do Something]\\n    B -->|No| D[End]"',
+              '- mindmap: Concept maps\n' +
+              'Example: "graph TD\\n    A[\\"Start\\"] --> B{\\"Decision\\"}\\n    B -->|Yes| C[\\"Do Something\\"]\\n    B -->|No| D[\\"End\\"]"',
           },
           title: {
             type: "string",

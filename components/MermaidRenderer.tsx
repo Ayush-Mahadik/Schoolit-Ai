@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState, useId, useMemo } from "react";
+import { useEffect, useRef, useState, useId, useMemo, useCallback } from "react";
 
 interface MermaidRendererProps {
   code: string;
   title?: string;
 }
+
+// Module-level flag to avoid re-initializing mermaid
+let mermaidInitialized = false;
 
 export function MermaidRenderer({ code, title }: MermaidRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -15,49 +18,110 @@ export function MermaidRenderer({ code, title }: MermaidRendererProps) {
   const [showCode, setShowCode] = useState(false);
   const uniqueId = useId().replace(/:/g, "_");
 
-  // Sanitize common AI-generated Mermaid syntax issues
+  // Aggressively sanitize the mermaid code
   const sanitizedCode = useMemo(() => sanitizeMermaidCode(code), [code]);
 
   useEffect(() => {
     let cancelled = false;
+
     async function render() {
       try {
-        // Dynamic import to avoid SSR issues
         const mermaid = (await import("mermaid")).default;
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: "dark",
-          securityLevel: "loose",
-          themeVariables: {
-            primaryColor: "#3b82f6",
-            primaryTextColor: "#e2e8f0",
-            primaryBorderColor: "#3b82f6",
-            lineColor: "#94a3b8",
-            secondaryColor: "#8b5cf6",
-            tertiaryColor: "#1a1a2e",
-            background: "#0f0f1a",
-            mainBkg: "#1a1a2e",
-            nodeBorder: "#3b82f6",
-            clusterBkg: "#1a1a2e",
-            titleColor: "#e2e8f0",
-            edgeLabelBackground: "#1a1a2e",
-          },
-          flowchart: {
-            htmlLabels: true,
-            curve: "basis",
-            padding: 12,
-          },
-          fontFamily: "Inter, system-ui, sans-serif",
-          fontSize: 13,
-        });
+
+        // Initialize only once
+        if (!mermaidInitialized) {
+          mermaid.initialize({
+            startOnLoad: false,
+            theme: "dark",
+            securityLevel: "loose",
+            suppressErrorRendering: true,
+            themeVariables: {
+              primaryColor: "#f97316",
+              primaryTextColor: "#e2e8f0",
+              primaryBorderColor: "#f97316",
+              lineColor: "#94a3b8",
+              secondaryColor: "#ef4444",
+              tertiaryColor: "#0a0a0a",
+              background: "#0a0a0a",
+              mainBkg: "#141414",
+              nodeBorder: "#f97316",
+              clusterBkg: "#141414",
+              titleColor: "#e2e8f0",
+              edgeLabelBackground: "#141414",
+              actorBkg: "#1c1c1c",
+              actorTextColor: "#e2e8f0",
+              actorBorder: "#f97316",
+              signalColor: "#e2e8f0",
+              labelBoxBkgColor: "#141414",
+              labelBoxBorderColor: "#f97316",
+              labelTextColor: "#e2e8f0",
+              loopTextColor: "#f97316",
+              noteBkgColor: "#1c1c1c",
+              noteTextColor: "#e2e8f0",
+              noteBorderColor: "#f97316",
+            },
+            flowchart: {
+              htmlLabels: true,
+              curve: "basis",
+              padding: 12,
+              useMaxWidth: true,
+            },
+            fontFamily: "Inter, system-ui, sans-serif",
+            fontSize: 13,
+          });
+          mermaidInitialized = true;
+        }
+
+        // Parse first to catch syntax errors before rendering
+        const validCode = sanitizedCode;
+        let parseOk = true;
+        try {
+          await mermaid.parse(validCode);
+        } catch {
+          parseOk = false;
+        }
+
+        if (!parseOk) {
+          // Try simplified fallback: convert to basic flowchart
+          const fallback = simplifyToFlowchart(validCode);
+          if (fallback) {
+            try {
+              await mermaid.parse(fallback);
+              const { svg: renderedSvg } = await mermaid.render(
+                `mermaid_${uniqueId}`,
+                fallback
+              );
+              if (!cancelled && renderedSvg && !renderedSvg.includes("Syntax error")) {
+                setSvg(renderedSvg);
+                setError("");
+                return;
+              }
+            } catch {
+              // Fallback also failed
+            }
+          }
+
+          if (!cancelled) {
+            setError("Diagram syntax could not be parsed");
+            setSvg("");
+          }
+          return;
+        }
 
         const { svg: renderedSvg } = await mermaid.render(
           `mermaid_${uniqueId}`,
-          sanitizedCode
+          validCode
         );
+
         if (!cancelled) {
-          setSvg(renderedSvg);
-          setError("");
+          // Check if mermaid rendered an error SVG instead of a real diagram
+          if (renderedSvg && (renderedSvg.includes("Syntax error") || renderedSvg.includes("error-icon"))) {
+            setError("Diagram rendered with errors");
+            setSvg("");
+          } else {
+            setSvg(renderedSvg);
+            setError("");
+          }
         }
       } catch (e) {
         if (!cancelled) {
@@ -73,14 +137,14 @@ export function MermaidRenderer({ code, title }: MermaidRendererProps) {
     };
   }, [sanitizedCode, uniqueId]);
 
-  const handleCopy = () => {
+  const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(code).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
-  };
+  }, [code]);
 
-  const handleDownloadSvg = () => {
+  const handleDownloadSvg = useCallback(() => {
     if (!svg) return;
     const blob = new Blob([svg], { type: "image/svg+xml" });
     const url = URL.createObjectURL(blob);
@@ -89,61 +153,72 @@ export function MermaidRenderer({ code, title }: MermaidRendererProps) {
     a.download = `${title || "diagram"}.svg`;
     a.click();
     URL.revokeObjectURL(url);
-  };
+  }, [svg, title]);
 
+  // ── Error state: clean fallback with code viewer ──
   if (error) {
     return (
-      <div className="my-4 rounded-xl border border-surface-4 bg-surface-2 overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2 bg-surface-3/50 border-b border-surface-4">
+      <div className="my-4 rounded-xl border border-orange-500/20 bg-surface-2 overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2.5 bg-surface-3/50 border-b border-orange-500/20">
           <div className="flex items-center gap-2">
-            <svg className="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-              <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+            <svg className="w-4 h-4 text-orange-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="3" width="18" height="18" rx="3" />
+              <path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3z" />
+              <path d="M14 17h7M17.5 14v7" />
             </svg>
-            <span className="text-xs font-medium text-amber-400">{title || "Diagram"} — render issue</span>
+            <span className="text-xs font-bold text-orange-400 uppercase tracking-wide">{title || "Diagram"}</span>
           </div>
-          <button
-            onClick={() => { navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-            className="px-2 py-1 text-[10px] text-slate-400 hover:text-white bg-surface-3 hover:bg-surface-4 rounded transition-colors"
-          >
-            {copied ? "✓ Copied" : "Copy Code"}
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShowCode(!showCode)}
+              className="px-2 py-1 text-[10px] text-slate-400 hover:text-white bg-surface-3 hover:bg-surface-4 rounded transition-colors font-medium"
+            >
+              {showCode ? "Hide" : "View Code"}
+            </button>
+            <button
+              onClick={handleCopy}
+              className="px-2 py-1 text-[10px] text-slate-400 hover:text-white bg-surface-3 hover:bg-surface-4 rounded transition-colors font-medium"
+            >
+              {copied ? "✓ Copied" : "Copy"}
+            </button>
+          </div>
         </div>
         <div className="p-4">
-          <p className="text-xs text-slate-500 mb-2">The diagram code couldn&apos;t be rendered. You can copy it and use the <a href="https://mermaid.live" target="_blank" rel="noopener noreferrer" className="text-brand-400 hover:underline">Mermaid Live Editor</a> to view it.</p>
-          <details className="group">
-            <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-300 transition-colors">Show code</summary>
-            <pre className="mt-2 text-xs text-slate-400 overflow-x-auto whitespace-pre-wrap bg-surface-3 rounded-lg p-3">{code}</pre>
-          </details>
+          <p className="text-xs text-slate-500 mb-1">Couldn&apos;t render this diagram inline. Copy the code and paste it in <a href="https://mermaid.live" target="_blank" rel="noopener noreferrer" className="text-orange-400 hover:underline font-semibold">Mermaid Live Editor →</a></p>
+          {showCode && (
+            <pre className="mt-3 text-xs text-slate-400 overflow-x-auto whitespace-pre-wrap bg-black/50 rounded-lg p-3 border border-surface-4 font-mono">{sanitizedCode}</pre>
+          )}
         </div>
       </div>
     );
   }
 
+  // ── Success state: render diagram ──
   return (
     <div className="my-4 rounded-xl border border-surface-4 bg-surface-2 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 bg-surface-3/50 border-b border-surface-4">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-surface-3/50 border-b border-surface-4">
         <div className="flex items-center gap-2">
-          <svg className="w-4 h-4 text-brand-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg className="w-4 h-4 text-orange-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="3" y="3" width="18" height="18" rx="3" />
             <path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3z" />
             <path d="M14 17h7M17.5 14v7" />
           </svg>
-          <span className="text-xs font-medium text-slate-300">
+          <span className="text-xs font-bold text-white uppercase tracking-wide">
             {title || "Flowchart"}
           </span>
         </div>
         <div className="flex items-center gap-1">
           <button
             onClick={handleCopy}
-            className="px-2 py-1 text-[10px] text-slate-400 hover:text-white bg-surface-3 hover:bg-surface-4 rounded transition-colors"
+            className="px-2 py-1 text-[10px] text-slate-400 hover:text-white bg-surface-3 hover:bg-surface-4 rounded transition-colors font-medium"
           >
             {copied ? "✓ Copied" : "Copy Code"}
           </button>
           {svg && (
             <button
               onClick={handleDownloadSvg}
-              className="px-2 py-1 text-[10px] text-slate-400 hover:text-white bg-surface-3 hover:bg-surface-4 rounded transition-colors"
+              className="px-2 py-1 text-[10px] text-slate-400 hover:text-white bg-surface-3 hover:bg-surface-4 rounded transition-colors font-medium"
             >
               ↓ SVG
             </button>
@@ -154,12 +229,12 @@ export function MermaidRenderer({ code, title }: MermaidRendererProps) {
       {/* Diagram */}
       <div
         ref={containerRef}
-        className="p-4 flex justify-center items-center overflow-x-auto min-h-[120px]"
+        className="p-4 flex justify-center items-center overflow-x-auto min-h-[120px] mermaid-output"
         dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}
       >
         {!svg && (
           <div className="flex items-center gap-2 text-slate-500 text-sm">
-            <div className="w-4 h-4 border-2 border-brand-400 border-t-transparent rounded-full animate-spin" />
+            <div className="w-4 h-4 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
             Rendering diagram…
           </div>
         )}
@@ -168,33 +243,96 @@ export function MermaidRenderer({ code, title }: MermaidRendererProps) {
   );
 }
 
-// Sanitize common AI-generated Mermaid syntax issues
+// ══════════════════════════════════════════════════════════════════════
+//  SANITIZER: Fix common AI-generated Mermaid syntax issues
+// ══════════════════════════════════════════════════════════════════════
 function sanitizeMermaidCode(code: string): string {
   let cleaned = code.trim();
 
-  // Remove markdown fences if the AI accidentally included them
-  cleaned = cleaned.replace(/^```(?:mermaid)?\n?/i, "").replace(/\n?```$/i, "");
+  // 1. Remove markdown fences
+  cleaned = cleaned.replace(/^```(?:mermaid)?\s*\n?/i, "").replace(/\n?\s*```$/i, "");
 
-  // Fix common issues:
-  // 1. Smart quotes → straight quotes
-  cleaned = cleaned.replace(/[\u201C\u201D]/g, '"').replace(/[\u2018\u2019]/g, "'");
-  // 2. Remove BOM or zero-width chars
-  cleaned = cleaned.replace(/[\uFEFF\u200B\u200C\u200D]/g, "");
-  // 3. Fix em-dashes and en-dashes in arrow syntax
-  cleaned = cleaned.replace(/\u2014/g, "--").replace(/\u2013/g, "--");
-  // 4. Normalize line endings
+  // 2. Fix Unicode issues
+  cleaned = cleaned.replace(/[\u201C\u201D\u201E\u201F\u2033]/g, '"');
+  cleaned = cleaned.replace(/[\u2018\u2019\u201A\u201B\u2032]/g, "'");
+  cleaned = cleaned.replace(/[\uFEFF\u200B\u200C\u200D\u00A0]/g, "");
+  cleaned = cleaned.replace(/\u2014/g, "--");
+  cleaned = cleaned.replace(/\u2013/g, "--");
+  cleaned = cleaned.replace(/\u2192/g, "-->");
+  cleaned = cleaned.replace(/\u2190/g, "<--");
+  cleaned = cleaned.replace(/\u21D2/g, "==>");
   cleaned = cleaned.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  // 5. Remove trailing semicolons (common AI mistake for flowcharts)
+
+  // 3. Remove trailing semicolons
   cleaned = cleaned.replace(/;\s*$/gm, "");
-  // 6. Fix "graph" without direction → default to TD
+
+  // 4. Fix "graph" without direction
   cleaned = cleaned.replace(/^graph\s*$/m, "graph TD");
-  // 7. Ensure node labels with special chars are quoted: A[text with (parens)] → A["text with (parens)"]
+
+  // 5. Fix node labels with special chars
   cleaned = cleaned.replace(
-    /\[([^\]"]*[(){}|<>][^\]"]*)\]/g,
-    (match, inner) => `["${inner}"]`
+    /\[([^\]"]*[(){}|<>&][^\]"]*)\]/g,
+    (_, inner) => `["${inner.replace(/"/g, "'")}"]`
   );
 
-  return cleaned;
+  // 6. Fix missing spaces around arrows
+  cleaned = cleaned.replace(/(\w)(-->)(\w)/g, "$1 --> $3");
+  cleaned = cleaned.replace(/(\w)(==>)(\w)/g, "$1 ==> $3");
+  cleaned = cleaned.replace(/(\w)(-\.->)(\w)/g, "$1 -.-> $3");
+
+  // 7. Fix tabs
+  cleaned = cleaned.replace(/\t/g, "    ");
+
+  // 8. Remove excessive blank lines
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+
+  // 9. Fix subgraph without name
+  cleaned = cleaned.replace(/^(subgraph)\s*$/gm, "subgraph Default");
+
+  // 10. Fix --text--> to -->|text|
+  cleaned = cleaned.replace(/--([^->\n|]+)-->/g, "-->|$1|");
+
+  return cleaned.trim();
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  FALLBACK: Simplify invalid diagram to basic flowchart
+// ══════════════════════════════════════════════════════════════════════
+function simplifyToFlowchart(code: string): string | null {
+  try {
+    const lines = code.split("\n").filter((l) => l.trim());
+    if (lines.length < 2) return null;
+
+    const connections: string[] = [];
+    const nodeLabels: Record<string, string> = {};
+
+    for (const line of lines) {
+      const connMatch = line.match(/(\w+)(?:\[([^\]]*)\])?\s*(?:-->|==>|---|-\.->)\|?([^|]*)\|?\s*(\w+)(?:\[([^\]]*)\])?/);
+      if (connMatch) {
+        const [, fromId, fromLabel, edgeLabel, toId, toLabel] = connMatch;
+        if (fromLabel) nodeLabels[fromId] = fromLabel;
+        if (toLabel) nodeLabels[toId] = toLabel;
+        const edge = edgeLabel?.trim()
+          ? `${fromId} -->|${edgeLabel.trim()}| ${toId}`
+          : `${fromId} --> ${toId}`;
+        connections.push(`    ${edge}`);
+      }
+      const nodeMatch = line.match(/^\s*(\w+)\[([^\]]+)\]\s*$/);
+      if (nodeMatch) {
+        nodeLabels[nodeMatch[1]] = nodeMatch[2];
+      }
+    }
+
+    if (connections.length === 0) return null;
+
+    const nodeDefs = Object.entries(nodeLabels)
+      .map(([id, label]) => `    ${id}["${label.replace(/"/g, "'")}"]`)
+      .join("\n");
+
+    return `graph TD\n${nodeDefs}\n${connections.join("\n")}`;
+  } catch {
+    return null;
+  }
 }
 
 // Parse mermaid blocks from markdown content

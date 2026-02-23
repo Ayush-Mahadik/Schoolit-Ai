@@ -5,12 +5,12 @@
 /* ── Base styles ────────────────────────────────────────────────────────── */
 :root {
   --bg-primary: #000000;
-  --bg-secondary: #0a0a0a;
-  --bg-tertiary: #141414;
-  --text-primary: #e7e9ea;
+  --bg-secondary: #080808;
+  --bg-tertiary: #111111;
+  --text-primary: #ffffff;
   --text-secondary: #71767b;
-  --accent: #5b8bf5;
-  --accent-glow: rgba(91, 139, 245, 0.12);
+  --accent: #f97316;
+  --accent-glow: rgba(249, 115, 22, 0.12);
 }
 
 * {
@@ -59,12 +59,12 @@ button:focus-visible {
 .prose-chat h1,
 .prose-chat h2,
 .prose-chat h3 {
-  @apply text-white font-semibold mt-4 mb-2;
+  @apply text-white font-bold mt-4 mb-2;
 }
 
 .prose-chat h1 { @apply text-lg; }
 .prose-chat h2 { @apply text-base; }
-.prose-chat h3 { @apply text-sm font-semibold; }
+.prose-chat h3 { @apply text-sm font-bold; }
 
 .prose-chat p {
   @apply mb-2.5 leading-relaxed;
@@ -83,7 +83,7 @@ button:focus-visible {
 }
 
 .prose-chat code {
-  @apply bg-surface-3/80 text-blue-300 px-1.5 py-0.5 rounded text-[13px] font-mono;
+  @apply bg-surface-3/80 text-orange-300 px-1.5 py-0.5 rounded text-[13px] font-mono;
 }
 
 .prose-chat pre {
@@ -120,17 +120,17 @@ button:focus-visible {
 }
 
 .prose-chat strong {
-  @apply text-white font-semibold;
+  @apply text-white font-bold;
 }
 
 /* ── Thinking/CoT block ─────────────────────────────────────────────────── */
 .thinking-block {
-  @apply bg-surface-2 border border-surface-3 rounded-xl p-3.5 mb-3;
+  @apply bg-surface-2 border border-orange-500/20 rounded-xl p-3.5 mb-3;
   @apply text-sm text-slate-500 italic;
 }
 
 .thinking-block summary {
-  @apply cursor-pointer text-brand-400 not-italic font-medium text-xs uppercase tracking-wide;
+  @apply cursor-pointer text-orange-400 not-italic font-bold text-xs uppercase tracking-wide;
 }
 
 /* ── Animations ─────────────────────────────────────────────────────────── */
@@ -315,6 +315,13 @@ button:focus-visible {
   max-width: 100%;
 }
 
+/* Suppress mermaid error rendering */
+.mermaid-output [id*="error"],
+.mermaid-output .error-icon,
+.mermaid-output .error-text {
+  display: none !important;
+}
+
 /* ── Flashcard styles ───────────────────────────────────────────────── */
 .flashcard {
   @apply bg-surface-2 border border-surface-3/60 rounded-xl p-4 cursor-pointer;
@@ -338,7 +345,7 @@ button:focus-visible {
 }
 
 .quiz-option:hover {
-  @apply bg-surface-3 text-white border-brand-500/30;
+  @apply bg-surface-3 text-white border-orange-500/30;
 }
 
 .quiz-option.correct {

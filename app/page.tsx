@@ -297,11 +297,11 @@ export default function Home() {
             </button>
 
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center shrink-0">
-                <Icon name="graduation-cap" className="w-4 h-4 text-white" />
+              <div className="w-7 h-7 rounded-lg bg-orange-500 flex items-center justify-center shrink-0">
+                <Icon name="graduation-cap" className="w-4 h-4 text-black" />
               </div>
               <div className="min-w-0">
-                <h1 className="text-sm font-semibold text-white truncate">SchoolIT AI</h1>
+                <h1 className="text-sm font-bold text-white truncate">SchoolIT AI</h1>
                 <p className="text-[10px] text-slate-500 truncate hidden sm:block">
                   <Icon name={currentSubjectInfo.icon} className="w-3 h-3 inline mr-1" />
                   {currentSubjectInfo.name}

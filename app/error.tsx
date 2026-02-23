@@ -16,9 +16,9 @@ export default function Error({
   return (
     <div className="min-h-screen bg-surface-0 flex items-center justify-center px-4">
       <div className="text-center max-w-md">
-        <div className="w-16 h-16 rounded-2xl bg-surface-3 flex items-center justify-center mx-auto mb-6">
+        <div className="w-16 h-16 rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center mx-auto mb-6">
           <svg
-            className="w-8 h-8 text-amber-400"
+            className="w-8 h-8 text-orange-400"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -31,14 +31,14 @@ export default function Error({
             <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
         </div>
-        <h1 className="text-xl font-semibold text-white mb-2">Something went wrong</h1>
+        <h1 className="text-xl font-bold text-white mb-2">Something went wrong</h1>
         <p className="text-sm text-slate-400 mb-6">
           An unexpected error occurred. This is usually temporary — try refreshing the page.
         </p>
         <div className="flex gap-3 justify-center">
           <button
             onClick={reset}
-            className="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors"
+            className="px-6 py-2.5 bg-orange-500 hover:bg-orange-400 text-black text-sm font-bold rounded-lg transition-colors"
           >
             Try Again
           </button>

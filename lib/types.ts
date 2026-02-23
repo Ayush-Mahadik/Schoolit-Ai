@@ -9,9 +9,7 @@ export type AIModel =
   | "gpt-4o"
   | "gpt-4o-mini"
   | "Mistral-large-2411"
-  | "Meta-Llama-3.1-70B-Instruct"
-  | "Phi-4"
-  | "DeepSeek-R1-0528";
+  | "xai/grok-3-mini";
 
 export interface ModelOption {
   id: AIModel;
@@ -25,7 +23,7 @@ export const MODEL_OPTIONS: ModelOption[] = [
   {
     id: "gpt-4.1",
     name: "GPT-4.1",
-    description: "Most capable — deep reasoning & complex tasks",
+    description: "Flagship — deep reasoning & complex tasks",
     icon: "brain",
     speed: "slow",
   },
@@ -46,30 +44,16 @@ export const MODEL_OPTIONS: ModelOption[] = [
   {
     id: "Mistral-large-2411",
     name: "Mistral Large",
-    description: "Powerful open model — excellent reasoning & text",
+    description: "Powerful open model — excellent reasoning",
     icon: "wind",
     speed: "medium",
   },
   {
-    id: "Meta-Llama-3.1-70B-Instruct",
-    name: "Llama 3.1 70B",
-    description: "Meta open-source — great all-round quality",
+    id: "xai/grok-3-mini",
+    name: "Grok 3 Mini",
+    description: "xAI reasoning — bold, fast & tool-capable",
     icon: "flame",
-    speed: "medium",
-  },
-  {
-    id: "Phi-4",
-    name: "Phi-4",
-    description: "Microsoft efficient model — strong in math & code",
-    icon: "sparkles",
     speed: "fast",
-  },
-  {
-    id: "DeepSeek-R1-0528",
-    name: "DeepSeek R1",
-    description: "Advanced reasoning — excels at math & logic",
-    icon: "search",
-    speed: "slow",
   },
 ];
 

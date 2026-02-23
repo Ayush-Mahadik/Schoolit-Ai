@@ -9,7 +9,7 @@ export default function GlobalError({
 }) {
   return (
     <html>
-      <body style={{ backgroundColor: "#09090f", color: "#e2e8f0", fontFamily: "Inter, system-ui, sans-serif" }}>
+      <body style={{ backgroundColor: "#000000", color: "#ffffff", fontFamily: "Inter, system-ui, sans-serif" }}>
         <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
           <div style={{ textAlign: "center", maxWidth: "400px" }}>
             <div
@@ -17,7 +17,7 @@ export default function GlobalError({
                 width: "64px",
                 height: "64px",
                 borderRadius: "16px",
-                backgroundColor: "#1a1a2e",
+                backgroundColor: "rgba(249, 115, 22, 0.1)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -29,7 +29,7 @@ export default function GlobalError({
                 height="32"
                 viewBox="0 0 24 24"
                 fill="none"
-                stroke="#fbbf24"
+                stroke="#f97316"
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -39,7 +39,7 @@ export default function GlobalError({
                 <line x1="12" y1="17" x2="12.01" y2="17" />
               </svg>
             </div>
-            <h1 style={{ fontSize: "1.25rem", fontWeight: 600, marginBottom: "0.5rem" }}>Something went wrong</h1>
+            <h1 style={{ fontSize: "1.25rem", fontWeight: 700, marginBottom: "0.5rem" }}>Something went wrong</h1>
             <p style={{ fontSize: "0.875rem", color: "#94a3b8", marginBottom: "1.5rem" }}>
               An unexpected error occurred. Please try refreshing the page.
             </p>
@@ -47,10 +47,10 @@ export default function GlobalError({
               onClick={reset}
               style={{
                 padding: "0.625rem 1.5rem",
-                backgroundColor: "#3b82f6",
-                color: "white",
+                backgroundColor: "#f97316",
+                color: "black",
                 fontSize: "0.875rem",
-                fontWeight: 500,
+                fontWeight: 700,
                 borderRadius: "0.5rem",
                 border: "none",
                 cursor: "pointer",

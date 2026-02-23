@@ -10,13 +10,15 @@ interface ManimRendererProps {
 
 /**
  * ManimRenderer: Renders Manim code inline in chat with:
+ * - Animated SVG preview (stroke drawing, fade-in, pulse effects)
  * - Syntax-highlighted code display
- * - Visual SVG preview of what the animation would produce
  * - Copy/download functionality
+ * - Play/pause animation controls
  */
 export function ManimRenderer({ code, sceneName, explanation }: ManimRendererProps) {
   const [showCode, setShowCode] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(true);
 
   // Parse Manim code to generate an SVG preview
   const preview = useMemo(() => generatePreview(code, sceneName), [code, sceneName]);
@@ -41,31 +43,39 @@ export function ManimRenderer({ code, sceneName, explanation }: ManimRendererPro
   return (
     <div className="my-4 rounded-xl border border-surface-4 bg-surface-2 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 bg-surface-3/50 border-b border-surface-4">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-surface-3/50 border-b border-surface-4">
         <div className="flex items-center gap-2">
           <svg className="w-4 h-4 text-purple-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polygon points="5 3 19 12 5 21 5 3" />
           </svg>
-          <span className="text-xs font-medium text-slate-300">
-            Manim Animation — {sceneName}
+          <span className="text-xs font-bold text-white uppercase tracking-wide">
+            {sceneName}
           </span>
+          <span className="text-[10px] text-purple-400/70 font-medium">MANIM</span>
         </div>
         <div className="flex items-center gap-1">
           <button
+            onClick={() => setIsPlaying(!isPlaying)}
+            className="px-2 py-1 text-[10px] text-slate-400 hover:text-white bg-surface-3 hover:bg-surface-4 rounded transition-colors font-medium"
+            title={isPlaying ? "Pause animation" : "Play animation"}
+          >
+            {isPlaying ? "⏸ Pause" : "▶ Play"}
+          </button>
+          <button
             onClick={() => setShowCode((s) => !s)}
-            className="px-2 py-1 text-[10px] text-slate-400 hover:text-white bg-surface-3 hover:bg-surface-4 rounded transition-colors"
+            className="px-2 py-1 text-[10px] text-slate-400 hover:text-white bg-surface-3 hover:bg-surface-4 rounded transition-colors font-medium"
           >
             {showCode ? "Preview" : "Code"}
           </button>
           <button
             onClick={handleCopy}
-            className="px-2 py-1 text-[10px] text-slate-400 hover:text-white bg-surface-3 hover:bg-surface-4 rounded transition-colors"
+            className="px-2 py-1 text-[10px] text-slate-400 hover:text-white bg-surface-3 hover:bg-surface-4 rounded transition-colors font-medium"
           >
             {copied ? "✓ Copied" : "Copy"}
           </button>
           <button
             onClick={handleDownloadPy}
-            className="px-2 py-1 text-[10px] text-slate-400 hover:text-white bg-surface-3 hover:bg-surface-4 rounded transition-colors"
+            className="px-2 py-1 text-[10px] text-slate-400 hover:text-white bg-surface-3 hover:bg-surface-4 rounded transition-colors font-medium"
           >
             ↓ .py
           </button>
@@ -83,11 +93,48 @@ export function ManimRenderer({ code, sceneName, explanation }: ManimRendererPro
         </div>
       ) : (
         <div className="p-4">
-          {/* SVG Preview */}
-          <div className="flex justify-center items-center min-h-[200px] bg-[#0a0a14] rounded-lg overflow-hidden">
+          {/* Animated SVG Preview */}
+          <div className="flex justify-center items-center min-h-[200px] bg-[#050508] rounded-lg overflow-hidden relative">
+            {/* Animation styles injected inline */}
+            <style>{`
+              @keyframes drawStroke {
+                from { stroke-dashoffset: 1000; }
+                to { stroke-dashoffset: 0; }
+              }
+              @keyframes fadeInElement {
+                from { opacity: 0; transform: scale(0.9); }
+                to { opacity: 1; transform: scale(1); }
+              }
+              @keyframes pulseGlow {
+                0%, 100% { filter: drop-shadow(0 0 2px currentColor); opacity: 1; }
+                50% { filter: drop-shadow(0 0 8px currentColor); opacity: 0.85; }
+              }
+              @keyframes floatY {
+                0%, 100% { transform: translateY(0px); }
+                50% { transform: translateY(-6px); }
+              }
+              .manim-animated path, .manim-animated line, .manim-animated polyline {
+                stroke-dasharray: 1000;
+                stroke-dashoffset: 1000;
+                animation: drawStroke 2s ease-out forwards;
+              }
+              .manim-animated circle, .manim-animated rect, .manim-animated polygon {
+                animation: fadeInElement 0.8s ease-out forwards, pulseGlow 3s ease-in-out infinite 0.8s;
+              }
+              .manim-animated text {
+                animation: fadeInElement 1s ease-out 0.5s forwards;
+                opacity: 0;
+              }
+              .manim-animated .anim-delay-1 { animation-delay: 0.2s; }
+              .manim-animated .anim-delay-2 { animation-delay: 0.4s; }
+              .manim-animated .anim-delay-3 { animation-delay: 0.6s; }
+              .manim-animated .anim-delay-4 { animation-delay: 0.8s; }
+              .manim-animated .float { animation: floatY 3s ease-in-out infinite; }
+              .manim-paused * { animation-play-state: paused !important; }
+            `}</style>
             <svg
               viewBox="0 0 800 450"
-              className="w-full max-h-[350px]"
+              className={`w-full max-h-[350px] ${isPlaying ? "manim-animated" : "manim-animated manim-paused"}`}
               xmlns="http://www.w3.org/2000/svg"
             >
               {/* Background grid */}
@@ -226,7 +273,7 @@ export function ManimRenderer({ code, sceneName, explanation }: ManimRendererPro
               <circle cx="12" cy="12" r="10" />
               <path d="M12 16v-4M12 8h.01" />
             </svg>
-            Static preview — download .py and run with Manim to see the full animation
+            Animated preview — download .py and run with Manim for the full animation
           </div>
         </div>
       )}

@@ -24,22 +24,20 @@ const MAX_MESSAGE_LENGTH = 12_000;
 const MAX_HISTORY_MESSAGES = 30;
 const VALID_PERSONAS = ["formal", "creative", "socratic", "balanced", "exam_coach"];
 
-// Model mapping for GitHub Models endpoint
+// Model mapping for GitHub Models endpoint — all models support function calling
 const MODEL_MAP: Record<string, string> = {
   "gpt-4.1": "gpt-4.1",
   "gpt-4o": "gpt-4o",
   "gpt-4o-mini": "gpt-4o-mini",
   "Mistral-large-2411": "Mistral-large-2411",
-  "Meta-Llama-3.1-70B-Instruct": "Meta-Llama-3.1-70B-Instruct",
-  "Phi-4": "Phi-4",
-  "DeepSeek-R1-0528": "DeepSeek-R1-0528",
+  "xai/grok-3-mini": "xai/grok-3-mini",
 };
 
 // Models that require max_completion_tokens instead of max_tokens
 const USES_MAX_COMPLETION_TOKENS = new Set<string>();
 
-// Models that don't reliably support OpenAI function-calling format
-const NO_TOOL_SUPPORT = new Set<string>(["DeepSeek-R1-0528", "Phi-4"]);
+// All current models support function calling — no exclusions needed
+const NO_TOOL_SUPPORT = new Set<string>();
 
 // Token limits per thinking mode
 const THINKING_MODE_TOKENS: Record<string, number> = {
@@ -277,9 +275,7 @@ export async function POST(req: NextRequest) {
       "gpt-4o": ["gpt-4.1", "Mistral-large-2411", "gpt-4o-mini"],
       "gpt-4o-mini": ["gpt-4o", "gpt-4.1"],
       "Mistral-large-2411": ["gpt-4.1", "gpt-4o", "gpt-4o-mini"],
-      "Meta-Llama-3.1-70B-Instruct": ["Mistral-large-2411", "gpt-4.1", "gpt-4o"],
-      "Phi-4": ["gpt-4o-mini", "gpt-4o"],
-      "DeepSeek-R1-0528": ["gpt-4.1", "gpt-4o"],
+      "xai/grok-3-mini": ["gpt-4.1", "gpt-4o", "Mistral-large-2411"],
     };
 
     let activeModelId = modelId;
@@ -483,7 +479,7 @@ export async function POST(req: NextRequest) {
       userError = "The request timed out. Try asking a shorter question or switch to a faster model.";
       statusHint = "timeout";
     } else if (statusCode === 404 || msg.includes("model") || msg.includes("not found") || msg.includes("does not exist") || msg.includes("404")) {
-      userError = `The model "${modelId}" isn't available right now. Try switching to a different model like GPT-4.1 or Mistral Large.`;
+      userError = `The model "${modelId}" isn't available right now. Try switching to GPT-4.1 or Grok 3 Mini.`;
       statusHint = "model_not_found";
     } else if (msg.includes("content_filter") || msg.includes("content policy") || msg.includes("safety")) {
       userError = "Your message was flagged by the content safety filter. Please rephrase your question.";

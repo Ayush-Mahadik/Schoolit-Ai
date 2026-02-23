@@ -39,12 +39,12 @@ export function Sidebar({
       {/* ── Header ────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 h-14 border-b border-surface-3">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center">
-            <GraduationCap className="w-4 h-4 text-white" />
+          <div className="w-7 h-7 rounded-lg bg-orange-500 flex items-center justify-center">
+            <GraduationCap className="w-4 h-4 text-black" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-white leading-tight">SchoolIT AI</h2>
-            <p className="text-[10px] text-slate-500">v2.0</p>
+            <h2 className="text-sm font-bold text-white leading-tight">SchoolIT AI</h2>
+            <p className="text-[10px] text-orange-400/60 font-medium">v2.0</p>
           </div>
         </div>
         <button
@@ -144,7 +144,7 @@ export function Sidebar({
                 referrerPolicy="no-referrer"
               />
             ) : (
-              <div className="w-7 h-7 rounded-full bg-brand-600 flex items-center justify-center text-[10px] font-bold text-white shrink-0">
+              <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center text-[10px] font-bold text-black shrink-0">
                 {(user.name || "U")[0].toUpperCase()}
               </div>
             )}
