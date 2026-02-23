@@ -43,6 +43,16 @@ import {
   Trash2,
   Check,
   Clock,
+  Copy,
+  Maximize2,
+  Minimize2,
+  RefreshCw,
+  ThumbsUp,
+  ThumbsDown,
+  Share2,
+  MoreHorizontal,
+  ClipboardCheck,
+  RotateCcw,
   type LucideProps,
 } from "lucide-react";
 import type { FC } from "react";
@@ -90,6 +100,16 @@ const iconMap: Record<string, FC<LucideProps>> = {
   trash2: Trash2,
   check: Check,
   clock: Clock,
+  copy: Copy,
+  "maximize-2": Maximize2,
+  "minimize-2": Minimize2,
+  "refresh-cw": RefreshCw,
+  "thumbs-up": ThumbsUp,
+  "thumbs-down": ThumbsDown,
+  "share-2": Share2,
+  "more-horizontal": MoreHorizontal,
+  "clipboard-check": ClipboardCheck,
+  "rotate-ccw": RotateCcw,
 };
 
 interface IconProps extends LucideProps {
@@ -146,4 +166,14 @@ export {
   Trash2,
   Check,
   Clock,
+  Copy,
+  Maximize2,
+  Minimize2,
+  RefreshCw,
+  ThumbsUp,
+  ThumbsDown,
+  Share2,
+  MoreHorizontal,
+  ClipboardCheck,
+  RotateCcw,
 };

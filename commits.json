@@ -1,0 +1,9 @@
+﻿gh : gh: Not Found (HTTP 404)
+At line:1 char:203
++ ... \frontend"; gh api repos/Ayush-Mahadik/Schoolit-Ai/commits 2>&1 | Out ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (gh: Not Found (HTTP 404):String)  
+   [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+{"message":"Not Found","documentation_url":"https://docs.github.com/rest/commits/commits#list-commits","status":"404"}

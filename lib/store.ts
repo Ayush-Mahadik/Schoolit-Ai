@@ -116,3 +116,4 @@ export function clearAllUserData() {
   const keys = Object.keys(localStorage).filter((k) => k.startsWith(PREFIX));
   keys.forEach((k) => localStorage.removeItem(k));
 }
+
