@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { clsx } from "clsx";
 import { useSession, signIn, signOut } from "next-auth/react";
+import Link from "next/link";
 import { Icon, GraduationCap, PanelLeftClose, Plus, Calendar, LogOut, Star } from "@/components/Icons";
 import type { Subject } from "@/lib/types";
 
@@ -11,7 +12,7 @@ interface SidebarProps {
   activeSubject: string;
   onSelectSubject: (id: string) => void;
   onClose: () => void;
-  onToggleSchedule: () => void;
+  onToggleSchedule?: () => void;
   messageCount: Record<string, number>;
 }
 
@@ -33,10 +34,10 @@ export function Sidebar({
       animate={{ x: 0 }}
       exit={{ x: -260 }}
       transition={{ type: "spring", damping: 25, stiffness: 200 }}
-      className="w-[260px] h-full bg-surface-1 border-r border-surface-3/60 flex flex-col shrink-0 z-40 fixed lg:relative"
+      className="w-[260px] h-full bg-surface-1 border-r border-surface-3 flex flex-col shrink-0 z-40 fixed lg:relative"
     >
       {/* ── Header ────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-4 h-14 border-b border-surface-3/60">
+      <div className="flex items-center justify-between px-4 h-14 border-b border-surface-3">
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center">
             <GraduationCap className="w-4 h-4 text-white" />
@@ -61,13 +62,13 @@ export function Sidebar({
           <Plus className="w-4 h-4 text-slate-400" />
           New Conversation
         </button>
-        <button
-          onClick={onToggleSchedule}
+        <Link
+          href="/schedule"
           className="w-full py-2 px-3 hover:bg-surface-3 text-slate-400 text-sm rounded-lg transition-colors flex items-center gap-2.5"
         >
           <Calendar className="w-4 h-4" />
           Schedule
-        </button>
+        </Link>
       </div>
 
       {/* ── Subject List ──────────────────────────────────────────── */}
@@ -104,7 +105,7 @@ export function Sidebar({
       </div>
 
       {/* ── Social Links ──────────────────────────────────────────── */}
-      <div className="px-3 py-2 border-t border-surface-3/60">
+      <div className="px-3 py-2 border-t border-surface-3">
         <div className="flex items-center justify-center gap-2">
           <a
             href="https://github.com/Ayush-Mahadik"
@@ -132,7 +133,7 @@ export function Sidebar({
       </div>
 
       {/* ── User Footer ───────────────────────────────────────────── */}
-      <div className="p-3 border-t border-surface-3/60">
+      <div className="p-3 border-t border-surface-3">
         {status === "authenticated" && user ? (
           <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-surface-2/50">
             {user.image ? (

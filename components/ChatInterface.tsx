@@ -6,6 +6,9 @@ import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { ChartRenderer, parseChartBlocks, type ChartSpec } from "@/components/ChartRenderer";
+import { MermaidRenderer, parseMermaidBlocks } from "@/components/MermaidRenderer";
+import { ManimRenderer, parseManimBlocks } from "@/components/ManimRenderer";
+import { ImageRenderer, parseImageBlocks } from "@/components/ImageRenderer";
 import { FileUploadButton, FileChips, type FileAttachment } from "@/components/FileUploadButton";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { Icon, Send, Upload, Bot, Wrench, ExternalLink, Brain, Paperclip } from "@/components/Icons";
@@ -16,17 +19,29 @@ interface ChatInterfaceProps {
   messages: Message[];
   isLoading: boolean;
   onSend: (text: string, files?: FileAttachment[]) => void;
+  onEditMessage?: (messageId: string, newContent: string) => void;
+  onRegenerate?: (messageId: string) => void;
   subject: string;
   activeModel?: AIModel;
 }
 
 function preprocessLatex(text: string): string {
-  text = text.replace(/\\\(([\s\S]+?)\\\)/g, (_, content) => `$${content}$`);
-  text = text.replace(/\\\[([\s\S]+?)\\\]/g, (_, content) => `$$${content}$$`);
+  // Convert \( ... \) to $ ... $ (inline math)
+  text = text.replace(/\\\(([\s\S]+?)\\\)/g, (_, content) => `$${content.trim()}$`);
+  // Convert \[ ... \] to $$ ... $$ (display math)
+  text = text.replace(/\\\[([\s\S]+?)\\\]/g, (_, content) => `\n$$${content.trim()}$$\n`);
+  // Fix double-escaped backslashes in common LaTeX commands
+  text = text.replace(/\\\\(frac|sqrt|sum|int|prod|lim|infty|alpha|beta|gamma|delta|theta|pi|sigma|omega|text|mathrm|mathbf|mathit|begin|end|left|right|cdot|times|div|pm|leq|geq|neq|approx|equiv|subset|supset|cap|cup|forall|exists|nabla|partial|log|ln|sin|cos|tan|sec|csc|cot|vec|hat|bar|dot|ddot|tilde|overline|underline|overbrace|underbrace|binom|choose|pmatrix|bmatrix|vmatrix|cases|aligned|matrix|array)/g, '\\$1');
+  // Fix common broken patterns: _{ } where content got split
+  text = text.replace(/\$\s+/g, '$');
+  text = text.replace(/\s+\$/g, '$');
+  // Ensure display math has proper newlines
+  text = text.replace(/([^\n])\$\$/g, '$1\n$$');
+  text = text.replace(/\$\$([^\n])/g, '$$\n$1');
   return text;
 }
 
-export function ChatInterface({ messages, isLoading, onSend, subject, activeModel }: ChatInterfaceProps) {
+export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRegenerate, subject, activeModel }: ChatInterfaceProps) {
   const [input, setInput] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<FileAttachment[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -143,7 +158,7 @@ export function ChatInterface({ messages, isLoading, onSend, subject, activeMode
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 z-50 bg-brand-600/5 border-2 border-dashed border-brand-500/40 rounded-xl flex items-center justify-center backdrop-blur-sm"
+            className="absolute inset-0 z-50 bg-brand-600/5 border-2 border-dashed border-brand-500/30 rounded-xl flex items-center justify-center backdrop-blur-sm"
           >
             <div className="text-center">
               <Upload className="w-10 h-10 text-brand-400 mx-auto" />
@@ -170,9 +185,9 @@ export function ChatInterface({ messages, isLoading, onSend, subject, activeMode
                   className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                 >
                   {msg.role === "user" ? (
-                    <UserBubble message={msg} />
+                    <UserBubble message={msg} onEdit={onEditMessage} />
                   ) : (
-                    <AssistantBubble message={msg} />
+                    <AssistantBubble message={msg} onRegenerate={onRegenerate} />
                   )}
                 </motion.div>
               ))}
@@ -185,15 +200,15 @@ export function ChatInterface({ messages, isLoading, onSend, subject, activeMode
                 className="flex justify-start"
               >
                 <div className="flex items-start gap-2.5 max-w-[85%]">
-                  <div className="w-7 h-7 rounded-lg bg-surface-3 flex items-center justify-center shrink-0 mt-0.5">
+                  <div className="w-7 h-7 rounded-full bg-surface-3 flex items-center justify-center shrink-0 mt-0.5">
                     <Bot className="w-3.5 h-3.5 text-brand-400" />
                   </div>
-                  <div className="bg-surface-2 rounded-2xl rounded-tl-md px-4 py-3">
+                  <div className="px-4 py-3">
                     <div className="flex items-center gap-2 text-slate-400 text-sm">
                       <span className="typing-dot w-1.5 h-1.5 bg-brand-400 rounded-full" />
                       <span className="typing-dot w-1.5 h-1.5 bg-brand-400 rounded-full" />
                       <span className="typing-dot w-1.5 h-1.5 bg-brand-400 rounded-full" />
-                      <span className="ml-1.5 text-xs text-slate-500">
+                      <span className="ml-1.5 text-xs text-slate-600">
                         <Icon name={modelInfo.icon} className="w-3 h-3 inline mr-1" />
                         {modelInfo.name}
                       </span>
@@ -209,11 +224,11 @@ export function ChatInterface({ messages, isLoading, onSend, subject, activeMode
       </div>
 
       {/* ── Input Area ─────────────────────────────────────────────── */}
-      <div className="border-t border-surface-3/50 bg-surface-0 px-3 sm:px-4 py-3">
+      <div className="border-t border-surface-3 bg-surface-0 px-3 sm:px-4 py-3">
         <div className="max-w-3xl mx-auto">
           <FileChips files={attachedFiles} onRemove={handleRemoveFile} />
 
-          <div className="flex items-end gap-2 bg-surface-2 rounded-2xl border border-surface-3 focus-within:border-brand-500/40 transition-colors px-3 py-2">
+          <div className="flex items-end gap-2 bg-surface-2 rounded-2xl border border-surface-3 focus-within:border-surface-4 transition-colors px-3 py-2">
             <FileUploadButton
               onFilesSelected={handleFilesSelected}
               disabled={isLoading}
@@ -231,13 +246,13 @@ export function ChatInterface({ messages, isLoading, onSend, subject, activeMode
             <button
               onClick={handleSubmit}
               disabled={!input.trim() || isLoading}
-              className="p-2 rounded-xl bg-brand-600 hover:bg-brand-700 disabled:opacity-30 disabled:hover:bg-brand-600 text-white transition-colors shrink-0"
+              className="p-2 rounded-xl bg-white hover:bg-slate-200 disabled:opacity-20 disabled:hover:bg-white text-black transition-colors shrink-0"
             >
               <Send className="w-4 h-4" />
             </button>
           </div>
           <p className="text-[10px] text-slate-600 mt-1.5 text-center">
-            SchoolIT AI · {modelInfo.name} via GitHub Models · Responses may not always be accurate
+            SchoolIT AI · {modelInfo.name} · Responses may not always be accurate
           </p>
         </div>
       </div>
@@ -246,15 +261,50 @@ export function ChatInterface({ messages, isLoading, onSend, subject, activeMode
 }
 
 // ── User message bubble ──────────────────────────────────────────────
-function UserBubble({ message }: { message: Message }) {
+function UserBubble({ message, onEdit }: { message: Message; onEdit?: (id: string, content: string) => void }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(message.content);
+
+  const handleSaveEdit = () => {
+    if (editText.trim() && onEdit) {
+      onEdit(message.id, editText.trim());
+    }
+    setIsEditing(false);
+  };
+
   return (
-    <div className="max-w-[80%] sm:max-w-[70%]">
-      <div className="bg-brand-600/15 text-slate-200 rounded-2xl rounded-br-md px-4 py-2.5">
-        <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
+    <div className="max-w-[80%] sm:max-w-[70%] group">
+      <div className="bg-surface-3 text-slate-200 rounded-2xl rounded-br-sm px-4 py-2.5">
+        {isEditing ? (
+          <div className="space-y-2">
+            <textarea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              className="w-full bg-surface-4 rounded-lg px-3 py-2 text-sm text-white resize-none focus:outline-none focus:ring-1 focus:ring-brand-500 min-h-[60px]"
+              autoFocus
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => { setIsEditing(false); setEditText(message.content); }}
+                className="px-3 py-1 text-xs text-slate-400 hover:text-white rounded-lg hover:bg-surface-4 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                className="px-3 py-1 text-xs text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
+              >
+                Save & Resend
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
+        )}
         {message.attachments && message.attachments.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-2">
             {message.attachments.map((f, i) => (
-              <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-brand-500/15 text-brand-300 flex items-center gap-1">
+              <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-surface-4 text-slate-400 flex items-center gap-1">
                 <Paperclip className="w-2.5 h-2.5" />
                 {f.name}
               </span>
@@ -262,18 +312,57 @@ function UserBubble({ message }: { message: Message }) {
           </div>
         )}
       </div>
+      {/* Edit button */}
+      {!isEditing && onEdit && (
+        <div className="flex justify-end mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={() => setIsEditing(true)}
+            className="p-1 text-slate-600 hover:text-slate-300 transition-colors"
+            title="Edit message"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Assistant message bubble ─────────────────────────────────────────
-function AssistantBubble({ message }: { message: Message }) {
-  const { text: processedText, charts: inlineCharts } = parseChartBlocks(message.content);
-  const latexFixed = preprocessLatex(processedText);
+function AssistantBubble({ message, onRegenerate }: { message: Message; onRegenerate?: (id: string) => void }) {
+  const [copied, setCopied] = useState(false);
+
+  // Parse all rich content blocks from the message
+  const { text: afterCharts, charts: inlineCharts } = parseChartBlocks(message.content);
+  const { text: afterMermaid, diagrams: inlineDiagrams } = parseMermaidBlocks(afterCharts);
+  const { text: afterManim, animations: inlineAnimations } = parseManimBlocks(afterMermaid);
+  const { text: processedText, images: inlineImages } = parseImageBlocks(afterManim);
+
+  // Clean up rendering placeholders (HTML comments that ReactMarkdown won't render)
+  const cleanedText = processedText
+    .replace(/<!--(?:chart|mermaid|manim|image):\d+-->/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  const latexFixed = preprocessLatex(cleanedText);
+
+  const handleCopy = () => {
+    // Copy plain text version (strip markdown/html)
+    const plainText = message.content
+      .replace(/```[\s\S]*?```/g, "")
+      .replace(/[#*_~`]/g, "")
+      .trim();
+    navigator.clipboard.writeText(plainText).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
 
   return (
-    <div className="flex items-start gap-2.5 max-w-[90%] sm:max-w-[85%]">
-      <div className="w-7 h-7 rounded-lg bg-surface-3 flex items-center justify-center shrink-0 mt-0.5">
+    <div className="flex items-start gap-2.5 max-w-[90%] sm:max-w-[85%] group">
+      <div className="w-7 h-7 rounded-full bg-surface-3 flex items-center justify-center shrink-0 mt-0.5">
         <Bot className="w-3.5 h-3.5 text-brand-400" />
       </div>
       <div className="space-y-2 min-w-0 flex-1">
@@ -283,7 +372,7 @@ function AssistantBubble({ message }: { message: Message }) {
             {message.toolCalls.map((tool, i) => (
               <span
                 key={i}
-                className="text-[10px] px-2 py-0.5 rounded-full bg-surface-3 text-slate-500 flex items-center gap-1"
+                className="text-[10px] px-2 py-0.5 rounded-full bg-surface-3 text-slate-500 flex items-center gap-1 border border-surface-4"
               >
                 <Wrench className="w-2.5 h-2.5" />
                 {tool.replace(/_/g, " ")}
@@ -308,19 +397,45 @@ function AssistantBubble({ message }: { message: Message }) {
         )}
 
         {/* Main content */}
-        <div className="bg-surface-2 rounded-2xl rounded-tl-md px-4 py-3 border border-surface-3/50">
+        <div className="rounded-2xl rounded-tl-sm px-4 py-3">
           <div className="prose-chat text-sm">
             <ReactMarkdown
               remarkPlugins={[remarkMath]}
               rehypePlugins={[rehypeKatex]}
               components={{
                 code({ className, children, ...props }) {
-                  const match = /language-chart/.exec(className || "");
-                  if (match) {
+                  const codeStr = String(children).trim();
+                  // Chart blocks
+                  const chartMatch = /language-chart/.exec(className || "");
+                  if (chartMatch) {
                     try {
-                      const chartData = JSON.parse(String(children).trim());
+                      const chartData = JSON.parse(codeStr);
                       if (chartData.type && chartData.datasets) {
                         return <ChartRenderer data={chartData} />;
+                      }
+                    } catch {
+                      // Fall through
+                    }
+                  }
+                  // Mermaid blocks
+                  const mermaidMatch = /language-mermaid/.exec(className || "");
+                  if (mermaidMatch) {
+                    return <MermaidRenderer code={codeStr} />;
+                  }
+                  // Manim blocks
+                  const manimMatch = /language-manim/.exec(className || "");
+                  if (manimMatch) {
+                    const classMatch = codeStr.match(/class\s+(\w+)\s*\(/);
+                    const sceneName = classMatch ? classMatch[1] : "ManimScene";
+                    return <ManimRenderer code={codeStr} sceneName={sceneName} explanation="" />;
+                  }
+                  // Image blocks
+                  const imageMatch = /language-image/.exec(className || "");
+                  if (imageMatch) {
+                    try {
+                      const imgData = JSON.parse(codeStr);
+                      if (imgData.prompt) {
+                        return <ImageRenderer prompt={imgData.prompt} style={imgData.style || "diagram"} subject={imgData.subject} />;
                       }
                     } catch {
                       // Fall through
@@ -343,6 +458,31 @@ function AssistantBubble({ message }: { message: Message }) {
             {inlineCharts.map((chart: ChartSpec, i: number) => (
               <ChartRenderer key={`chart-${i}`} data={chart} />
             ))}
+
+            {inlineDiagrams.map((diagram, i) => (
+              <MermaidRenderer key={`mermaid-${i}`} code={diagram.code} title={diagram.title} />
+            ))}
+
+            {inlineAnimations.map((anim, i) => (
+              <ManimRenderer key={`manim-${i}`} code={anim.code} sceneName={anim.sceneName} explanation={anim.explanation} />
+            ))}
+
+            {inlineImages.map((img, i) => (
+              <ImageRenderer key={`img-${i}`} prompt={img.prompt} style={img.style} subject={img.subject} />
+            ))}
+
+            {/* Structured data from tool calls */}
+            {message.flowcharts?.map((fc, i) => (
+              <MermaidRenderer key={`fc-${i}`} code={fc.mermaidCode} title={fc.title} />
+            ))}
+
+            {message.manimAnimations?.map((anim, i) => (
+              <ManimRenderer key={`ma-${i}`} code={anim.code} sceneName={anim.sceneName} explanation={anim.explanation} />
+            ))}
+
+            {message.generatedImages?.map((img, i) => (
+              <ImageRenderer key={`gi-${i}`} prompt={img.prompt} style={img.style} subject={img.subject} />
+            ))}
           </div>
         </div>
 
@@ -361,7 +501,7 @@ function AssistantBubble({ message }: { message: Message }) {
                   href={src}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[10px] px-2 py-0.5 rounded-full bg-surface-3 text-brand-400 hover:text-brand-300 transition-colors truncate max-w-[200px] flex items-center gap-1"
+                  className="text-[10px] px-2 py-0.5 rounded-full bg-surface-3 text-brand-400 hover:text-brand-300 transition-colors truncate max-w-[200px] flex items-center gap-1 border border-surface-4"
                 >
                   <ExternalLink className="w-2.5 h-2.5 shrink-0" />
                   {hostname}
@@ -370,6 +510,38 @@ function AssistantBubble({ message }: { message: Message }) {
             })}
           </div>
         )}
+
+        {/* Action buttons — Copy / Regenerate */}
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={handleCopy}
+            className="p-1.5 text-slate-600 hover:text-slate-300 hover:bg-surface-3 rounded-lg transition-colors"
+            title={copied ? "Copied!" : "Copy response"}
+          >
+            {copied ? (
+              <svg className="w-3.5 h-3.5 text-green-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            ) : (
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+            )}
+          </button>
+          {onRegenerate && (
+            <button
+              onClick={() => onRegenerate(message.id)}
+              className="p-1.5 text-slate-600 hover:text-slate-300 hover:bg-surface-3 rounded-lg transition-colors"
+              title="Regenerate response"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="23 4 23 10 17 10" />
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -435,12 +607,12 @@ function EmptyState({ subject, onSuggestion }: { subject: string; onSuggestion: 
         transition={{ duration: 0.5 }}
         className="text-center space-y-6 w-full"
       >
-        <div className="w-14 h-14 mx-auto rounded-2xl bg-brand-600/15 flex items-center justify-center">
-          <Icon name="graduation-cap" className="w-7 h-7 text-brand-400" />
+        <div className="w-12 h-12 mx-auto rounded-2xl bg-surface-3 flex items-center justify-center">
+          <Icon name="graduation-cap" className="w-6 h-6 text-brand-400" />
         </div>
         <div>
-          <h2 className="text-lg font-semibold text-white mb-1">
-            How can I help you today?
+          <h2 className="text-xl font-semibold text-white mb-1">
+            What can I help with?
           </h2>
           <p className="text-sm text-slate-500 max-w-sm mx-auto">
             Ask me anything — I can search the web, create charts,
@@ -453,7 +625,7 @@ function EmptyState({ subject, onSuggestion }: { subject: string; onSuggestion: 
             <button
               key={i}
               onClick={() => onSuggestion(suggestion)}
-              className="text-left px-4 py-3 bg-surface-2 hover:bg-surface-3 border border-surface-3/60 rounded-xl text-sm text-slate-400 hover:text-white transition-all duration-150"
+              className="text-left px-4 py-3 bg-surface-2 hover:bg-surface-3 border border-surface-3 rounded-xl text-sm text-slate-400 hover:text-white transition-all duration-150"
             >
               {suggestion}
             </button>

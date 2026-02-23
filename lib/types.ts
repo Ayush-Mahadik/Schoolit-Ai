@@ -4,7 +4,7 @@
 
 // ── AI Model & Thinking Mode ──────────────────────────────────────────
 
-export type AIModel = "gpt-4.1" | "gpt-4o" | "gpt-5-mini";
+export type AIModel = "gpt-4.1" | "gpt-4o" | "gpt-4o-mini";
 
 export interface ModelOption {
   id: AIModel;
@@ -30,8 +30,8 @@ export const MODEL_OPTIONS: ModelOption[] = [
     speed: "medium",
   },
   {
-    id: "gpt-5-mini",
-    name: "GPT-5 Mini",
+    id: "gpt-4o-mini",
+    name: "GPT-4o Mini",
     description: "Lightning fast — quick answers & simple tasks",
     icon: "rocket",
     speed: "fast",
@@ -102,6 +102,9 @@ export interface Message {
   sources?: string[];
   toolCalls?: string[];
   charts?: ChartData[];
+  flowcharts?: FlowchartData[];
+  manimAnimations?: ManimData[];
+  generatedImages?: ImageGenData[];
   attachments?: FileAttachmentMeta[];
   model?: AIModel;
 }
@@ -180,5 +183,29 @@ export interface FileAttachmentMeta {
   name: string;
   type: string;
   size: number;
+}
+
+// ── Flowchart / Mermaid types ─────────────────────────────────────────
+
+export interface FlowchartData {
+  mermaidCode: string;
+  title?: string;
+  explanation?: string;
+}
+
+// ── Manim animation types ─────────────────────────────────────────────
+
+export interface ManimData {
+  code: string;
+  sceneName: string;
+  explanation: string;
+}
+
+// ── Generated image types ─────────────────────────────────────────────
+
+export interface ImageGenData {
+  prompt: string;
+  style: string;
+  subject?: string;
 }
 

@@ -28,11 +28,11 @@ const VALID_PERSONAS = ["formal", "creative", "socratic", "balanced", "exam_coac
 const MODEL_MAP: Record<string, string> = {
   "gpt-4.1": "gpt-4.1",
   "gpt-4o": "gpt-4o",
-  "gpt-5-mini": "gpt-5-mini",
+  "gpt-4o-mini": "gpt-4o-mini",
 };
 
 // Models that require max_completion_tokens instead of max_tokens
-const USES_MAX_COMPLETION_TOKENS = new Set(["gpt-5-mini"]);
+const USES_MAX_COMPLETION_TOKENS = new Set<string>();
 
 // Token limits per thinking mode
 const THINKING_MODE_TOKENS: Record<string, number> = {
@@ -252,21 +252,65 @@ export async function POST(req: NextRequest) {
   const sources: string[] = [];
   const toolCallsLog: string[] = [];
   const charts: unknown[] = [];
+  const flowcharts: { mermaidCode: string; title?: string; explanation?: string }[] = [];
+  const manimAnimations: { code: string; sceneName: string; explanation: string }[] = [];
+  const generatedImages: { prompt: string; style: string; subject?: string }[] = [];
 
   try {
+    // Model fallback chain: try requested model, then fallback options
+    const FALLBACK_CHAIN: Record<string, string[]> = {
+      "gpt-4.1": ["gpt-4o", "gpt-4o-mini"],
+      "gpt-4o": ["gpt-4.1", "gpt-4o-mini"],
+      "gpt-4o-mini": ["gpt-4o", "gpt-4.1"],
+    };
+
+    let activeModelId = modelId;
+
     // Newer models (gpt-5-mini) require max_completion_tokens, older ones use max_tokens
     const tokenParam = USES_MAX_COMPLETION_TOKENS.has(modelId)
       ? { max_completion_tokens: maxTokens }
       : { max_tokens: maxTokens };
 
+    // Helper: attempt an API call, with automatic model fallback on 404/rate-limit
+    const callWithFallback = async (msgs: OpenAI.Chat.ChatCompletionMessageParam[]) => {
+      const modelsToTry = [activeModelId, ...(FALLBACK_CHAIN[activeModelId] || [])];
+      let lastError: unknown = null;
+
+      for (const tryModel of modelsToTry) {
+        try {
+          const response = await client!.chat.completions.create({
+            model: tryModel,
+            ...tokenParam,
+            messages: msgs,
+            tools: tools.length > 0 ? tools : undefined,
+            tool_choice: tools.length > 0 ? "auto" : undefined,
+          });
+          // If we fell back to a different model, remember it
+          if (tryModel !== activeModelId) {
+            console.log(`Model fallback: ${activeModelId} → ${tryModel}`);
+            activeModelId = tryModel;
+          }
+          return response;
+        } catch (err: unknown) {
+          const status = (err as { status?: number })?.status;
+          const msg = err instanceof Error ? err.message.toLowerCase() : "";
+          const isRetryable = status === 404 || status === 429 || msg.includes("not found") || msg.includes("model") || msg.includes("rate");
+
+          if (isRetryable && tryModel !== modelsToTry[modelsToTry.length - 1]) {
+            console.warn(`Model ${tryModel} failed (${status}), trying next fallback...`);
+            lastError = err;
+            // Brief delay before retry
+            await new Promise((r) => setTimeout(r, 500));
+            continue;
+          }
+          throw err;
+        }
+      }
+      throw lastError;
+    }
+
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const response = await client.chat.completions.create({
-        model: modelId,
-        ...tokenParam,
-        messages,
-        tools: tools.length > 0 ? tools : undefined,
-        tool_choice: tools.length > 0 ? "auto" : undefined,
-      });
+      const response = await callWithFallback(messages);
 
       const choice = response.choices[0];
       const assistantMsg = choice.message;
@@ -296,6 +340,9 @@ export async function POST(req: NextRequest) {
           const toolResult = await executeTool(toolName, toolInput);
           if (toolResult.sources) sources.push(...toolResult.sources);
           if (toolResult.chartData) charts.push(toolResult.chartData);
+          if (toolResult.flowchartData) flowcharts.push(toolResult.flowchartData as { mermaidCode: string; title?: string; explanation?: string });
+          if (toolResult.manimData) manimAnimations.push(toolResult.manimData as { code: string; sceneName: string; explanation: string });
+          if (toolResult.imageData) generatedImages.push(toolResult.imageData as { prompt: string; style: string; subject?: string });
 
           messages.push({
             role: "tool",
@@ -316,6 +363,27 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Append flowchart mermaid blocks
+      if (flowcharts.length > 0) {
+        for (const fc of flowcharts) {
+          finalText += `\n\n\`\`\`mermaid\n${fc.mermaidCode}\n\`\`\``;
+        }
+      }
+
+      // Append manim code blocks
+      if (manimAnimations.length > 0) {
+        for (const anim of manimAnimations) {
+          finalText += `\n\n\`\`\`manim\n${anim.code}\n\`\`\``;
+        }
+      }
+
+      // Append image blocks
+      if (generatedImages.length > 0) {
+        for (const img of generatedImages) {
+          finalText += `\n\n\`\`\`image\n${JSON.stringify(img)}\n\`\`\``;
+        }
+      }
+
       return NextResponse.json({
         response: finalText,
         conversation_id: crypto.randomUUID(),
@@ -324,8 +392,11 @@ export async function POST(req: NextRequest) {
         sources: Array.from(new Set(sources)),
         tool_calls: toolCallsLog,
         charts,
+        flowcharts,
+        manim_animations: manimAnimations,
+        generated_images: generatedImages,
         error: null,
-        model: modelId,
+        model: activeModelId,
         rate_limit_remaining: rateCheck.remaining,
       });
     }
@@ -338,8 +409,11 @@ export async function POST(req: NextRequest) {
       sources: Array.from(new Set(sources)),
       tool_calls: toolCallsLog,
       charts,
+      flowcharts,
+      manim_animations: manimAnimations,
+      generated_images: generatedImages,
       error: null,
-      model: modelId,
+      model: activeModelId,
     });
   } catch (error: unknown) {
     console.error("Chat API error:", error);

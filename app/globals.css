@@ -4,22 +4,22 @@
 
 /* ── Base styles ────────────────────────────────────────────────────────── */
 :root {
-  --bg-primary: #0a0a0f;
-  --bg-secondary: #111118;
-  --bg-tertiary: #1a1a24;
-  --text-primary: #e2e8f0;
-  --text-secondary: #94a3b8;
-  --accent: #3b82f6;
-  --accent-glow: rgba(59, 130, 246, 0.15);
+  --bg-primary: #000000;
+  --bg-secondary: #0a0a0a;
+  --bg-tertiary: #141414;
+  --text-primary: #e7e9ea;
+  --text-secondary: #71767b;
+  --accent: #5b8bf5;
+  --accent-glow: rgba(91, 139, 245, 0.12);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: #1e1e2a transparent;
+  scrollbar-color: #262626 transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 5px;
+  width: 4px;
 }
 
 *::-webkit-scrollbar-track {
@@ -27,12 +27,12 @@
 }
 
 *::-webkit-scrollbar-thumb {
-  background: #1e1e2a;
+  background: #262626;
   border-radius: 100px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: #2a2a3a;
+  background: #333333;
 }
 
 body {
@@ -125,12 +125,12 @@ button:focus-visible {
 
 /* ── Thinking/CoT block ─────────────────────────────────────────────────── */
 .thinking-block {
-  @apply bg-surface-2/60 border border-surface-3/60 rounded-lg p-3 mb-3;
+  @apply bg-surface-2 border border-surface-3 rounded-xl p-3.5 mb-3;
   @apply text-sm text-slate-500 italic;
 }
 
 .thinking-block summary {
-  @apply cursor-pointer text-brand-400 not-italic font-medium text-xs;
+  @apply cursor-pointer text-brand-400 not-italic font-medium text-xs uppercase tracking-wide;
 }
 
 /* ── Animations ─────────────────────────────────────────────────────────── */
@@ -166,16 +166,137 @@ button:focus-visible {
 
 /* ── KaTeX overrides for dark theme ─────────────────────────────────── */
 .katex {
-  font-size: 1.05em !important;
-  color: #e2e8f0;
+  font-size: 1.1em !important;
+  color: #e2e8f0 !important;
+  font-family: "KaTeX_Main", "Times New Roman", serif !important;
 }
 
 .katex-display {
   @apply my-4 overflow-x-auto;
+  padding: 0.75rem 0;
 }
 
 .katex-display > .katex {
   @apply text-center;
+  font-size: 1.2em !important;
+}
+
+/* Subscripts and superscripts - critical fix */
+.katex .msupsub {
+  text-align: left;
+}
+
+.katex .msupsub .vlist-t {
+  display: inline-table;
+  table-layout: fixed;
+}
+
+.katex .msupsub .vlist-t2 {
+  margin-right: -2px;
+}
+
+.katex sub,
+.katex sup {
+  font-size: 0.7em;
+}
+
+.katex .vlist-t {
+  display: inline-table;
+  table-layout: fixed;
+}
+
+.katex .vlist-r {
+  display: table-row;
+}
+
+.katex .vlist {
+  display: table-cell;
+  vertical-align: bottom;
+  position: relative;
+}
+
+/* Fractions */
+.katex .mfrac .frac-line {
+  border-color: #94a3b8 !important;
+}
+
+.katex .mfrac .frac-line::before {
+  border-color: #94a3b8 !important;
+}
+
+.katex .mfrac .frac-line::after {
+  border-color: #94a3b8 !important;
+}
+
+/* Square root */
+.katex .sqrt > .root {
+  color: #e2e8f0 !important;
+}
+
+.katex .sqrt .sqrt-sign {
+  color: #e2e8f0 !important;
+}
+
+.katex .sqrt .sqrt-line {
+  border-color: #e2e8f0 !important;
+}
+
+/* Operators and symbols — ensure all are white on dark */
+.katex .mop,
+.katex .mord,
+.katex .mrel,
+.katex .mbin,
+.katex .mpunct,
+.katex .mopen,
+.katex .mclose,
+.katex .minner {
+  color: #e2e8f0 !important;
+}
+
+/* Matrix/array environments */
+.katex .mtable {
+  color: #e2e8f0 !important;
+}
+
+.katex .arraycolsep {
+  width: 0.5em;
+}
+
+/* Ensure text within KaTeX is readable */
+.katex .text,
+.katex .textrm,
+.katex .mathrm,
+.katex .textit,
+.katex .textbf {
+  color: #e2e8f0 !important;
+}
+
+/* Delimiters (brackets, parens) */
+.katex .delimsizing,
+.katex .delim-size1,
+.katex .delim-size4 {
+  color: #e2e8f0 !important;
+}
+
+/* Fix inline math alignment */
+.prose-chat .katex-html {
+  white-space: nowrap;
+}
+
+.prose-chat p .katex {
+  vertical-align: -0.25em;
+}
+
+/* Prevent KaTeX overflow */
+.prose-chat .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5rem 0;
+}
+
+.prose-chat .katex-display > .katex {
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 /* ── Drag & Drop overlay ────────────────────────────────────────────── */
@@ -186,7 +307,7 @@ button:focus-visible {
 
 /* ── Mermaid diagram container ──────────────────────────────────────── */
 .mermaid {
-  @apply bg-surface-2 rounded-lg p-4 my-3 overflow-x-auto text-center;
+  @apply bg-surface-1 rounded-xl p-4 my-3 overflow-x-auto text-center border border-surface-3;
 }
 
 .mermaid svg {
@@ -230,8 +351,8 @@ button:focus-visible {
 
 /* ── Select / input dark mode overrides ─────────────────────────────── */
 select option {
-  background: #111118;
-  color: #e2e8f0;
+  background: #0a0a0a;
+  color: #e7e9ea;
 }
 
 input[type="datetime-local"]::-webkit-calendar-picker-indicator {

@@ -6,7 +6,6 @@ import { Sidebar } from "@/components/Sidebar";
 import { ChatInterface } from "@/components/ChatInterface";
 import { ModelSelector } from "@/components/ModelSelector";
 import { ThinkingModeToggle } from "@/components/ThinkingModeToggle";
-import { ScheduleManager } from "@/components/ScheduleManager";
 import { sendMessage, fetchPersonas } from "@/lib/api";
 import { getUserSettings, saveUserSettings } from "@/lib/store";
 import { Icon, Menu, Globe } from "@/components/Icons";
@@ -40,7 +39,6 @@ export default function Home() {
   const [contextFiles, setContextFiles] = useState<Record<string, FileAttachment[]>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [showSchedule, setShowSchedule] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // ── Load saved settings & personas on mount ─────────────────────────
@@ -126,6 +124,9 @@ export default function Home() {
           animationUrl: response.animation_url || undefined,
           sources: response.sources || [],
           toolCalls: response.tool_calls || [],
+          flowcharts: response.flowcharts || undefined,
+          manimAnimations: response.manim_animations || undefined,
+          generatedImages: response.generated_images || undefined,
           model: (response.model as AIModel) || settings.model,
         };
 
@@ -158,6 +159,56 @@ export default function Home() {
     [activeSubject, contextFiles, isLoading, messages, settings]
   );
 
+  // ── Edit a user message and resend ──────────────────────────────────
+  const handleEditMessage = useCallback(
+    (messageId: string, newContent: string) => {
+      const subjectMessages = messages[activeSubject] || [];
+      const msgIndex = subjectMessages.findIndex((m) => m.id === messageId);
+      if (msgIndex === -1) return;
+
+      // Remove this message and everything after it
+      const trimmed = subjectMessages.slice(0, msgIndex);
+      setMessages((prev) => ({
+        ...prev,
+        [activeSubject]: trimmed,
+      }));
+
+      // Resend with new content
+      setTimeout(() => handleSend(newContent), 100);
+    },
+    [activeSubject, messages, handleSend]
+  );
+
+  // ── Regenerate an assistant response ────────────────────────────────
+  const handleRegenerate = useCallback(
+    (messageId: string) => {
+      const subjectMessages = messages[activeSubject] || [];
+      const msgIndex = subjectMessages.findIndex((m) => m.id === messageId);
+      if (msgIndex === -1) return;
+
+      // Find the user message before this assistant message
+      let userMsg: Message | undefined;
+      for (let i = msgIndex - 1; i >= 0; i--) {
+        if (subjectMessages[i].role === "user") {
+          userMsg = subjectMessages[i];
+          break;
+        }
+      }
+      if (!userMsg) return;
+
+      // Remove this assistant message (and anything after)
+      const trimmed = subjectMessages.slice(0, msgIndex);
+      setMessages((prev) => ({
+        ...prev,
+        [activeSubject]: trimmed,
+      }));
+
+      // Resend the original user message
+      setTimeout(() => handleSend(userMsg!.content), 100);
+    },
+    [activeSubject, messages, handleSend]
+  );
+
   const currentSubjectInfo = SUBJECTS.find((s) => s.id === activeSubject) || SUBJECTS[SUBJECTS.length - 1];
 
   return (
@@ -181,7 +232,6 @@ export default function Home() {
               if (window.innerWidth < 1024) setSidebarOpen(false);
             }}
             onClose={() => setSidebarOpen(false)}
-            onToggleSchedule={() => setShowSchedule((p) => !p)}
             messageCount={Object.fromEntries(
               SUBJECTS.map((s) => [s.id, (messages[s.id] || []).length])
             )}
@@ -192,7 +242,7 @@ export default function Home() {
       {/* ── Main Content ─────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* ── Header ─────────────────────────────────────────────── */}
-        <header className="flex items-center justify-between px-3 sm:px-5 h-14 border-b border-surface-3/60 bg-surface-0/90 backdrop-blur-md shrink-0 z-20">
+        <header className="flex items-center justify-between px-3 sm:px-5 h-14 border-b border-surface-3 bg-surface-0 shrink-0 z-20">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -272,7 +322,7 @@ export default function Home() {
                 }}
               />
               <button
-                onClick={() => setSettings((prev) => ({ ...prev, useWebSearch: !prev.useWebSearch }))}
+                onClick={() => { setSettings((prev) => ({ ...prev, useWebSearch: !prev.useWebSearch })); }}
                 className={`px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition-colors ${
                   settings.useWebSearch
                     ? "bg-brand-600/20 text-brand-400"
@@ -282,13 +332,14 @@ export default function Home() {
                 <Globe className="w-3.5 h-3.5" />
                 Search {settings.useWebSearch ? "ON" : "OFF"}
               </button>
-              <button
-                onClick={() => { setShowSchedule((p) => !p); setMobileMenuOpen(false); }}
+              <a
+                href="/schedule"
+                onClick={() => setMobileMenuOpen(false)}
                 className="px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 bg-surface-3 text-slate-400"
               >
                 <Icon name="calendar" className="w-3.5 h-3.5" />
                 Schedule
-              </button>
+              </a>
             </div>
           )}
         </AnimatePresence>
@@ -299,14 +350,11 @@ export default function Home() {
             messages={currentMessages}
             isLoading={isLoading}
             onSend={handleSend}
+            onEditMessage={handleEditMessage}
+            onRegenerate={handleRegenerate}
             subject={activeSubject}
             activeModel={settings.model}
           />
-          <AnimatePresence>
-            {showSchedule && (
-              <ScheduleManager onClose={() => setShowSchedule(false)} />
-            )}
-          </AnimatePresence>
         </div>
       </div>
     </div>

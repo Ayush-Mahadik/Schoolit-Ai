@@ -336,7 +336,7 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
 export async function executeTool(
   toolName: string,
   toolInput: Record<string, unknown>
-): Promise<{ result: unknown; chartData?: unknown; sources?: string[] }> {
+): Promise<{ result: unknown; chartData?: unknown; flowchartData?: unknown; manimData?: unknown; imageData?: unknown; sources?: string[] }> {
   switch (toolName) {
     case "web_search":
       return await executeWebSearch(toolInput);
@@ -552,7 +552,7 @@ function executeChartGeneration(
 
 function executeManimGeneration(
   input: Record<string, unknown>
-): { result: unknown } {
+): { result: unknown; manimData?: unknown } {
   const code = String(input.code || "");
   const sceneName = String(input.scene_name || "");
   const explanation = String(input.explanation || "");
@@ -568,15 +568,16 @@ function executeManimGeneration(
   return {
     result: {
       message:
-        `Manim animation code generated for scene: ${sceneName}\n\n` +
-        `**Explanation:** ${explanation}\n\n` +
-        `To render this animation:\n` +
-        `1. Install Manim: \`pip install manim\`\n` +
-        `2. Save the code to a file: \`animation.py\`\n` +
-        `3. Run: \`manim -pql animation.py ${sceneName}\`\n\n` +
-        `The animation will be rendered and saved in the \`media/\` folder.`,
+        `Manim animation generated for scene: **${sceneName}**\n\n` +
+        `**What it shows:** ${explanation}\n\n` +
+        `The animation preview is rendered below. Download the .py file to run the full animation locally with \`manim -pql animation.py ${sceneName}\`.`,
       code,
       scene_name: sceneName,
+      explanation,
+    },
+    manimData: {
+      code,
+      sceneName,
       explanation,
     },
   };
@@ -660,7 +661,7 @@ function executeQuizGeneration(
 
 function executeFlowchartGeneration(
   input: Record<string, unknown>
-): { result: unknown } {
+): { result: unknown; flowchartData?: unknown } {
   const mermaidCode = String(input.mermaid_code || "");
   const title = String(input.title || "Diagram");
   const explanation = String(input.explanation || "");
@@ -676,15 +677,16 @@ function executeFlowchartGeneration(
     result: {
       message:
         `**${title}**\n\n${explanation}\n\n` +
-        "```mermaid\n" +
-        mermaidCode +
-        "\n```\n\n" +
-        "💡 *This diagram is rendered using Mermaid.js. " +
-        "You can copy the code above and paste it into [mermaid.live](https://mermaid.live) to edit it.*",
+        "The diagram has been rendered below.",
       title,
       mermaid_code: mermaidCode,
       explanation,
       diagram_rendered: true,
+    },
+    flowchartData: {
+      mermaidCode,
+      title,
+      explanation,
     },
   };
 }
@@ -693,7 +695,7 @@ function executeFlowchartGeneration(
 
 function executeImageGeneration(
   input: Record<string, unknown>
-): { result: unknown } {
+): { result: unknown; imageData?: unknown } {
   const prompt = String(input.prompt || "");
   const style = String(input.style || "diagram");
   const subject = String(input.subject || "general");
@@ -704,24 +706,21 @@ function executeImageGeneration(
     };
   }
 
-  // Since we can't actually call DALL-E from GitHub Models,
-  // we generate a rich description + suggest Mermaid/ASCII fallback
   return {
     result: {
       message:
-        `🎨 **Image Description** (${style} style for ${subject})\n\n` +
+        `**Educational Illustration** (${style} style for ${subject})\n\n` +
         `${prompt}\n\n` +
-        "---\n\n" +
-        "**Visual Representation:** I've described the image in detail above. " +
-        "Since real-time image generation requires DALL-E API access, here's what I can do:\n\n" +
-        "1. **Mermaid diagram** — I can create a flowchart/diagram version\n" +
-        "2. **Detailed description** — Use the text above with any AI image generator\n" +
-        "3. **ASCII art** — For simple shapes and layouts\n\n" +
-        "Would you like me to create a diagram version instead?",
+        "The illustration has been rendered below.",
       prompt,
       style,
       subject,
-      type: "image_description",
+      type: "image_rendered",
+    },
+    imageData: {
+      prompt,
+      style,
+      subject,
     },
   };
 }

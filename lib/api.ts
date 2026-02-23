@@ -53,6 +53,9 @@ export interface ChatResponse {
   sources: string[];
   tool_calls: string[];
   charts?: unknown[];
+  flowcharts?: { mermaidCode: string; title?: string; explanation?: string }[];
+  manim_animations?: { code: string; sceneName: string; explanation: string }[];
+  generated_images?: { prompt: string; style: string; subject?: string }[];
   error: string | null;
   model?: string;
   rate_limit_remaining?: number;
