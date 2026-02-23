@@ -43,6 +43,7 @@ export interface ChatRequest {
   thinking_mode: ThinkingMode;
   history?: { role: string; content: string }[];
   context_files?: { name: string; content: string; type: string }[];
+  schedule_context?: string;
 }
 
 export interface ChatResponse {
@@ -56,6 +57,7 @@ export interface ChatResponse {
   flowcharts?: { mermaidCode: string; title?: string; explanation?: string }[];
   manim_animations?: { code: string; sceneName: string; explanation: string }[];
   generated_images?: { prompt: string; style: string; subject?: string }[];
+  schedule_actions?: { action: string; items?: unknown[] }[];
   error: string | null;
   model?: string;
   rate_limit_remaining?: number;

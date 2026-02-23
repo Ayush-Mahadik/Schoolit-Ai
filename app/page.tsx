@@ -12,6 +12,42 @@ import { Icon, Menu, Globe } from "@/components/Icons";
 import type { Message, Persona, Subject, ChatSettings, AIModel, ThinkingMode } from "@/lib/types";
 import type { FileAttachment } from "@/components/FileUploadButton";
 
+// ── Helper: read schedule from localStorage ──────────────────────────
+function getScheduleContext(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const data = localStorage.getItem("schoolit-schedule");
+    if (!data) return "";
+    const items = JSON.parse(data);
+    if (!Array.isArray(items) || items.length === 0) return "";
+    const now = new Date();
+    const upcoming = items
+      .filter((i: Record<string, unknown>) => new Date(String(i.startTime)) >= now || !i.completed)
+      .slice(0, 20);
+    if (upcoming.length === 0) return "";
+    return "Student's current schedule:\n" + upcoming.map((i: Record<string, unknown>) =>
+      `- ${i.title} (${i.type}, ${i.subject}) — ${new Date(String(i.startTime)).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}${i.completed ? " [DONE]" : ""}`
+    ).join("\n");
+  } catch {
+    return "";
+  }
+}
+
+// Helper: add items to schedule in localStorage
+function addToSchedule(items: Record<string, unknown>[]) {
+  if (typeof window === "undefined") return;
+  try {
+    const existing = JSON.parse(localStorage.getItem("schoolit-schedule") || "[]");
+    const updated = [...existing, ...items].sort(
+      (a: Record<string, unknown>, b: Record<string, unknown>) =>
+        new Date(String(a.startTime)).getTime() - new Date(String(b.startTime)).getTime()
+    );
+    localStorage.setItem("schoolit-schedule", JSON.stringify(updated));
+  } catch {
+    // ignore
+  }
+}
+
 // ── Subject definitions (now with Lucide icon names) ─────────────────
 const SUBJECTS: Subject[] = [
   { id: "math", name: "Mathematics", icon: "calculator", color: "#3b82f6" },
@@ -33,7 +69,7 @@ export default function Home() {
     persona: "balanced",
     useWebSearch: true,
     chainOfThought: true,
-    model: "gpt-4o",
+    model: "gpt-4.1" as AIModel,
     thinkingMode: "balanced",
   });
   const [contextFiles, setContextFiles] = useState<Record<string, FileAttachment[]>>({});
@@ -111,14 +147,22 @@ export default function Home() {
           thinking_mode: settings.thinkingMode,
           history,
           context_files: [...textFiles, ...imageFiles],
+          schedule_context: getScheduleContext(),
         });
+
+        // Process schedule actions from AI (add items to localStorage)
+        if (response.schedule_actions && response.schedule_actions.length > 0) {
+          for (const action of response.schedule_actions) {
+            if (action.action === "add" && Array.isArray(action.items)) {
+              addToSchedule(action.items as Record<string, unknown>[]);
+            }
+          }
+        }
 
         const assistantMsg: Message = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: response.error
-            ? `⚠️ ${response.error}\n\n${response.response}`
-            : response.response,
+          content: response.response,
           timestamp: new Date(),
           thinking: response.thinking || undefined,
           animationUrl: response.animation_url || undefined,

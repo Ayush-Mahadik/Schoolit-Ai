@@ -53,6 +53,8 @@ import {
   MoreHorizontal,
   ClipboardCheck,
   RotateCcw,
+  Wind,
+  Flame,
   type LucideProps,
 } from "lucide-react";
 import type { FC } from "react";
@@ -110,6 +112,8 @@ const iconMap: Record<string, FC<LucideProps>> = {
   "more-horizontal": MoreHorizontal,
   "clipboard-check": ClipboardCheck,
   "rotate-ccw": RotateCcw,
+  wind: Wind,
+  flame: Flame,
 };
 
 interface IconProps extends LucideProps {
@@ -176,4 +180,6 @@ export {
   MoreHorizontal,
   ClipboardCheck,
   RotateCcw,
+  Wind,
+  Flame,
 };

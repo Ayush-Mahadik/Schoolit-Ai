@@ -4,7 +4,14 @@
 
 // ── AI Model & Thinking Mode ──────────────────────────────────────────
 
-export type AIModel = "gpt-4.1" | "gpt-4o" | "gpt-4o-mini";
+export type AIModel =
+  | "gpt-4.1"
+  | "gpt-4o"
+  | "gpt-4o-mini"
+  | "Mistral-large-2411"
+  | "Meta-Llama-3.1-70B-Instruct"
+  | "Phi-4"
+  | "DeepSeek-R1-0528";
 
 export interface ModelOption {
   id: AIModel;
@@ -35,6 +42,34 @@ export const MODEL_OPTIONS: ModelOption[] = [
     description: "Lightning fast — quick answers & simple tasks",
     icon: "rocket",
     speed: "fast",
+  },
+  {
+    id: "Mistral-large-2411",
+    name: "Mistral Large",
+    description: "Powerful open model — excellent reasoning & text",
+    icon: "wind",
+    speed: "medium",
+  },
+  {
+    id: "Meta-Llama-3.1-70B-Instruct",
+    name: "Llama 3.1 70B",
+    description: "Meta open-source — great all-round quality",
+    icon: "flame",
+    speed: "medium",
+  },
+  {
+    id: "Phi-4",
+    name: "Phi-4",
+    description: "Microsoft efficient model — strong in math & code",
+    icon: "sparkles",
+    speed: "fast",
+  },
+  {
+    id: "DeepSeek-R1-0528",
+    name: "DeepSeek R1",
+    description: "Advanced reasoning — excels at math & logic",
+    icon: "search",
+    speed: "slow",
   },
 ];
 

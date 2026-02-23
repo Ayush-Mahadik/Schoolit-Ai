@@ -327,6 +327,45 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
       },
     },
   },
+
+  // ── 11. Schedule Manager ────────────────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "manage_schedule",
+      description:
+        "Manage the student's study schedule. Use this tool to create study sessions, " +
+        "set exam reminders, homework deadlines, or review the student's upcoming schedule. " +
+        "When a student mentions anything about scheduling, planning, study sessions, " +
+        "exam prep timelines, or deadlines, use this tool proactively. " +
+        "The student's current schedule will be available in context if they have items.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["add", "list", "suggest"],
+            description:
+              "'add' to create a new schedule item, 'list' to review current schedule, " +
+              "'suggest' to generate a study plan based on upcoming exams or topics.",
+          },
+          items: {
+            type: "string",
+            description:
+              'JSON array of schedule items to add. Each item: ' +
+              '{"title": "Study Calculus Ch 5", "subject": "math", "startTime": "2025-01-20T14:00", ' +
+              '"endTime": "2025-01-20T16:00", "type": "study"} ' +
+              'Types: study, exam, homework, class, other. Use ISO datetime format.',
+          },
+          suggestion_context: {
+            type: "string",
+            description: "Context for generating schedule suggestions (e.g., 'I have a physics exam on Friday').",
+          },
+        },
+        required: ["action"],
+      },
+    },
+  },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -336,7 +375,7 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
 export async function executeTool(
   toolName: string,
   toolInput: Record<string, unknown>
-): Promise<{ result: unknown; chartData?: unknown; flowchartData?: unknown; manimData?: unknown; imageData?: unknown; sources?: string[] }> {
+): Promise<{ result: unknown; chartData?: unknown; flowchartData?: unknown; manimData?: unknown; imageData?: unknown; scheduleData?: unknown; sources?: string[] }> {
   switch (toolName) {
     case "web_search":
       return await executeWebSearch(toolInput);
@@ -384,6 +423,9 @@ export async function executeTool(
 
     case "recognize_image":
       return executeImageRecognition(toolInput);
+
+    case "manage_schedule":
+      return executeScheduleManagement(toolInput);
 
     default:
       return { result: { error: `Unknown tool: ${toolName}` } };
@@ -733,8 +775,6 @@ function executeImageRecognition(
   const analysisType = String(input.analysis_type || "describe");
   const context = String(input.context || "");
 
-  // This tool is a structural prompt — GPT-4o already has vision capabilities.
-  // The tool call signals the model to analyze the image in the conversation context.
   const typeInstructions: Record<string, string> = {
     identify:
       "IDENTIFY the subject in the uploaded image. State what it is, its category, and key visual features. " +
@@ -762,5 +802,90 @@ function executeImageRecognition(
       analysis_type: analysisType,
       context,
     },
+  };
+}
+
+// ── Schedule Management ───────────────────────────────────────────────
+
+function executeScheduleManagement(
+  input: Record<string, unknown>
+): { result: unknown; scheduleData?: unknown } {
+  const action = String(input.action || "list");
+
+  if (action === "add") {
+    let items: unknown[] = [];
+    try {
+      items = typeof input.items === "string" ? JSON.parse(input.items) : input.items || [];
+    } catch {
+      return {
+        result: {
+          error: "Invalid schedule items JSON. Please provide valid JSON array.",
+        },
+      };
+    }
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return {
+        result: {
+          error: "Please provide at least one schedule item to add.",
+        },
+      };
+    }
+
+    const validItems = (items as Record<string, unknown>[]).map((item) => ({
+      id: `sch-ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      title: String(item.title || "Untitled"),
+      subject: String(item.subject || "general"),
+      startTime: String(item.startTime || new Date().toISOString()),
+      endTime: String(item.endTime || item.startTime || new Date().toISOString()),
+      type: ["study", "exam", "homework", "class", "other"].includes(String(item.type))
+        ? String(item.type)
+        : "study",
+      completed: false,
+    }));
+
+    return {
+      result: {
+        message:
+          `Added ${validItems.length} item${validItems.length > 1 ? "s" : ""} to your schedule!\n\n` +
+          validItems.map((i) =>
+            `• **${i.title}** — ${new Date(String(i.startTime)).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} (${i.type})`
+          ).join("\n"),
+        items_added: validItems,
+        action: "add",
+      },
+      scheduleData: {
+        action: "add",
+        items: validItems,
+      },
+    };
+  }
+
+  if (action === "list") {
+    return {
+      result: {
+        message:
+          "I've reviewed your current schedule. " +
+          "If you don't have any items yet, tell me about your exams, homework, or subjects, and I'll create a study plan!",
+        action: "list",
+      },
+    };
+  }
+
+  if (action === "suggest") {
+    const ctx = String(input.suggestion_context || "");
+    return {
+      result: {
+        message:
+          "Study plan suggestion mode activated. " +
+          (ctx ? `Based on: ${ctx}` : "Tell me about your upcoming exams or topics to study."),
+        action: "suggest",
+        context: ctx,
+      },
+    };
+  }
+
+  return {
+    result: { message: "Schedule action completed.", action },
   };
 }
