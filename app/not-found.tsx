@@ -4,9 +4,9 @@ export default function NotFound() {
   return (
     <div className="min-h-screen bg-surface-0 flex items-center justify-center px-4">
       <div className="text-center max-w-md">
-        <div className="w-16 h-16 rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center mx-auto mb-6">
+        <div className="w-16 h-16 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mx-auto mb-6">
           <svg
-            className="w-8 h-8 text-orange-400"
+            className="w-8 h-8 text-blue-400"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -24,7 +24,7 @@ export default function NotFound() {
         </p>
         <Link
           href="/"
-          className="px-6 py-2.5 bg-orange-500 hover:bg-orange-400 text-black text-sm font-bold rounded-lg transition-colors inline-block"
+          className="px-6 py-2.5 bg-blue-500 hover:bg-blue-400 text-white text-sm font-bold rounded-lg transition-colors inline-block"
         >
           Back to SchoolIT AI
         </Link>

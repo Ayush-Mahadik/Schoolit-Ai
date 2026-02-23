@@ -44,6 +44,7 @@ export interface ChatRequest {
   history?: { role: string; content: string }[];
   context_files?: { name: string; content: string; type: string }[];
   schedule_context?: string;
+  memory_context?: string;
 }
 
 export interface ChatResponse {

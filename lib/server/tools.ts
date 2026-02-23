@@ -342,11 +342,16 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
     function: {
       name: "manage_schedule",
       description:
-        "Manage the student's study schedule. Use this tool to create study sessions, " +
-        "set exam reminders, homework deadlines, or review the student's upcoming schedule. " +
-        "When a student mentions anything about scheduling, planning, study sessions, " +
-        "exam prep timelines, or deadlines, use this tool proactively. " +
-        "The student's current schedule will be available in context if they have items.",
+        "Manage the student's study schedule and create todo items. Use this tool PROACTIVELY whenever " +
+        "the student mentions ANY of these: tasks, todos, planning, scheduling, deadlines, study sessions, " +
+        "exam prep, homework, reminders, or time management. " +
+        "IMPORTANT CONTEXT: The student lives in India (IST timezone, UTC+5:30). " +
+        "School is 5:00 AM to 3:00 PM. Sleep is 9:00 PM to 5:00 AM. " +
+        "Available study time: 3:00 PM - 9:00 PM on school days, more on weekends. " +
+        "Always schedule in IST and respect these time constraints. " +
+        "Break study into 45-90 minute blocks with 10-15 min breaks. " +
+        "When a student says 'remind me', 'I need to', 'plan my', 'help me study', " +
+        "'create a schedule', 'make a todo', or similar — IMMEDIATELY use this tool with action 'add'.",
       parameters: {
         type: "object",
         properties: {

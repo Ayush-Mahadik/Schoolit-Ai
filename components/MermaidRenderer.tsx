@@ -8,6 +8,7 @@ interface MermaidRendererProps {
 }
 
 // Module-level flag to avoid re-initializing mermaid
+// Set to false to force re-init when theme changes
 let mermaidInitialized = false;
 
 export function MermaidRenderer({ code, title }: MermaidRendererProps) {
@@ -36,29 +37,29 @@ export function MermaidRenderer({ code, title }: MermaidRendererProps) {
             securityLevel: "loose",
             suppressErrorRendering: true,
             themeVariables: {
-              primaryColor: "#f97316",
+              primaryColor: "#3b82f6",
               primaryTextColor: "#e2e8f0",
-              primaryBorderColor: "#f97316",
+              primaryBorderColor: "#3b82f6",
               lineColor: "#94a3b8",
-              secondaryColor: "#ef4444",
-              tertiaryColor: "#0a0a0a",
-              background: "#0a0a0a",
-              mainBkg: "#141414",
-              nodeBorder: "#f97316",
-              clusterBkg: "#141414",
+              secondaryColor: "#6366f1",
+              tertiaryColor: "#060a10",
+              background: "#060a10",
+              mainBkg: "#0c1220",
+              nodeBorder: "#3b82f6",
+              clusterBkg: "#0c1220",
               titleColor: "#e2e8f0",
-              edgeLabelBackground: "#141414",
-              actorBkg: "#1c1c1c",
+              edgeLabelBackground: "#0c1220",
+              actorBkg: "#141e30",
               actorTextColor: "#e2e8f0",
-              actorBorder: "#f97316",
+              actorBorder: "#3b82f6",
               signalColor: "#e2e8f0",
-              labelBoxBkgColor: "#141414",
-              labelBoxBorderColor: "#f97316",
+              labelBoxBkgColor: "#0c1220",
+              labelBoxBorderColor: "#3b82f6",
               labelTextColor: "#e2e8f0",
-              loopTextColor: "#f97316",
-              noteBkgColor: "#1c1c1c",
+              loopTextColor: "#3b82f6",
+              noteBkgColor: "#141e30",
               noteTextColor: "#e2e8f0",
-              noteBorderColor: "#f97316",
+              noteBorderColor: "#3b82f6",
             },
             flowchart: {
               htmlLabels: true,
@@ -158,15 +159,15 @@ export function MermaidRenderer({ code, title }: MermaidRendererProps) {
   // ── Error state: clean fallback with code viewer ──
   if (error) {
     return (
-      <div className="my-4 rounded-xl border border-orange-500/20 bg-surface-2 overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2.5 bg-surface-3/50 border-b border-orange-500/20">
+      <div className="my-4 rounded-xl border border-blue-500/20 bg-surface-2 overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2.5 bg-surface-3/50 border-b border-blue-500/20">
           <div className="flex items-center gap-2">
-            <svg className="w-4 h-4 text-orange-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg className="w-4 h-4 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <rect x="3" y="3" width="18" height="18" rx="3" />
               <path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3z" />
               <path d="M14 17h7M17.5 14v7" />
             </svg>
-            <span className="text-xs font-bold text-orange-400 uppercase tracking-wide">{title || "Diagram"}</span>
+            <span className="text-xs font-bold text-blue-400 uppercase tracking-wide">{title || "Diagram"}</span>
           </div>
           <div className="flex items-center gap-1">
             <button
@@ -184,7 +185,7 @@ export function MermaidRenderer({ code, title }: MermaidRendererProps) {
           </div>
         </div>
         <div className="p-4">
-          <p className="text-xs text-slate-500 mb-1">Couldn&apos;t render this diagram inline. Copy the code and paste it in <a href="https://mermaid.live" target="_blank" rel="noopener noreferrer" className="text-orange-400 hover:underline font-semibold">Mermaid Live Editor →</a></p>
+          <p className="text-xs text-slate-500 mb-1">Couldn&apos;t render this diagram inline. Copy the code and paste it in <a href="https://mermaid.live" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline font-semibold">Mermaid Live Editor →</a></p>
           {showCode && (
             <pre className="mt-3 text-xs text-slate-400 overflow-x-auto whitespace-pre-wrap bg-black/50 rounded-lg p-3 border border-surface-4 font-mono">{sanitizedCode}</pre>
           )}
@@ -199,7 +200,7 @@ export function MermaidRenderer({ code, title }: MermaidRendererProps) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2.5 bg-surface-3/50 border-b border-surface-4">
         <div className="flex items-center gap-2">
-          <svg className="w-4 h-4 text-orange-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg className="w-4 h-4 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <rect x="3" y="3" width="18" height="18" rx="3" />
             <path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3z" />
             <path d="M14 17h7M17.5 14v7" />
@@ -234,7 +235,7 @@ export function MermaidRenderer({ code, title }: MermaidRendererProps) {
       >
         {!svg && (
           <div className="flex items-center gap-2 text-slate-500 text-sm">
-            <div className="w-4 h-4 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
+            <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
             Rendering diagram…
           </div>
         )}

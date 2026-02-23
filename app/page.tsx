@@ -8,6 +8,13 @@ import { ModelSelector } from "@/components/ModelSelector";
 import { ThinkingModeToggle } from "@/components/ThinkingModeToggle";
 import { sendMessage, fetchPersonas } from "@/lib/api";
 import { getUserSettings, saveUserSettings } from "@/lib/store";
+import {
+  buildMemoryContext,
+  saveConversation,
+  summarizeConversation,
+  extractFactsFromConversation,
+  addMemoryFact,
+} from "@/lib/memory";
 import { Icon, Menu, Globe } from "@/components/Icons";
 import type { Message, Persona, Subject, ChatSettings, AIModel, ThinkingMode } from "@/lib/types";
 import type { FileAttachment } from "@/components/FileUploadButton";
@@ -148,6 +155,7 @@ export default function Home() {
           history,
           context_files: [...textFiles, ...imageFiles],
           schedule_context: getScheduleContext(),
+          memory_context: buildMemoryContext(),
         });
 
         // Process schedule actions from AI (add items to localStorage)
@@ -157,6 +165,28 @@ export default function Home() {
               addToSchedule(action.items as Record<string, unknown>[]);
             }
           }
+        }
+
+        // Save conversation to admin memory system
+        const convoId = response.conversation_id || `convo-${Date.now()}`;
+        const convoMessages = [
+          { role: "user" as const, content: text, timestamp: new Date().toISOString() },
+          { role: "assistant" as const, content: response.response, timestamp: new Date().toISOString() },
+        ];
+        const convoRecord = {
+          id: convoId,
+          subject: activeSubject,
+          messages: convoMessages,
+          summary: summarizeConversation(convoMessages),
+          createdAt: new Date().toISOString(),
+          model: response.model || settings.model,
+        };
+        saveConversation(convoRecord);
+
+        // Extract and save facts from the conversation
+        const newFacts = extractFactsFromConversation(convoMessages, convoId);
+        for (const fact of newFacts) {
+          addMemoryFact({ fact: fact.fact, category: fact.category, source: fact.source });
         }
 
         const assistantMsg: Message = {
@@ -297,8 +327,8 @@ export default function Home() {
             </button>
 
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 rounded-lg bg-orange-500 flex items-center justify-center shrink-0">
-                <Icon name="graduation-cap" className="w-4 h-4 text-black" />
+              <div className="w-7 h-7 rounded-lg bg-blue-500 flex items-center justify-center shrink-0">
+                <Icon name="graduation-cap" className="w-4 h-4 text-white" />
               </div>
               <div className="min-w-0">
                 <h1 className="text-sm font-bold text-white truncate">SchoolIT AI</h1>

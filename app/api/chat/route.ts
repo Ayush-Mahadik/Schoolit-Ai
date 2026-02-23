@@ -179,6 +179,7 @@ export async function POST(req: NextRequest) {
   const history = Array.isArray(body.history) ? body.history : [];
   const contextFiles = Array.isArray(body.context_files) ? body.context_files : [];
   const scheduleContext = typeof body.schedule_context === "string" ? body.schedule_context : "";
+  const memoryContext = typeof body.memory_context === "string" ? body.memory_context : "";
 
   // Build file context string
   let fileContext: string | undefined;
@@ -193,8 +194,8 @@ export async function POST(req: NextRequest) {
     fileContext = parts.join("\n\n");
   }
 
-  // Build system prompt
-  const systemPrompt = buildSystemPrompt(persona, subject, chainOfThought, fileContext);
+  // Build system prompt (with memory context for admin)
+  const systemPrompt = buildSystemPrompt(persona, subject, chainOfThought, fileContext, memoryContext || undefined);
 
   // Append schedule context if available
   const fullSystemPrompt = scheduleContext

@@ -124,7 +124,7 @@ export default function SchedulePage() {
           </div>
           <button
             onClick={() => setShowForm(!showForm)}
-            className="px-4 py-2 bg-white hover:bg-slate-200 text-black text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
+            className="px-4 py-2 bg-blue-500 hover:bg-blue-400 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
           >
             {showForm ? (
               <>
@@ -234,7 +234,7 @@ export default function SchedulePage() {
                 <button
                   onClick={handleAdd}
                   disabled={!form.title || !form.startTime}
-                  className="w-full py-2.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors"
+                  className="w-full py-2.5 bg-blue-500 hover:bg-blue-400 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors"
                 >
                   Add to Schedule
                 </button>

@@ -17,7 +17,7 @@ export default function GlobalError({
                 width: "64px",
                 height: "64px",
                 borderRadius: "16px",
-                backgroundColor: "rgba(249, 115, 22, 0.1)",
+                backgroundColor: "rgba(59, 130, 246, 0.1)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -29,7 +29,7 @@ export default function GlobalError({
                 height="32"
                 viewBox="0 0 24 24"
                 fill="none"
-                stroke="#f97316"
+                stroke="#3b82f6"
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -47,8 +47,8 @@ export default function GlobalError({
               onClick={reset}
               style={{
                 padding: "0.625rem 1.5rem",
-                backgroundColor: "#f97316",
-                color: "black",
+                backgroundColor: "#3b82f6",
+                color: "white",
                 fontSize: "0.875rem",
                 fontWeight: 700,
                 borderRadius: "0.5rem",

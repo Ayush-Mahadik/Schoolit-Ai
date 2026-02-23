@@ -5,6 +5,7 @@ import { clsx } from "clsx";
 import { useSession, signIn, signOut } from "next-auth/react";
 import Link from "next/link";
 import { Icon, GraduationCap, PanelLeftClose, Plus, Calendar, LogOut, Star } from "@/components/Icons";
+import { downloadAdminData } from "@/lib/memory";
 import type { Subject } from "@/lib/types";
 
 interface SidebarProps {
@@ -39,12 +40,12 @@ export function Sidebar({
       {/* ── Header ────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 h-14 border-b border-surface-3">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-orange-500 flex items-center justify-center">
-            <GraduationCap className="w-4 h-4 text-black" />
+          <div className="w-7 h-7 rounded-lg bg-blue-500 flex items-center justify-center">
+            <GraduationCap className="w-4 h-4 text-white" />
           </div>
           <div>
             <h2 className="text-sm font-bold text-white leading-tight">SchoolIT AI</h2>
-            <p className="text-[10px] text-orange-400/60 font-medium">v2.0</p>
+            <p className="text-[10px] text-blue-400/60 font-medium">v2.0</p>
           </div>
         </div>
         <button
@@ -69,6 +70,15 @@ export function Sidebar({
           <Calendar className="w-4 h-4" />
           Schedule
         </Link>
+        {isAdmin && (
+          <button
+            onClick={() => downloadAdminData()}
+            className="w-full py-2 px-3 hover:bg-surface-3 text-slate-400 text-sm rounded-lg transition-colors flex items-center gap-2.5"
+          >
+            <Icon name="download" className="w-4 h-4" />
+            Export Memory
+          </button>
+        )}
       </div>
 
       {/* ── Subject List ──────────────────────────────────────────── */}
@@ -144,7 +154,7 @@ export function Sidebar({
                 referrerPolicy="no-referrer"
               />
             ) : (
-              <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center text-[10px] font-bold text-black shrink-0">
+              <div className="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-[10px] font-bold text-white shrink-0">
                 {(user.name || "U")[0].toUpperCase()}
               </div>
             )}

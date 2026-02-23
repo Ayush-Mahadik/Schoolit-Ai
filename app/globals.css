@@ -5,17 +5,17 @@
 /* ── Base styles ────────────────────────────────────────────────────────── */
 :root {
   --bg-primary: #000000;
-  --bg-secondary: #080808;
-  --bg-tertiary: #111111;
+  --bg-secondary: #060a10;
+  --bg-tertiary: #0c1220;
   --text-primary: #ffffff;
   --text-secondary: #71767b;
-  --accent: #f97316;
-  --accent-glow: rgba(249, 115, 22, 0.12);
+  --accent: #3b82f6;
+  --accent-glow: rgba(59, 130, 246, 0.12);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: #262626 transparent;
+  scrollbar-color: #1c2940 transparent;
 }
 
 *::-webkit-scrollbar {
@@ -27,12 +27,12 @@
 }
 
 *::-webkit-scrollbar-thumb {
-  background: #262626;
+  background: #1c2940;
   border-radius: 100px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: #333333;
+  background: #253550;
 }
 
 body {
@@ -83,7 +83,7 @@ button:focus-visible {
 }
 
 .prose-chat code {
-  @apply bg-surface-3/80 text-orange-300 px-1.5 py-0.5 rounded text-[13px] font-mono;
+  @apply bg-surface-3/80 text-blue-300 px-1.5 py-0.5 rounded text-[13px] font-mono;
 }
 
 .prose-chat pre {
@@ -125,12 +125,12 @@ button:focus-visible {
 
 /* ── Thinking/CoT block ─────────────────────────────────────────────────── */
 .thinking-block {
-  @apply bg-surface-2 border border-orange-500/20 rounded-xl p-3.5 mb-3;
+  @apply bg-surface-2 border border-blue-500/20 rounded-xl p-3.5 mb-3;
   @apply text-sm text-slate-500 italic;
 }
 
 .thinking-block summary {
-  @apply cursor-pointer text-orange-400 not-italic font-bold text-xs uppercase tracking-wide;
+  @apply cursor-pointer text-blue-400 not-italic font-bold text-xs uppercase tracking-wide;
 }
 
 /* ── Animations ─────────────────────────────────────────────────────────── */
@@ -345,7 +345,7 @@ button:focus-visible {
 }
 
 .quiz-option:hover {
-  @apply bg-surface-3 text-white border-orange-500/30;
+  @apply bg-surface-3 text-white border-blue-500/30;
 }
 
 .quiz-option.correct {

@@ -246,13 +246,13 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
             <button
               onClick={handleSubmit}
               disabled={!input.trim() || isLoading}
-              className="p-2 rounded-xl bg-orange-500 hover:bg-orange-400 disabled:opacity-20 disabled:hover:bg-orange-500 text-black transition-colors shrink-0 font-bold"
+              className="p-2 rounded-xl bg-blue-500 hover:bg-blue-400 disabled:opacity-20 disabled:hover:bg-blue-500 text-white transition-colors shrink-0 font-bold"
             >
               <Send className="w-4 h-4" />
             </button>
           </div>
           <p className="text-[10px] text-slate-600 mt-1.5 text-center font-medium">
-            SchoolIT AI <span className="text-orange-500">·</span> {modelInfo.name} via GitHub Models <span className="text-orange-500">·</span> Responses may not always be accurate
+            SchoolIT AI <span className="text-blue-500">·</span> {modelInfo.name} via GitHub Models <span className="text-blue-500">·</span> Responses may not always be accurate
           </p>
         </div>
       </div>
@@ -372,7 +372,7 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
             {message.toolCalls.map((tool, i) => (
               <span
                 key={i}
-                className="text-[10px] px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400 flex items-center gap-1 border border-orange-500/20 font-medium"
+                className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 flex items-center gap-1 border border-blue-500/20 font-medium"
               >
                 <Wrench className="w-2.5 h-2.5" />
                 {tool.replace(/_/g, " ")}
@@ -607,8 +607,8 @@ function EmptyState({ subject, onSuggestion }: { subject: string; onSuggestion: 
         transition={{ duration: 0.5 }}
         className="text-center space-y-6 w-full"
       >
-        <div className="w-12 h-12 mx-auto rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center">
-          <Icon name="graduation-cap" className="w-6 h-6 text-orange-400" />
+        <div className="w-12 h-12 mx-auto rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+          <Icon name="graduation-cap" className="w-6 h-6 text-blue-400" />
         </div>
         <div>
           <h2 className="text-xl font-bold text-white mb-1">
@@ -625,7 +625,7 @@ function EmptyState({ subject, onSuggestion }: { subject: string; onSuggestion: 
             <button
               key={i}
               onClick={() => onSuggestion(suggestion)}
-              className="text-left px-4 py-3 bg-surface-2 hover:bg-surface-3 border border-surface-3 hover:border-orange-500/30 rounded-xl text-sm text-slate-400 hover:text-white transition-all duration-150 font-medium"
+              className="text-left px-4 py-3 bg-surface-2 hover:bg-surface-3 border border-surface-3 hover:border-blue-500/30 rounded-xl text-sm text-slate-400 hover:text-white transition-all duration-150 font-medium"
             >
               {suggestion}
             </button>
