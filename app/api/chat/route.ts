@@ -92,8 +92,24 @@ function sanitizeString(str: string, maxLen: number): string {
   return str
     .replace(/\x00/g, "")
     .replace(/[\x01-\x08]/g, "")
+    .replace(/[\x0E-\x1F]/g, "") // Remove more control chars
     .trim()
     .slice(0, maxLen);
+}
+
+// ── Request validation ────────────────────────────────────────────────
+function validateOrigin(req: NextRequest): boolean {
+  const origin = req.headers.get("origin") || "";
+  const referer = req.headers.get("referer") || "";
+  // Allow same-origin and Vercel preview deployments
+  if (!origin && !referer) return true; // Server-side or non-browser
+  const allowed = [
+    "https://schoolit-ai.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:3001",
+  ];
+  return allowed.some((a) => origin.startsWith(a) || referer.startsWith(a)) ||
+    origin.includes(".vercel.app") || referer.includes(".vercel.app");
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -102,6 +118,14 @@ function sanitizeString(str: string, maxLen: number): string {
 
 export async function POST(req: NextRequest) {
  try {
+  // Validate request origin (CSRF protection)
+  if (!validateOrigin(req)) {
+    return NextResponse.json(
+      { error: "forbidden", message: "Invalid request origin." },
+      { status: 403 }
+    );
+  }
+
   // Check auth & admin status
   let isAdmin = false;
   let userEmail = "";

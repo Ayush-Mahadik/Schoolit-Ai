@@ -2,14 +2,38 @@
  * Admin Memory System — SchoolIT AI
  * ====================================
  * Persists conversation history, key facts, and user data
- * for the admin account using localStorage.
+ * for the admin account ONLY (ayumahadik25@gmail.com).
+ * Data is stored in browser localStorage with email-scoped keys.
+ * Memory is ONLY accessible to the verified admin email.
  * Data is exported/imported as JSON "text file" format.
+ *
+ * STORAGE: Browser localStorage (per-browser, per-device).
+ * To persist across devices, use Export → Import.
  */
 
 const MEMORY_PREFIX = "schoolit_memory_";
 const MAX_CONVERSATIONS = 100;
 const MAX_MEMORY_FACTS = 200;
 const MAX_SUMMARY_LENGTH = 500;
+
+// ── Admin Lock — Only this email can read/write memory ────────────────
+const ADMIN_EMAIL = "ayumahadik25@gmail.com";
+let _currentUserEmail: string | null = null;
+
+/** Set the current user's email — call this on auth state change */
+export function setMemoryUser(email: string | null) {
+  _currentUserEmail = email?.toLowerCase() || null;
+}
+
+/** Check if the current user is the admin who owns the memory */
+export function isMemoryOwner(): boolean {
+  return _currentUserEmail === ADMIN_EMAIL;
+}
+
+/** Get the current memory user email */
+export function getMemoryUser(): string | null {
+  return _currentUserEmail;
+}
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -46,6 +70,7 @@ export interface AdminData {
 
 function getItem<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
+  if (!isMemoryOwner()) return fallback; // Only admin can read memory
   try {
     const raw = localStorage.getItem(MEMORY_PREFIX + key);
     return raw ? JSON.parse(raw) : fallback;
@@ -56,6 +81,7 @@ function getItem<T>(key: string, fallback: T): T {
 
 function setItem(key: string, value: unknown) {
   if (typeof window === "undefined") return;
+  if (!isMemoryOwner()) return; // Only admin can write memory
   try {
     localStorage.setItem(MEMORY_PREFIX + key, JSON.stringify(value));
   } catch {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useSession } from "next-auth/react";
 import { AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatInterface } from "@/components/ChatInterface";
@@ -14,6 +15,8 @@ import {
   summarizeConversation,
   extractFactsFromConversation,
   addMemoryFact,
+  setMemoryUser,
+  isMemoryOwner,
 } from "@/lib/memory";
 import { Icon, Menu, Globe } from "@/components/Icons";
 import type { Message, Persona, Subject, ChatSettings, AIModel, ThinkingMode } from "@/lib/types";
@@ -69,6 +72,7 @@ const SUBJECTS: Subject[] = [
 ];
 
 export default function Home() {
+  const { data: session } = useSession();
   const [messages, setMessages] = useState<Record<string, Message[]>>({});
   const [activeSubject, setActiveSubject] = useState<string>("general");
   const [personas, setPersonas] = useState<Persona[]>([]);
@@ -99,6 +103,11 @@ export default function Home() {
     // Open sidebar by default on desktop
     if (window.innerWidth >= 1024) setSidebarOpen(true);
   }, []);
+
+  // ── Sync memory user with session ───────────────────────────────────
+  useEffect(() => {
+    setMemoryUser(session?.user?.email || null);
+  }, [session]);
 
   useEffect(() => {
     saveUserSettings(settings);
@@ -155,7 +164,7 @@ export default function Home() {
           history,
           context_files: [...textFiles, ...imageFiles],
           schedule_context: getScheduleContext(),
-          memory_context: buildMemoryContext(),
+          memory_context: isMemoryOwner() ? buildMemoryContext() : "",
         });
 
         // Process schedule actions from AI (add items to localStorage)
@@ -167,26 +176,28 @@ export default function Home() {
           }
         }
 
-        // Save conversation to admin memory system
-        const convoId = response.conversation_id || `convo-${Date.now()}`;
-        const convoMessages = [
-          { role: "user" as const, content: text, timestamp: new Date().toISOString() },
-          { role: "assistant" as const, content: response.response, timestamp: new Date().toISOString() },
-        ];
-        const convoRecord = {
-          id: convoId,
-          subject: activeSubject,
-          messages: convoMessages,
-          summary: summarizeConversation(convoMessages),
-          createdAt: new Date().toISOString(),
-          model: response.model || settings.model,
-        };
-        saveConversation(convoRecord);
+        // Save conversation to admin memory system (ADMIN ONLY)
+        if (isMemoryOwner()) {
+          const convoId = response.conversation_id || `convo-${Date.now()}`;
+          const convoMessages = [
+            { role: "user" as const, content: text, timestamp: new Date().toISOString() },
+            { role: "assistant" as const, content: response.response, timestamp: new Date().toISOString() },
+          ];
+          const convoRecord = {
+            id: convoId,
+            subject: activeSubject,
+            messages: convoMessages,
+            summary: summarizeConversation(convoMessages),
+            createdAt: new Date().toISOString(),
+            model: response.model || settings.model,
+          };
+          saveConversation(convoRecord);
 
-        // Extract and save facts from the conversation
-        const newFacts = extractFactsFromConversation(convoMessages, convoId);
-        for (const fact of newFacts) {
-          addMemoryFact({ fact: fact.fact, category: fact.category, source: fact.source });
+          // Extract and save facts from the conversation
+          const newFacts = extractFactsFromConversation(convoMessages, convoId);
+          for (const fact of newFacts) {
+            addMemoryFact({ fact: fact.fact, category: fact.category, source: fact.source });
+          }
         }
 
         const assistantMsg: Message = {

@@ -10,6 +10,7 @@ import { MermaidRenderer, parseMermaidBlocks } from "@/components/MermaidRendere
 import { ManimRenderer, parseManimBlocks } from "@/components/ManimRenderer";
 import { ImageRenderer, parseImageBlocks } from "@/components/ImageRenderer";
 import { FileUploadButton, FileChips, type FileAttachment } from "@/components/FileUploadButton";
+import { VoiceInputButton } from "@/components/VoiceInputButton";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { Icon, Send, Upload, Bot, Wrench, ExternalLink, Brain, Paperclip } from "@/components/Icons";
 import type { Message, AIModel } from "@/lib/types";
@@ -231,6 +232,10 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
           <div className="flex items-end gap-2 bg-surface-2 rounded-2xl border border-surface-3 focus-within:border-surface-4 transition-colors px-3 py-2">
             <FileUploadButton
               onFilesSelected={handleFilesSelected}
+              disabled={isLoading}
+            />
+            <VoiceInputButton
+              onTranscript={(text) => setInput((prev) => prev + (prev ? " " : "") + text)}
               disabled={isLoading}
             />
 
@@ -616,7 +621,8 @@ function EmptyState({ subject, onSuggestion }: { subject: string; onSuggestion: 
           </h2>
           <p className="text-sm text-slate-500 max-w-sm mx-auto">
             Ask me anything — I can search the web, create charts,
-            generate flowcharts, and solve problems step by step.
+            summarize videos, check grammar, analyze documents, and more.
+            Try the 🎤 mic button for voice input!
           </p>
         </div>
 

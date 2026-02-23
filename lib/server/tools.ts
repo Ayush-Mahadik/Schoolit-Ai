@@ -379,6 +379,123 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
       },
     },
   },
+
+  // ── 12. Video Summarizer ──────────────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "summarize_video",
+      description:
+        "Summarize a YouTube video or any video given a URL. Extracts the transcript or available " +
+        "metadata and provides a detailed summary with key points, timestamps, and takeaways. " +
+        "Use this when a student pastes a YouTube link or asks to summarize a video.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: {
+            type: "string",
+            description: "The full URL of the video (YouTube, etc.).",
+          },
+          focus: {
+            type: "string",
+            description: "Optional focus area — what aspect of the video to emphasize in the summary.",
+          },
+        },
+        required: ["url"],
+      },
+    },
+  },
+
+  // ── 13. Grammar Checker ───────────────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "grammar_check",
+      description:
+        "Check text for grammar, spelling, punctuation, and style issues. " +
+        "Returns the corrected text with a list of all changes made and explanations. " +
+        "Use when a student asks to proofread, check grammar, fix writing, or improve text quality.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: {
+            type: "string",
+            description: "The text to check for grammar and spelling errors.",
+          },
+          style: {
+            type: "string",
+            enum: ["academic", "casual", "formal", "creative"],
+            description: "The writing style to target. Default: academic.",
+          },
+        },
+        required: ["text"],
+      },
+    },
+  },
+
+  // ── 14. Document Analyzer ─────────────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "analyze_document",
+      description:
+        "Analyze an uploaded document (PDF, text, code, etc.) in depth. " +
+        "Provides: summary, key points, structure analysis, important quotes/data, " +
+        "and answers questions about the document. " +
+        "Use when a student uploads a file and asks to analyze, summarize, or extract info from it.",
+      parameters: {
+        type: "object",
+        properties: {
+          content: {
+            type: "string",
+            description: "The text content of the document to analyze.",
+          },
+          filename: {
+            type: "string",
+            description: "Original filename for context.",
+          },
+          task: {
+            type: "string",
+            enum: ["summarize", "extract_key_points", "analyze_structure", "answer_questions", "full_analysis"],
+            description: "What type of analysis to perform.",
+          },
+          question: {
+            type: "string",
+            description: "Specific question to answer about the document (for 'answer_questions' task).",
+          },
+        },
+        required: ["content", "task"],
+      },
+    },
+  },
+
+  // ── 15. Deep Web Scraper ──────────────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "deep_scrape",
+      description:
+        "Perform deep scraping of a specific webpage URL to extract its full content. " +
+        "Use this when you need detailed information from a specific page — articles, documentation, " +
+        "research papers, blog posts, etc. Returns structured content with headings, paragraphs, " +
+        "lists, tables, and code blocks extracted. Much more thorough than web_search.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: {
+            type: "string",
+            description: "The URL to deeply scrape.",
+          },
+          extract: {
+            type: "string",
+            enum: ["full", "article", "tables", "code", "links"],
+            description: "What to extract: full page content, just article body, tables, code blocks, or links.",
+          },
+        },
+        required: ["url"],
+      },
+    },
+  },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -439,6 +556,18 @@ export async function executeTool(
 
     case "manage_schedule":
       return executeScheduleManagement(toolInput);
+
+    case "summarize_video":
+      return await executeVideoSummarizer(toolInput);
+
+    case "grammar_check":
+      return executeGrammarCheck(toolInput);
+
+    case "analyze_document":
+      return executeDocumentAnalyzer(toolInput);
+
+    case "deep_scrape":
+      return await executeDeepScrape(toolInput);
 
     default:
       return { result: { error: `Unknown tool: ${toolName}` } };
@@ -537,18 +666,8 @@ async function executeWebSearch(
           if (!pageRes.ok) return { ...r, content: r.snippet };
 
           const pageHtml = await pageRes.text();
-          // Extract text content
-          const textContent = pageHtml
-            .replace(/<script[\s\S]*?<\/script>/gi, "")
-            .replace(/<style[\s\S]*?<\/style>/gi, "")
-            .replace(/<nav[\s\S]*?<\/nav>/gi, "")
-            .replace(/<footer[\s\S]*?<\/footer>/gi, "")
-            .replace(/<header[\s\S]*?<\/header>/gi, "")
-            .replace(/<[^>]+>/g, " ")
-            .replace(/\s+/g, " ")
-            .trim()
-            .slice(0, 4000);
-
+          // Deep content extraction — extract structured content
+          const textContent = deepExtractContent(pageHtml);
           return { ...r, content: textContent || r.snippet };
         } catch {
           return { ...r, content: r.snippet };
@@ -901,4 +1020,445 @@ function executeScheduleManagement(
   return {
     result: { message: "Schedule action completed.", action },
   };
+}
+
+// ── Deep Content Extractor (shared) ───────────────────────────────────
+
+function deepExtractContent(html: string, maxLen: number = 12000): string {
+  // Remove noise
+  let clean = html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<nav[\s\S]*?<\/nav>/gi, "")
+    .replace(/<footer[\s\S]*?<\/footer>/gi, "")
+    .replace(/<header[\s\S]*?<\/header>/gi, "")
+    .replace(/<aside[\s\S]*?<\/aside>/gi, "")
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "");
+
+  // Extract headings for structure
+  const headings: string[] = [];
+  const headingRegex = /<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi;
+  let hMatch;
+  while ((hMatch = headingRegex.exec(clean)) !== null) {
+    const level = parseInt(hMatch[1]);
+    const text = hMatch[2].replace(/<[^>]*>/g, "").trim();
+    if (text) headings.push("#".repeat(level) + " " + text);
+  }
+
+  // Extract article body or main content
+  const articleMatch = clean.match(/<article[^>]*>([\s\S]*?)<\/article>/i)
+    || clean.match(/<main[^>]*>([\s\S]*?)<\/main>/i)
+    || clean.match(/<div[^>]*class="[^"]*(?:content|article|post|entry|text)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+
+  const body = articleMatch ? articleMatch[1] : clean;
+
+  // Extract paragraphs
+  const paragraphs: string[] = [];
+  const pRegex = /<p[^>]*>([\s\S]*?)<\/p>/gi;
+  let pMatch;
+  while ((pMatch = pRegex.exec(body)) !== null) {
+    const text = pMatch[1].replace(/<[^>]*>/g, "").trim();
+    if (text.length > 30) paragraphs.push(text);
+  }
+
+  // Extract list items
+  const listItems: string[] = [];
+  const liRegex = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+  let liMatch;
+  while ((liMatch = liRegex.exec(body)) !== null) {
+    const text = liMatch[1].replace(/<[^>]*>/g, "").trim();
+    if (text.length > 10) listItems.push("• " + text);
+  }
+
+  // Extract code blocks
+  const codeBlocks: string[] = [];
+  const codeRegex = /<(?:pre|code)[^>]*>([\s\S]*?)<\/(?:pre|code)>/gi;
+  let codeMatch;
+  while ((codeMatch = codeRegex.exec(body)) !== null) {
+    const text = codeMatch[1].replace(/<[^>]*>/g, "").trim();
+    if (text.length > 20) codeBlocks.push("```\n" + text.slice(0, 1000) + "\n```");
+  }
+
+  // Build structured output
+  const parts: string[] = [];
+  if (headings.length > 0) parts.push("## Structure:\n" + headings.slice(0, 20).join("\n"));
+  if (paragraphs.length > 0) parts.push("\n## Content:\n" + paragraphs.join("\n\n"));
+  if (listItems.length > 0) parts.push("\n## Key Points:\n" + listItems.slice(0, 30).join("\n"));
+  if (codeBlocks.length > 0) parts.push("\n## Code:\n" + codeBlocks.slice(0, 5).join("\n\n"));
+
+  let result = parts.join("\n");
+  if (!result || result.length < 100) {
+    // Fallback: strip all HTML
+    result = body
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  return result.slice(0, maxLen);
+}
+
+// ── Video Summarizer ──────────────────────────────────────────────────
+
+async function executeVideoSummarizer(
+  input: Record<string, unknown>
+): Promise<{ result: unknown; sources?: string[] }> {
+  const url = String(input.url || "").trim();
+  const focus = String(input.focus || "");
+
+  if (!url) {
+    return { result: { error: "Video URL is required." }, sources: [] };
+  }
+
+  // Extract YouTube video ID
+  const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/))([a-zA-Z0-9_-]{11})/);
+  const videoId = ytMatch ? ytMatch[1] : null;
+
+  try {
+    let transcript = "";
+    let videoTitle = "";
+    let videoDescription = "";
+
+    if (videoId) {
+      // Try to get YouTube transcript via multiple methods
+      // Method 1: Try InnerTube API for captions
+      try {
+        const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            Accept: "text/html",
+          },
+          signal: AbortSignal.timeout(8000),
+        });
+        const html = await pageRes.text();
+
+        // Extract title
+        const titleMatch = html.match(/<title>(.*?)<\/title>/);
+        videoTitle = titleMatch ? titleMatch[1].replace(" - YouTube", "").trim() : "";
+
+        // Extract description from meta
+        const descMatch = html.match(/<meta name="description" content="([^"]*)"/) ||
+          html.match(/"shortDescription":"((?:[^"\\]|\\.)*)"/);
+        videoDescription = descMatch ? descMatch[1].replace(/\\n/g, "\n").slice(0, 1000) : "";
+
+        // Try to extract captions URL from player response
+        const captionsMatch = html.match(/"captionTracks":\s*(\[[\s\S]*?\])/);
+        if (captionsMatch) {
+          try {
+            const tracks = JSON.parse(captionsMatch[1]);
+            const enTrack = tracks.find((t: Record<string, string>) =>
+              t.languageCode === "en" || t.languageCode?.startsWith("en")
+            ) || tracks[0];
+
+            if (enTrack?.baseUrl) {
+              const captionUrl = enTrack.baseUrl.replace(/\\u0026/g, "&");
+              const capRes = await fetch(captionUrl, { signal: AbortSignal.timeout(6000) });
+              const capXml = await capRes.text();
+
+              // Parse XML captions
+              const segments: string[] = [];
+              const segRegex = /<text[^>]*>([\s\S]*?)<\/text>/gi;
+              let segMatch;
+              while ((segMatch = segRegex.exec(capXml)) !== null) {
+                const text = segMatch[1]
+                  .replace(/&amp;/g, "&")
+                  .replace(/&lt;/g, "<")
+                  .replace(/&gt;/g, ">")
+                  .replace(/&#39;/g, "'")
+                  .replace(/&quot;/g, '"')
+                  .trim();
+                if (text) segments.push(text);
+              }
+              transcript = segments.join(" ");
+            }
+          } catch {
+            // Caption parsing failed
+          }
+        }
+      } catch {
+        // YouTube page fetch failed
+      }
+    }
+
+    // If no transcript found, try generic page scraping
+    if (!transcript && !videoTitle) {
+      try {
+        const pageRes = await fetch(url, {
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; SmartSchoolAI/2.0)" },
+          signal: AbortSignal.timeout(8000),
+        });
+        const html = await pageRes.text();
+        const titleMatch = html.match(/<title>(.*?)<\/title>/);
+        videoTitle = titleMatch ? titleMatch[1].trim() : url;
+        videoDescription = deepExtractContent(html, 3000);
+      } catch {
+        return {
+          result: { message: `Could not access the video at: ${url}. The page may be restricted.` },
+          sources: [url],
+        };
+      }
+    }
+
+    return {
+      result: {
+        message: "Video content extracted. Now provide a comprehensive summary.",
+        video_url: url,
+        video_id: videoId,
+        title: videoTitle,
+        description: videoDescription.slice(0, 1500),
+        transcript: transcript.slice(0, 10000),
+        has_transcript: transcript.length > 0,
+        focus: focus || "general overview",
+        instructions:
+          "Create a detailed summary with:\n" +
+          "1. **Overview** — What the video is about (1-2 sentences)\n" +
+          "2. **Key Points** — Bullet list of main takeaways\n" +
+          "3. **Detailed Summary** — Section-by-section breakdown\n" +
+          "4. **Key Quotes/Data** — Important numbers, facts, or quotes\n" +
+          "5. **Study Notes** — How this relates to academic topics\n" +
+          (focus ? `6. **Focus Area** — Specifically cover: ${focus}` : ""),
+      },
+      sources: [url],
+    };
+  } catch (error) {
+    return {
+      result: {
+        message: `Could not process video: ${error instanceof Error ? error.message : "unknown error"}`,
+      },
+      sources: [url],
+    };
+  }
+}
+
+// ── Grammar Checker ───────────────────────────────────────────────────
+
+function executeGrammarCheck(
+  input: Record<string, unknown>
+): { result: unknown } {
+  const text = String(input.text || "");
+  const style = String(input.style || "academic");
+
+  if (!text.trim()) {
+    return { result: { error: "Text is required for grammar checking." } };
+  }
+
+  // We send structured instructions to the AI to perform the grammar check
+  return {
+    result: {
+      message: "Grammar check mode activated.",
+      original_text: text,
+      target_style: style,
+      instructions:
+        "Perform a thorough grammar, spelling, and style check on the provided text. " +
+        "Return your response in this EXACT format:\n\n" +
+        "## ✅ Corrected Text\n(The full corrected text)\n\n" +
+        "## 📝 Changes Made\n" +
+        "For each change, use this format:\n" +
+        "- **Original**: `wrong text` → **Fixed**: `correct text` — *Reason: explanation*\n\n" +
+        "## 📊 Summary\n" +
+        "- Spelling errors: X\n" +
+        "- Grammar issues: X\n" +
+        "- Punctuation fixes: X\n" +
+        "- Style improvements: X\n" +
+        "- Overall score: X/10\n\n" +
+        "## 💡 Writing Tips\n" +
+        `Target style: ${style}. Provide 2-3 tips to improve their writing.`,
+    },
+  };
+}
+
+// ── Document Analyzer ─────────────────────────────────────────────────
+
+function executeDocumentAnalyzer(
+  input: Record<string, unknown>
+): { result: unknown } {
+  const content = String(input.content || "");
+  const filename = String(input.filename || "document");
+  const task = String(input.task || "full_analysis");
+  const question = String(input.question || "");
+
+  if (!content.trim()) {
+    return { result: { error: "Document content is required." } };
+  }
+
+  const taskInstructions: Record<string, string> = {
+    summarize:
+      "Provide a comprehensive summary of this document:\n" +
+      "1. **Executive Summary** (2-3 sentences)\n" +
+      "2. **Main Sections** — outline each section\n" +
+      "3. **Key Arguments/Points**\n" +
+      "4. **Conclusion/Takeaways**",
+    extract_key_points:
+      "Extract all key points from this document:\n" +
+      "1. **Key Facts** — important data, numbers, dates\n" +
+      "2. **Main Arguments** — thesis and supporting points\n" +
+      "3. **Important Definitions** — any defined terms\n" +
+      "4. **Action Items** — any recommendations or next steps",
+    analyze_structure:
+      "Analyze the structure and organization of this document:\n" +
+      "1. **Document Type** — what kind of document is this?\n" +
+      "2. **Organization** — how is it structured?\n" +
+      "3. **Writing Quality** — clarity, coherence, style\n" +
+      "4. **Strengths & Weaknesses** of the writing\n" +
+      "5. **Suggestions** for improvement",
+    answer_questions:
+      `Answer this specific question about the document: ${question}\n` +
+      "Ground your answer with direct quotes/references from the document.",
+    full_analysis:
+      "Perform a complete analysis of this document:\n" +
+      "1. **Overview** — type, purpose, audience\n" +
+      "2. **Summary** — comprehensive summary\n" +
+      "3. **Key Points** — bullet list of main takeaways\n" +
+      "4. **Structure Analysis** — organization and flow\n" +
+      "5. **Important Data** — facts, figures, quotes\n" +
+      "6. **Critical Analysis** — strengths, weaknesses, bias\n" +
+      "7. **Study Notes** — if academic, what to memorize",
+  };
+
+  return {
+    result: {
+      message: "Document analysis mode activated.",
+      filename,
+      content_preview: content.slice(0, 500) + (content.length > 500 ? "..." : ""),
+      content_length: content.length,
+      task,
+      instructions: taskInstructions[task] || taskInstructions.full_analysis,
+      full_content: content.slice(0, 30000),
+    },
+  };
+}
+
+// ── Deep Web Scraper ──────────────────────────────────────────────────
+
+async function executeDeepScrape(
+  input: Record<string, unknown>
+): Promise<{ result: unknown; sources?: string[] }> {
+  const url = String(input.url || "").trim();
+  const extract = String(input.extract || "full");
+
+  if (!url || !url.startsWith("http")) {
+    return { result: { error: "A valid HTTP/HTTPS URL is required." }, sources: [] };
+  }
+
+  try {
+    const pageRes = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+      signal: AbortSignal.timeout(12000),
+    });
+
+    if (!pageRes.ok) {
+      return {
+        result: { message: `Page returned status ${pageRes.status}. Access may be restricted.` },
+        sources: [url],
+      };
+    }
+
+    const html = await pageRes.text();
+
+    // Extract title
+    const titleMatch = html.match(/<title>(.*?)<\/title>/i);
+    const title = titleMatch ? titleMatch[1].trim() : url;
+
+    // Extract meta description
+    const metaDesc = html.match(/<meta[^>]*name="description"[^>]*content="([^"]*)"/) ||
+      html.match(/<meta[^>]*property="og:description"[^>]*content="([^"]*)"/)
+    const description = metaDesc ? metaDesc[1] : "";
+
+    let extractedContent = "";
+
+    switch (extract) {
+      case "tables": {
+        // Extract all tables
+        const tables: string[] = [];
+        const tableRegex = /<table[^>]*>([\s\S]*?)<\/table>/gi;
+        let tMatch;
+        while ((tMatch = tableRegex.exec(html)) !== null) {
+          const rows: string[] = [];
+          const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+          let rMatch;
+          while ((rMatch = rowRegex.exec(tMatch[1])) !== null) {
+            const cells: string[] = [];
+            const cellRegex = /<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi;
+            let cMatch;
+            while ((cMatch = cellRegex.exec(rMatch[1])) !== null) {
+              cells.push(cMatch[1].replace(/<[^>]*>/g, "").trim());
+            }
+            rows.push("| " + cells.join(" | ") + " |");
+          }
+          if (rows.length > 0) tables.push(rows.join("\n"));
+        }
+        extractedContent = tables.length > 0
+          ? tables.join("\n\n---\n\n")
+          : "No tables found on this page.";
+        break;
+      }
+      case "code": {
+        // Extract code blocks
+        const codes: string[] = [];
+        const codeRegex = /<(?:pre|code)[^>]*>([\s\S]*?)<\/(?:pre|code)>/gi;
+        let cMatch;
+        while ((cMatch = codeRegex.exec(html)) !== null) {
+          const code = cMatch[1].replace(/<[^>]*>/g, "").trim();
+          if (code.length > 20) codes.push("```\n" + code.slice(0, 2000) + "\n```");
+        }
+        extractedContent = codes.length > 0
+          ? codes.join("\n\n")
+          : "No code blocks found on this page.";
+        break;
+      }
+      case "links": {
+        // Extract all links
+        const links: string[] = [];
+        const linkRegex = /<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+        let lMatch;
+        while ((lMatch = linkRegex.exec(html)) !== null) {
+          const href = lMatch[1];
+          const text = lMatch[2].replace(/<[^>]*>/g, "").trim();
+          if (href.startsWith("http") && text.length > 2) {
+            links.push(`- [${text}](${href})`);
+          }
+        }
+        extractedContent = links.length > 0
+          ? links.slice(0, 100).join("\n")
+          : "No external links found.";
+        break;
+      }
+      case "article": {
+        // Try to extract just the article body
+        const articleMatch = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
+          html.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
+        extractedContent = articleMatch
+          ? deepExtractContent(articleMatch[1], 15000)
+          : deepExtractContent(html, 15000);
+        break;
+      }
+      default:
+        extractedContent = deepExtractContent(html, 15000);
+    }
+
+    return {
+      result: {
+        message: "Deep scrape completed successfully.",
+        url,
+        title,
+        description,
+        content: extractedContent,
+        extract_mode: extract,
+        content_length: extractedContent.length,
+      },
+      sources: [url],
+    };
+  } catch (error) {
+    return {
+      result: {
+        message: `Deep scrape failed: ${error instanceof Error ? error.message : "timeout/network error"}`,
+      },
+      sources: [url],
+    };
+  }
 }
