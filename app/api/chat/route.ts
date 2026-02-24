@@ -423,6 +423,16 @@ export async function POST(req: NextRequest) {
           }
 
           toolCallsLog.push(toolName);
+
+          // Auto-inject file context for document/screenshot analyzers
+          // so the AI doesn't have to manually copy content from the system prompt
+          if (toolName === "analyze_document" && fileContext && !toolInput.content) {
+            toolInput.content = fileContext;
+          }
+          if (toolName === "analyze_screenshot" && fileContext && !toolInput.description) {
+            toolInput.description = `Uploaded file content:\n${fileContext.slice(0, 5000)}`;
+          }
+
           try {
             const toolResult = await executeTool(toolName, toolInput);
             if (toolResult.sources) sources.push(...toolResult.sources);
@@ -587,6 +597,9 @@ export async function POST(req: NextRequest) {
     } else if (msg.includes("content_filter") || msg.includes("content policy") || msg.includes("safety")) {
       userError = "Your message was flagged by the content safety filter. Please rephrase your question.";
       statusHint = "content_filter";
+    } else if (statusCode === 400 || msg.includes("bad request") || msg.includes("bad_request")) {
+      userError = "The AI model rejected this request. Try a shorter message or different wording.";
+      statusHint = "bad_request";
     } else if (statusCode && statusCode >= 500) {
       userError = "The AI service is experiencing issues. Please try again in a moment.";
       statusHint = "server_error";

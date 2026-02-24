@@ -1,14 +1,14 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
-import { ChartRenderer, parseChartBlocks, type ChartSpec } from "@/components/ChartRenderer";
-import { MermaidRenderer, parseMermaidBlocks } from "@/components/MermaidRenderer";
-import { ManimRenderer, parseManimBlocks } from "@/components/ManimRenderer";
-import { ImageRenderer, parseImageBlocks } from "@/components/ImageRenderer";
+import { ChartRenderer } from "@/components/ChartRenderer";
+import { MermaidRenderer } from "@/components/MermaidRenderer";
+import { ManimRenderer } from "@/components/ManimRenderer";
+import { ImageRenderer } from "@/components/ImageRenderer";
 import { FlashcardRenderer } from "@/components/FlashcardRenderer";
 import { QuizRenderer } from "@/components/QuizRenderer";
 import { FileUploadButton, FileChips, type FileAttachment } from "@/components/FileUploadButton";
@@ -342,18 +342,9 @@ function UserBubble({ message, onEdit }: { message: Message; onEdit?: (id: strin
 function AssistantBubble({ message, onRegenerate }: { message: Message; onRegenerate?: (id: string) => void }) {
   const [copied, setCopied] = useState(false);
 
-  // Parse all rich content blocks from the message
-  const { text: afterCharts, charts: inlineCharts } = parseChartBlocks(message.content);
-  const { text: afterMermaid, diagrams: inlineDiagrams } = parseMermaidBlocks(afterCharts);
-  const { text: afterManim, animations: inlineAnimations } = parseManimBlocks(afterMermaid);
-  const { text: processedText, images: inlineImages } = parseImageBlocks(afterManim);
-
-  // Clean up rendering placeholders (HTML comments that ReactMarkdown won't render)
-  const cleanedText = processedText
-    .replace(/<!--(?:chart|mermaid|manim|image):\d+-->/g, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-  const latexFixed = preprocessLatex(cleanedText);
+  // Feed content directly to ReactMarkdown — it handles all code blocks (mermaid, manim, chart, image)
+  // via the code() component override. No pre-parsing needed.
+  const latexFixed = preprocessLatex(message.content.replace(/\n{3,}/g, "\n\n").trim());
 
   const handleCopy = () => {
     // Copy plain text version (strip markdown/html)
@@ -415,43 +406,43 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
               components={{
                 code({ className, children, ...props }) {
                   const codeStr = String(children).trim();
+                  // Mermaid diagrams — rendered inline where the code block appears
+                  if (/language-mermaid/i.test(className || "")) {
+                    return <MermaidRenderer code={codeStr} />;
+                  }
+                  // Manim animations
+                  if (/language-manim/i.test(className || "")) {
+                    const classMatch = codeStr.match(/class\s+(\w+)\s*\(/);
+                    const sceneName = classMatch ? classMatch[1] : "ManimScene";
+                    return <ManimRenderer code={codeStr} sceneName={sceneName} explanation="" />;
+                  }
                   // Chart blocks
-                  const chartMatch = /language-chart/.exec(className || "");
-                  if (chartMatch) {
+                  if (/language-chart/i.test(className || "")) {
                     try {
                       const chartData = JSON.parse(codeStr);
                       if (chartData.type && chartData.datasets) {
                         return <ChartRenderer data={chartData} />;
                       }
-                    } catch {
-                      // Fall through
-                    }
-                  }
-                  // Mermaid blocks
-                  const mermaidMatch = /language-mermaid/.exec(className || "");
-                  if (mermaidMatch) {
-                    return <MermaidRenderer code={codeStr} />;
-                  }
-                  // Manim blocks
-                  const manimMatch = /language-manim/.exec(className || "");
-                  if (manimMatch) {
-                    const classMatch = codeStr.match(/class\s+(\w+)\s*\(/);
-                    const sceneName = classMatch ? classMatch[1] : "ManimScene";
-                    return <ManimRenderer code={codeStr} sceneName={sceneName} explanation="" />;
+                    } catch { /* fall through to code block */ }
                   }
                   // Image blocks
-                  const imageMatch = /language-image/.exec(className || "");
-                  if (imageMatch) {
+                  if (/language-image/i.test(className || "")) {
                     try {
                       const imgData = JSON.parse(codeStr);
                       if (imgData.prompt) {
                         return <ImageRenderer prompt={imgData.prompt} style={imgData.style || "diagram"} subject={imgData.subject} url={imgData.url} />;
                       }
-                    } catch {
-                      // Fall through
-                    }
+                    } catch { /* fall through to code block */ }
                   }
                   return <code className={className} {...props}>{children}</code>;
+                },
+                pre({ children, ...props }) {
+                  // When code() returns a custom renderer (MermaidRenderer etc.), skip the <pre> wrapper
+                  // so the component renders with its own styling instead of monospace pre-formatted text
+                  if (React.isValidElement(children) && typeof (children as React.ReactElement).type !== 'string') {
+                    return <>{children}</>;
+                  }
+                  return <pre {...props}>{children}</pre>;
                 },
                 table({ children }) {
                   return (
@@ -464,35 +455,6 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
             >
               {latexFixed}
             </ReactMarkdown>
-
-            {inlineCharts.map((chart: ChartSpec, i: number) => (
-              <ChartRenderer key={`chart-${i}`} data={chart} />
-            ))}
-
-            {inlineDiagrams.map((diagram, i) => (
-              <MermaidRenderer key={`mermaid-${i}`} code={diagram.code} title={diagram.title} />
-            ))}
-
-            {inlineAnimations.map((anim, i) => (
-              <ManimRenderer key={`manim-${i}`} code={anim.code} sceneName={anim.sceneName} explanation={anim.explanation} />
-            ))}
-
-            {inlineImages.map((img, i) => (
-              <ImageRenderer key={`img-${i}`} prompt={img.prompt} style={img.style} subject={img.subject} url={img.url} />
-            ))}
-
-            {/* Structured data from tool calls */}
-            {message.flowcharts?.map((fc, i) => (
-              <MermaidRenderer key={`fc-${i}`} code={fc.mermaidCode} title={fc.title} />
-            ))}
-
-            {message.manimAnimations?.map((anim, i) => (
-              <ManimRenderer key={`ma-${i}`} code={anim.code} sceneName={anim.sceneName} explanation={anim.explanation} />
-            ))}
-
-            {message.generatedImages?.map((img, i) => (
-              <ImageRenderer key={`gi-${i}`} prompt={img.prompt} style={img.style} subject={img.subject} url={img.url} />
-            ))}
 
             {/* Flashcard sets from tool calls */}
             {message.flashcardSets?.map((fc, i) => (

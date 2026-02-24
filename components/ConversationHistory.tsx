@@ -1,8 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Icon } from "@/components/Icons";
+import { isFirebaseEnabled } from "@/lib/firebase";
+import {
+  cloudSaveConversation,
+  cloudLoadConversations,
+  cloudDeleteConversation,
+  cloudClearAll,
+} from "@/lib/cloud-storage";
 import type { Message } from "@/lib/types";
 
 interface Conversation {
@@ -32,6 +40,11 @@ export function ConversationHistory({
   const [isOpen, setIsOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [cloudStatus, setCloudStatus] = useState<"idle" | "syncing" | "synced" | "offline">("idle");
+  const { data: session } = useSession();
+  const userEmail = session?.user?.email || null;
+  const cloudEnabled = isFirebaseEnabled() && !!userEmail;
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load conversations from localStorage
   useEffect(() => {
@@ -45,15 +58,62 @@ export function ConversationHistory({
     }
   }, [currentMessages]);
 
-  function loadConversations() {
+  // Load from localStorage first, then try cloud and merge
+  async function loadConversations() {
+    // 1. Load from localStorage (fast, always available)
+    let localConversations: Conversation[] = [];
     try {
       const stored = localStorage.getItem("schoolit_conversations");
       if (stored) {
-        const parsed = JSON.parse(stored) as Conversation[];
-        setConversations(parsed.sort((a, b) => b.timestamp - a.timestamp));
+        localConversations = JSON.parse(stored) as Conversation[];
       }
-    } catch {
-      // Ignore
+    } catch { /* ignore */ }
+
+    setConversations(localConversations.sort((a, b) => b.timestamp - a.timestamp));
+
+    // 2. Try cloud sync (async, merges with local)
+    if (cloudEnabled && userEmail) {
+      try {
+        setCloudStatus("syncing");
+        const cloudData = await cloudLoadConversations(userEmail);
+        if (cloudData && cloudData.length > 0) {
+          // Merge: cloud data takes priority for newer entries
+          const merged = new Map<string, Conversation>();
+          for (const local of localConversations) {
+            merged.set(local.id, local);
+          }
+          for (const cloud of cloudData) {
+            const existing = merged.get(cloud.id);
+            if (!existing || cloud.timestamp > existing.timestamp) {
+              merged.set(cloud.id, {
+                id: cloud.id,
+                title: cloud.title,
+                subject: cloud.subject,
+                timestamp: cloud.timestamp,
+                messageCount: cloud.messageCount,
+                preview: cloud.preview,
+              });
+              // Also save cloud messages to localStorage for offline access
+              if (cloud.messages && cloud.messages.length > 0) {
+                try {
+                  const msgJson = JSON.stringify(cloud.messages);
+                  if (msgJson.length < 500_000) {
+                    localStorage.setItem(`schoolit_msgs_${cloud.id}`, msgJson);
+                  }
+                } catch { /* ignore */ }
+              }
+            }
+          }
+          const mergedList = Array.from(merged.values()).sort((a, b) => b.timestamp - a.timestamp);
+          setConversations(mergedList);
+          localStorage.setItem("schoolit_conversations", JSON.stringify(mergedList));
+          setCloudStatus("synced");
+        } else {
+          setCloudStatus("synced");
+        }
+      } catch {
+        setCloudStatus("offline");
+      }
     }
   }
 
@@ -118,12 +178,34 @@ export function ConversationHistory({
         sources: m.sources || undefined,
         toolCalls: m.toolCalls || undefined,
         model: m.model || undefined,
-        // Skip large data like charts/images to stay within localStorage limits
+        flowcharts: m.flowcharts || undefined,
+        manimAnimations: m.manimAnimations || undefined,
+        generatedImages: m.generatedImages || undefined,
+        flashcardSets: m.flashcardSets || undefined,
+        quizSets: m.quizSets || undefined,
       }));
       const msgJson = JSON.stringify(serializableMessages);
       // Only save if under 500KB per conversation
       if (msgJson.length < 500_000) {
         localStorage.setItem(`schoolit_msgs_${conversationId}`, msgJson);
+      }
+
+      // Cloud sync — debounced to avoid excessive writes
+      if (cloudEnabled && userEmail) {
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = setTimeout(() => {
+          cloudSaveConversation(userEmail!, {
+            id: conversationId,
+            title,
+            subject,
+            timestamp: Date.now(),
+            messageCount: currentMessages.length,
+            preview,
+            messages: currentMessages,
+          }).then((ok) => {
+            if (ok) setCloudStatus("synced");
+          }).catch(() => {});
+        }, 2000); // Debounce 2 seconds
       }
     } catch {
       // localStorage might be full — ignore
@@ -138,6 +220,10 @@ export function ConversationHistory({
     const updated = conversations.filter((c) => c.id !== id);
     localStorage.setItem("schoolit_conversations", JSON.stringify(updated));
     localStorage.removeItem(`schoolit_msgs_${id}`);
+    // Also delete from cloud (fire-and-forget)
+    if (cloudEnabled && userEmail) {
+      cloudDeleteConversation(userEmail, id).catch(() => {});
+    }
     setConversations(updated);
     if (activeId === id) {
       setActiveId(null);
@@ -152,6 +238,10 @@ export function ConversationHistory({
         localStorage.removeItem(`schoolit_msgs_${conv.id}`);
       }
       localStorage.removeItem("schoolit_conversations");
+      // Also clear from cloud (fire-and-forget)
+      if (cloudEnabled && userEmail) {
+        cloudClearAll(userEmail).catch(() => {});
+      }
       setConversations([]);
       setActiveId(null);
     }
@@ -219,6 +309,15 @@ export function ConversationHistory({
                   <h2 className="text-lg font-bold text-white flex items-center gap-2">
                     <Icon name="history" className="w-5 h-5 text-blue-400" />
                     History
+                    {cloudEnabled && (
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium uppercase tracking-wide ${
+                        cloudStatus === "synced" ? "bg-green-500/15 text-green-400 border border-green-500/30" :
+                        cloudStatus === "syncing" ? "bg-blue-500/15 text-blue-400 border border-blue-500/30" :
+                        "bg-yellow-500/15 text-yellow-400 border border-yellow-500/30"
+                      }`}>
+                        {cloudStatus === "synced" ? "☁️ Cloud" : cloudStatus === "syncing" ? "⟳ Syncing" : "⚠ Offline"}
+                      </span>
+                    )}
                   </h2>
                   <button
                     onClick={() => setIsOpen(false)}
@@ -243,6 +342,7 @@ export function ConversationHistory({
                 {/* New Chat Button */}
                 <button
                   onClick={() => {
+                    saveCurrentConversation(); // Save current before clearing
                     onNewChat?.();
                     setActiveId(null);
                     setIsOpen(false);
@@ -283,6 +383,8 @@ export function ConversationHistory({
                               <button
                                 key={conv.id}
                                 onClick={() => {
+                                  // Save current conversation BEFORE switching to prevent data loss
+                                  saveCurrentConversation();
                                   // Load actual messages from localStorage
                                   try {
                                     const storedMsgs = localStorage.getItem(`schoolit_msgs_${conv.id}`);
