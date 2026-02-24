@@ -177,8 +177,10 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
     function: {
       name: "create_flashcards",
       description:
-        "Generate study flashcards for a topic. Use this when students want to review " +
-        "or memorize key concepts, formulas, definitions, or vocabulary.",
+        "Generate study flashcards for a topic. Use this IMMEDIATELY when students ask to " +
+        "'create flashcards', 'make flashcards', 'help me memorize', 'review cards', etc. " +
+        "You MUST generate the cards array yourself based on the topic — the AI creates the content. " +
+        "Create 8-15 high-quality flashcards covering key concepts, formulas, and definitions.",
       parameters: {
         type: "object",
         properties: {
@@ -186,8 +188,9 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
           cards: {
             type: "string",
             description:
-              'JSON array of flashcard objects with "front" (question/term) and "back" (answer/definition). ' +
-              'Example: [{"front":"What is the quadratic formula?","back":"$x = \\\\frac{-b \\\\pm \\\\sqrt{b^2 - 4ac}}{2a}$"}]',
+              'YOU MUST generate this: JSON array of flashcard objects. Each card has "front" (question/term) and "back" (answer/definition). ' +
+              'Generate 8-15 cards covering the most important concepts. ' +
+              'Example: [{"front":"What is Newton\'s First Law?","back":"An object at rest stays at rest, and an object in motion stays in motion unless acted upon by an external force (Law of Inertia)."},{"front":"Formula for Force","back":"$F = ma$ where F is force in Newtons, m is mass in kg, and a is acceleration in m/s²"}]',
           },
           count: { type: "integer", description: "Number of flashcards (default 10)." },
         },
@@ -202,8 +205,10 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
     function: {
       name: "generate_quiz",
       description:
-        "Generate a practice quiz with multiple choice or short answer questions. " +
-        "Use when students want to test their understanding of a topic.",
+        "Generate a practice quiz with multiple choice questions. " +
+        "Use this IMMEDIATELY when students ask to 'quiz me', 'test me', 'practice questions', 'MCQ', etc. " +
+        "You MUST generate the questions array yourself — the AI creates all the content. " +
+        "Create 5-10 quality questions with 4 options each, correct answer index, and explanations.",
       parameters: {
         type: "object",
         properties: {
@@ -211,9 +216,11 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
           questions: {
             type: "string",
             description:
-              'JSON array of question objects. Each has "question", "options" (array of 4 choices), ' +
-              '"correct" (index 0-3), and "explanation". ' +
-              'Example: [{"question":"What is 2+2?","options":["3","4","5","6"],"correct":1,"explanation":"Basic addition."}]',
+              'YOU MUST generate this: JSON array of question objects. ' +
+              'Each has "question" (string), "options" (array of exactly 4 choice strings), ' +
+              '"correct" (index 0-3 of the correct option), and "explanation" (why this answer is correct). ' +
+              'Generate 5-10 questions covering key concepts. ' +
+              'Example: [{"question":"What is the SI unit of force?","options":["Joule","Newton","Pascal","Watt"],"correct":1,"explanation":"The Newton (N) is the SI unit of force, defined as kg⋅m/s²."}]',
           },
           difficulty: {
             type: "string",
@@ -750,7 +757,10 @@ async function executeWebSearch(
           const pageHtml = await pageRes.text();
           // Deep content extraction — extract structured content
           const textContent = deepExtractContent(pageHtml);
-          return { ...r, content: textContent || r.snippet };
+          // Extract the actual page title for better source display
+          const pageTitleMatch = pageHtml.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+          const pageTitle = pageTitleMatch ? pageTitleMatch[1].replace(/\s*[-|].*$/, "").trim() : r.title;
+          return { ...r, title: pageTitle || r.title, content: textContent || r.snippet };
         } catch {
           return { ...r, content: r.snippet };
         }
@@ -758,7 +768,14 @@ async function executeWebSearch(
     );
 
     return {
-      result: { results: enrichedResults },
+      result: {
+        results: enrichedResults,
+        search_query: query,
+        result_count: enrichedResults.length,
+        instructions: "Use the search results to provide an accurate, well-sourced answer. " +
+          "When citing information from search results, mention the source naturally in your response " +
+          "(e.g., 'According to [source]...'). Include relevant URLs as references.",
+      },
       sources: enrichedResults.map((r) => r.url).filter(Boolean),
     };
   } catch (error) {
@@ -848,29 +865,43 @@ function executeFlashcardGeneration(
   let cards: unknown[] = [];
 
   try {
-    cards = typeof input.cards === "string" ? JSON.parse(input.cards) : input.cards || [];
+    if (typeof input.cards === "string") {
+      // Try to fix common JSON issues before parsing
+      let cardsStr = input.cards.trim();
+      // Remove markdown code fences if present
+      cardsStr = cardsStr.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+      cards = JSON.parse(cardsStr);
+    } else if (Array.isArray(input.cards)) {
+      cards = input.cards;
+    } else {
+      cards = [];
+    }
   } catch {
     return {
       result: {
-        error: "Invalid flashcards JSON format.",
+        error: "Could not parse flashcard data. Please try again — the AI will regenerate the cards.",
+        retry_hint: "Regenerate the flashcards with properly formatted JSON.",
       },
     };
   }
 
-  if (!Array.isArray(cards)) {
+  if (!Array.isArray(cards) || cards.length === 0) {
     return {
       result: {
-        error: "Flashcards must be an array of objects with 'front' and 'back' properties.",
+        error: "No flashcards were generated. Please specify the topic and try again.",
+        retry_hint: "Provide a clear topic for flashcard generation.",
       },
     };
   }
 
   return {
     result: {
-      message: `Created ${cards.length} flashcards for "${topic}". Use them to study and review!`,
+      message: `📚 Created **${cards.length} flashcards** for "${topic}"!\n\nHere are your study cards:`,
       topic,
       cards,
-      studyTip: "Read the front side, try to recall the answer, then flip to check. Repeat daily for best retention.",
+      card_count: cards.length,
+      studyTip: "💡 **Study Method**: Read the front side, try to recall the answer in your head, then check the back. Repeat daily using spaced repetition for best retention.",
+      display_format: "flashcard_grid",
     },
   };
 }
@@ -885,30 +916,41 @@ function executeQuizGeneration(
   let questions: unknown[] = [];
 
   try {
-    questions = typeof input.questions === "string" ? JSON.parse(input.questions) : input.questions || [];
+    if (typeof input.questions === "string") {
+      let qStr = input.questions.trim();
+      qStr = qStr.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+      questions = JSON.parse(qStr);
+    } else if (Array.isArray(input.questions)) {
+      questions = input.questions;
+    } else {
+      questions = [];
+    }
   } catch {
     return {
       result: {
-        error: "Invalid quiz JSON format.",
+        error: "Could not parse quiz data. Please try again — the AI will regenerate the questions.",
+        retry_hint: "Regenerate the quiz with properly formatted JSON.",
       },
     };
   }
 
-  if (!Array.isArray(questions)) {
+  if (!Array.isArray(questions) || questions.length === 0) {
     return {
       result: {
-        error: "Questions must be an array of question objects.",
+        error: "No quiz questions were generated. Please specify the topic and try again.",
       },
     };
   }
 
   return {
     result: {
-      message: `Generated a ${difficulty} quiz with ${questions.length} questions on "${topic}". Good luck!`,
+      message: `📝 Generated a **${difficulty}** quiz with **${questions.length} questions** on "${topic}"!\n\nGood luck! 🍀`,
       topic,
       difficulty,
       questions,
-      quizTip: "Take your time to understand each question. Read all options before selecting. Review explanations after each answer.",
+      question_count: questions.length,
+      quizTip: "💡 **Tip**: Read all options carefully before selecting. After each answer, review the explanation to reinforce your understanding.",
+      display_format: "quiz_interactive",
     },
   };
 }
@@ -1011,17 +1053,19 @@ async function executeImageGeneration(
     }
   }
 
-  // Fallback: text-only response
+  // Fallback: text-only response with descriptive SVG rendering
   return {
     result: {
       message:
         `**Educational Illustration** (${style} style for ${subject})\n\n` +
         `${prompt}\n\n` +
-        "The illustration has been rendered below.",
+        "A conceptual diagram has been generated below based on the description. " +
+        "For AI-generated realistic images, try using GPT-4o or GPT-4.1 with the prompt directly.",
       prompt,
       style,
       subject,
       type: "image_rendered",
+      note: "Rendered as conceptual SVG — DALL-E image generation is not available on this endpoint.",
     },
     imageData: {
       prompt,
@@ -1251,61 +1295,110 @@ async function executeVideoSummarizer(
     let transcript = "";
     let videoTitle = "";
     let videoDescription = "";
+    let channelName = "";
 
     if (videoId) {
-      // Try to get YouTube transcript via multiple methods
-      // Method 1: Try InnerTube API for captions
+      // Method 0: Get metadata from noembed (reliable, fast)
+      try {
+        const noembedRes = await fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (noembedRes.ok) {
+          const meta = await noembedRes.json();
+          if (meta.title) videoTitle = meta.title;
+          if (meta.author_name) channelName = meta.author_name;
+        }
+      } catch {
+        // noembed failed, continue
+      }
+
+      // Method 1: Try InnerTube API for captions from YouTube page
       try {
         const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
           headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            Accept: "text/html",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            Accept: "text/html,application/xhtml+xml",
+            "Accept-Language": "en-US,en;q=0.9",
           },
-          signal: AbortSignal.timeout(8000),
+          signal: AbortSignal.timeout(10000),
         });
         const html = await pageRes.text();
 
-        // Extract title
-        const titleMatch = html.match(/<title>(.*?)<\/title>/);
-        videoTitle = titleMatch ? titleMatch[1].replace(" - YouTube", "").trim() : "";
+        // Extract title if not already found
+        if (!videoTitle) {
+          const titleMatch = html.match(/<title>(.*?)<\/title>/);
+          videoTitle = titleMatch ? titleMatch[1].replace(" - YouTube", "").trim() : "";
+        }
 
         // Extract description from meta
         const descMatch = html.match(/<meta name="description" content="([^"]*)"/) ||
           html.match(/"shortDescription":"((?:[^"\\]|\\.)*)"/);
-        videoDescription = descMatch ? descMatch[1].replace(/\\n/g, "\n").slice(0, 1000) : "";
+        videoDescription = descMatch ? descMatch[1].replace(/\\n/g, "\n").slice(0, 2000) : "";
+
+        // Extract channel name if not found
+        if (!channelName) {
+          const channelMatch = html.match(/"ownerChannelName":"((?:[^"\\]|\\.)*)"/);
+          if (channelMatch) channelName = channelMatch[1];
+        }
 
         // Try to extract captions URL from player response
         const captionsMatch = html.match(/"captionTracks":\s*(\[[\s\S]*?\])/);
         if (captionsMatch) {
           try {
             const tracks = JSON.parse(captionsMatch[1]);
+            // Prefer English, then auto-generated English, then any track
             const enTrack = tracks.find((t: Record<string, string>) =>
+              t.languageCode === "en" && !t.kind
+            ) || tracks.find((t: Record<string, string>) =>
               t.languageCode === "en" || t.languageCode?.startsWith("en")
             ) || tracks[0];
 
             if (enTrack?.baseUrl) {
               const captionUrl = enTrack.baseUrl.replace(/\\u0026/g, "&");
-              const capRes = await fetch(captionUrl, { signal: AbortSignal.timeout(6000) });
+              const capRes = await fetch(captionUrl, { signal: AbortSignal.timeout(8000) });
               const capXml = await capRes.text();
 
-              // Parse XML captions
-              const segments: string[] = [];
-              const segRegex = /<text[^>]*>([\s\S]*?)<\/text>/gi;
+              // Parse XML captions with timestamps
+              const segments: { time: number; text: string }[] = [];
+              const segRegex = /<text start="([^"]*)"[^>]*>([\s\S]*?)<\/text>/gi;
               let segMatch;
               while ((segMatch = segRegex.exec(capXml)) !== null) {
-                const text = segMatch[1]
+                const startTime = parseFloat(segMatch[1]);
+                const text = segMatch[2]
                   .replace(/&amp;/g, "&")
                   .replace(/&lt;/g, "<")
                   .replace(/&gt;/g, ">")
                   .replace(/&#39;/g, "'")
                   .replace(/&quot;/g, '"')
+                  .replace(/<[^>]*>/g, "")
                   .trim();
-                if (text) segments.push(text);
+                if (text) segments.push({ time: startTime, text });
               }
-              transcript = segments.join(" ");
+
+              // Build transcript with periodic timestamps
+              const parts: string[] = [];
+              let lastTimestamp = -60;
+              for (const seg of segments) {
+                if (seg.time - lastTimestamp >= 60) {
+                  const mins = Math.floor(seg.time / 60);
+                  const secs = Math.floor(seg.time % 60);
+                  parts.push(`\n[${mins}:${secs.toString().padStart(2, "0")}] `);
+                  lastTimestamp = seg.time;
+                }
+                parts.push(seg.text);
+              }
+              transcript = parts.join(" ").replace(/\n\s+/g, "\n").trim();
             }
           } catch {
             // Caption parsing failed
+          }
+        }
+
+        // Method 2: Try to extract transcript from ytInitialData
+        if (!transcript) {
+          const descriptionMatch = html.match(/"description":\s*{\s*"simpleText":\s*"((?:[^"\\]|\\.)*)"/);
+          if (descriptionMatch && descriptionMatch[1].length > videoDescription.length) {
+            videoDescription = descriptionMatch[1].replace(/\\n/g, "\n").slice(0, 3000);
           }
         }
       } catch {
@@ -1334,29 +1427,35 @@ async function executeVideoSummarizer(
 
     return {
       result: {
-        message: "Video content extracted. Now provide a comprehensive summary.",
+        message: "Video content extracted successfully. Now provide a comprehensive summary.",
         video_url: url,
         video_id: videoId,
-        title: videoTitle,
-        description: videoDescription.slice(0, 1500),
-        transcript: transcript.slice(0, 10000),
+        title: videoTitle || "Untitled Video",
+        channel: channelName || "Unknown Channel",
+        description: videoDescription.slice(0, 2000),
+        transcript: transcript.slice(0, 12000),
         has_transcript: transcript.length > 0,
+        transcript_length: transcript.length,
         focus: focus || "general overview",
+        youtube_link: videoId ? `https://www.youtube.com/watch?v=${videoId}` : url,
         instructions:
           "Create a detailed summary with:\n" +
-          "1. **Overview** — What the video is about (1-2 sentences)\n" +
-          "2. **Key Points** — Bullet list of main takeaways\n" +
-          "3. **Detailed Summary** — Section-by-section breakdown\n" +
-          "4. **Key Quotes/Data** — Important numbers, facts, or quotes\n" +
-          "5. **Study Notes** — How this relates to academic topics\n" +
-          (focus ? `6. **Focus Area** — Specifically cover: ${focus}` : ""),
+          "1. **📺 Overview** — What the video is about (1-2 sentences)\n" +
+          `2. **👤 Channel** — ${channelName || "Unknown"}\n` +
+          "3. **🔑 Key Points** — Bullet list of main takeaways\n" +
+          "4. **📝 Detailed Summary** — Section-by-section breakdown" +
+          (transcript.length > 0 ? " with timestamps" : "") + "\n" +
+          "5. **💡 Key Quotes/Data** — Important numbers, facts, or quotes\n" +
+          "6. **📚 Study Notes** — How this relates to academic topics\n" +
+          (focus ? `7. **🎯 Focus Area** — Specifically cover: ${focus}` : "") +
+          (!transcript ? "\n\n⚠️ Note: No transcript available. Summarize based on title and description." : ""),
       },
       sources: [url],
     };
   } catch (error) {
     return {
       result: {
-        message: `Could not process video: ${error instanceof Error ? error.message : "unknown error"}`,
+        message: `Could not process video: ${error instanceof Error ? error.message : "unknown error"}. Try sharing the video URL and I'll do my best with available information.`,
       },
       sources: [url],
     };

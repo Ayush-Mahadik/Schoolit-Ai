@@ -497,25 +497,48 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
         {/* Video player */}
         {message.animationUrl && <VideoPlayer url={message.animationUrl} />}
 
-        {/* Source links */}
+        {/* Source links — Grok-style source cards */}
         {message.sources && message.sources.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {message.sources.map((src, i) => {
-              let hostname = src;
-              try { hostname = new URL(src).hostname; } catch { /* ignore */ }
-              return (
-                <a
-                  key={i}
-                  href={src}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[10px] px-2 py-0.5 rounded-full bg-surface-3 text-brand-400 hover:text-brand-300 transition-colors truncate max-w-[200px] flex items-center gap-1 border border-surface-4"
-                >
-                  <ExternalLink className="w-2.5 h-2.5 shrink-0" />
-                  {hostname}
-                </a>
-              );
-            })}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+              <ExternalLink className="w-3 h-3" />
+              Sources ({message.sources.length})
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {message.sources.map((src, i) => {
+                let hostname = src;
+                let displayName = src;
+                try {
+                  const u = new URL(src);
+                  hostname = u.hostname.replace("www.", "");
+                  displayName = hostname;
+                } catch { /* ignore */ }
+                return (
+                  <a
+                    key={i}
+                    href={src}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-surface-2 hover:bg-surface-3 border border-surface-4 hover:border-blue-500/30 transition-all group/src max-w-[280px]"
+                  >
+                    <img
+                      src={`https://www.google.com/s2/favicons?domain=${hostname}&sz=32`}
+                      alt=""
+                      className="w-4 h-4 rounded-sm shrink-0"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-medium text-slate-300 group-hover/src:text-blue-400 truncate transition-colors">
+                        {displayName}
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-slate-600 bg-surface-3 px-1.5 py-0.5 rounded font-mono shrink-0">
+                      {i + 1}
+                    </span>
+                  </a>
+                );
+              })}
+            </div>
           </div>
         )}
 

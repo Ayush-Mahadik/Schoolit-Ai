@@ -242,6 +242,27 @@ export function buildSystemPrompt(
 ): string {
   const parts = [BASE_SYSTEM_PROMPT];
 
+  // Inject current date/time so AI has real-time awareness
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istDate = new Date(now.getTime() + istOffset);
+  const dateStr = istDate.toLocaleDateString("en-IN", {
+    weekday: "long", year: "numeric", month: "long", day: "numeric",
+    timeZone: "Asia/Kolkata",
+  });
+  const timeStr = istDate.toLocaleTimeString("en-IN", {
+    hour: "2-digit", minute: "2-digit", hour12: true,
+    timeZone: "Asia/Kolkata",
+  });
+  parts.push(
+    `\n## Current Date & Time:\n` +
+    `- **Date**: ${dateStr}\n` +
+    `- **Time (IST)**: ${timeStr}\n` +
+    `- **ISO**: ${now.toISOString()}\n` +
+    `Use this for scheduling, time-sensitive answers, and real-time context. ` +
+    `When discussing "today", "tomorrow", "this week", etc., use this date as reference.`
+  );
+
   const subjectCtx = SUBJECT_CONTEXTS[subject.toLowerCase()] || SUBJECT_CONTEXTS.general;
   parts.push(`\n## Current Subject:\n${subjectCtx}`);
 

@@ -16,7 +16,7 @@ interface Conversation {
 
 interface ConversationHistoryProps {
   currentMessages: Message[];
-  onLoadConversation?: (id: string) => void;
+  onLoadConversation?: (id: string, messages: Message[]) => void;
   onNewChat?: () => void;
 }
 
@@ -97,10 +97,38 @@ export function ConversationHistory({
 
     // Keep max 50 conversations
     if (existing.length > 50) {
+      // Also clean up message storage for removed conversations
+      const removedIds = existing.slice(50).map((c) => c.id);
+      for (const rid of removedIds) {
+        localStorage.removeItem(`schoolit_msgs_${rid}`);
+      }
       existing = existing.slice(0, 50);
     }
 
     localStorage.setItem("schoolit_conversations", JSON.stringify(existing));
+
+    // Save actual messages for this conversation
+    try {
+      const serializableMessages = currentMessages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp,
+        thinking: m.thinking || undefined,
+        sources: m.sources || undefined,
+        toolCalls: m.toolCalls || undefined,
+        model: m.model || undefined,
+        // Skip large data like charts/images to stay within localStorage limits
+      }));
+      const msgJson = JSON.stringify(serializableMessages);
+      // Only save if under 500KB per conversation
+      if (msgJson.length < 500_000) {
+        localStorage.setItem(`schoolit_msgs_${conversationId}`, msgJson);
+      }
+    } catch {
+      // localStorage might be full — ignore
+    }
+
     setConversations(existing);
     setActiveId(conversationId);
   }
@@ -109,6 +137,7 @@ export function ConversationHistory({
     e.stopPropagation();
     const updated = conversations.filter((c) => c.id !== id);
     localStorage.setItem("schoolit_conversations", JSON.stringify(updated));
+    localStorage.removeItem(`schoolit_msgs_${id}`);
     setConversations(updated);
     if (activeId === id) {
       setActiveId(null);
@@ -118,6 +147,10 @@ export function ConversationHistory({
 
   function clearAllConversations() {
     if (confirm("Delete all conversation history? This cannot be undone.")) {
+      // Clean up all stored messages
+      for (const conv of conversations) {
+        localStorage.removeItem(`schoolit_msgs_${conv.id}`);
+      }
       localStorage.removeItem("schoolit_conversations");
       setConversations([]);
       setActiveId(null);
@@ -169,7 +202,7 @@ export function ConversationHistory({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsOpen(false)}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60]"
             />
 
             {/* Panel */}
@@ -178,7 +211,7 @@ export function ConversationHistory({
               animate={{ x: 0 }}
               exit={{ x: -320 }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="fixed left-0 top-0 bottom-0 w-80 bg-surface-1 border-r border-surface-4 z-50 flex flex-col"
+              className="fixed left-0 top-0 bottom-0 w-80 bg-surface-1 border-r border-surface-4 z-[70] flex flex-col"
             >
               {/* Header */}
               <div className="p-4 border-b border-surface-4">
@@ -250,7 +283,23 @@ export function ConversationHistory({
                               <button
                                 key={conv.id}
                                 onClick={() => {
-                                  onLoadConversation?.(conv.id);
+                                  // Load actual messages from localStorage
+                                  try {
+                                    const storedMsgs = localStorage.getItem(`schoolit_msgs_${conv.id}`);
+                                    if (storedMsgs) {
+                                      const parsed = JSON.parse(storedMsgs) as Message[];
+                                      // Restore Date objects from ISO strings
+                                      const restored = parsed.map((m) => ({
+                                        ...m,
+                                        timestamp: new Date(m.timestamp),
+                                      }));
+                                      onLoadConversation?.(conv.id, restored);
+                                    } else {
+                                      onLoadConversation?.(conv.id, []);
+                                    }
+                                  } catch {
+                                    onLoadConversation?.(conv.id, []);
+                                  }
                                   setActiveId(conv.id);
                                   setIsOpen(false);
                                 }}

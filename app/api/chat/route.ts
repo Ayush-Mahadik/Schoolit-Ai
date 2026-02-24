@@ -376,7 +376,12 @@ export async function POST(req: NextRequest) {
         } catch (err: unknown) {
           const status = (err as { status?: number })?.status;
           const msg = err instanceof Error ? err.message.toLowerCase() : "";
-          const isRetryable = status === 404 || status === 429 || msg.includes("not found") || msg.includes("model") || msg.includes("rate");
+          // Only retry on genuine model-not-found (404) or rate-limit (429) errors
+          // NEVER match generic "model" text — that causes false fallback cascades
+          const isRetryable = status === 404 || status === 429 ||
+            msg.includes("not found") || msg.includes("does not exist") ||
+            msg.includes("rate limit") || msg.includes("too many requests") ||
+            msg.includes("429") || msg.includes("404");
 
           if (isRetryable && tryModel !== modelsToTry[modelsToTry.length - 1]) {
             console.warn(`Model ${tryModel} failed (${status}), trying next fallback...`);
@@ -562,7 +567,7 @@ export async function POST(req: NextRequest) {
     } else if (msg.includes("timeout") || msg.includes("timed out") || msg.includes("deadline")) {
       userError = "The request timed out. Try asking a shorter question or switch to a faster model.";
       statusHint = "timeout";
-    } else if (statusCode === 404 || msg.includes("model") || msg.includes("not found") || msg.includes("does not exist") || msg.includes("404")) {
+    } else if (statusCode === 404 || msg.includes("not found") || msg.includes("does not exist") || msg.includes("404")) {
       userError = `The model "${modelId}" isn't available right now. Try switching to GPT-4.1 or GPT-4o.`;
       statusHint = "model_not_found";
     } else if (msg.includes("content_filter") || msg.includes("content policy") || msg.includes("safety")) {

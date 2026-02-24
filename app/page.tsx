@@ -356,6 +356,11 @@ export default function Home() {
           <div className="hidden md:flex items-center gap-2">
             <ConversationHistory
               currentMessages={currentMessages}
+              onLoadConversation={(id: string, loadedMessages: Message[]) => {
+                if (loadedMessages && loadedMessages.length > 0) {
+                  setMessages((prev) => ({ ...prev, [activeSubject]: loadedMessages }));
+                }
+              }}
               onNewChat={() => {
                 setMessages((prev) => ({ ...prev, [activeSubject]: [] }));
                 setContextFiles((prev) => ({ ...prev, [activeSubject]: [] }));
@@ -390,6 +395,11 @@ export default function Home() {
           <div className="flex md:hidden items-center gap-1">
             <ConversationHistory
               currentMessages={currentMessages}
+              onLoadConversation={(id: string, loadedMessages: Message[]) => {
+                if (loadedMessages && loadedMessages.length > 0) {
+                  setMessages((prev) => ({ ...prev, [activeSubject]: loadedMessages }));
+                }
+              }}
               onNewChat={() => {
                 setMessages((prev) => ({ ...prev, [activeSubject]: [] }));
                 setContextFiles((prev) => ({ ...prev, [activeSubject]: [] }));
