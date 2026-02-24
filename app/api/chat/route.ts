@@ -272,11 +272,16 @@ export async function POST(req: NextRequest) {
   // Only send image_url parts to models that support vision
   const modelSupportsVision = !NO_VISION_SUPPORT.has(modelId);
 
-  if (imageFiles.length > 0 && modelSupportsVision) {
+  // Filter oversized images (>2MB base64 ≈ 1.5MB actual) to prevent API failures
+  const safeImages = imageFiles.filter((f: Record<string, unknown>) => String(f.content || "").length < 2_000_000);
+  const oversizedCount = imageFiles.length - safeImages.length;
+
+  if (safeImages.length > 0 && modelSupportsVision) {
+    const sizeNote = oversizedCount > 0 ? `\n\n(${oversizedCount} image(s) skipped — too large. Please resize to under 1.5MB.)` : "";
     const contentParts: OpenAI.Chat.ChatCompletionContentPart[] = [
-      { type: "text", text: message },
+      { type: "text", text: message + sizeNote },
     ];
-    for (const img of imageFiles.slice(0, 3)) {
+    for (const img of safeImages.slice(0, 3)) {
       contentParts.push({
         type: "image_url",
         image_url: { url: String(img.content), detail: "auto" },
@@ -287,6 +292,8 @@ export async function POST(req: NextRequest) {
     // Model doesn't support vision — add image context as text description
     const imageNote = `\n\n[The user attached ${imageFiles.length} image(s): ${imageFiles.map((f: Record<string, unknown>) => String(f.name || "image")).join(", ")}. This model doesn't support direct image analysis. Please let the user know you can see they attached images but recommend switching to GPT-4.1 or GPT-4o for image/screenshot analysis.]`;
     messages.push({ role: "user", content: message + imageNote });
+  } else if (oversizedCount > 0) {
+    messages.push({ role: "user", content: message + `\n\n[The uploaded image(s) were too large to process. Please resize to under 1.5MB per image and try again.]` });
   } else {
     messages.push({ role: "user", content: message });
   }
@@ -444,10 +451,11 @@ export async function POST(req: NextRequest) {
             if (toolResult.quizData) quizSets.push(toolResult.quizData as { topic: string; questions: { question: string; options: string[]; correct: number; explanation: string }[]; difficulty?: string });
             if (toolResult.scheduleData) scheduleActions.push(toolResult.scheduleData);
 
+            const toolResultStr = JSON.stringify(toolResult.result);
             messages.push({
               role: "tool",
               tool_call_id: tc.id,
-              content: JSON.stringify(toolResult.result),
+              content: toolResultStr.length > 25000 ? toolResultStr.slice(0, 25000) : toolResultStr,
             });
           } catch (toolErr) {
             console.error(`Tool ${toolName} execution failed:`, toolErr);
@@ -493,11 +501,6 @@ export async function POST(req: NextRequest) {
           if (!thinkingContent && thinkText) thinkingContent = thinkText;
           finalText = finalText.slice(0, idx).trim();
         }
-      }
-
-      // If deep thinking was active, label it even without model thinking content
-      if (chainOfThought && !thinkingContent) {
-        thinkingContent = "Deep reasoning mode was active for this response.";
       }
 
       if (charts.length > 0) {
@@ -611,7 +614,7 @@ export async function POST(req: NextRequest) {
       response: userError,
       conversation_id: crypto.randomUUID(),
       error: statusHint || "unknown_error",
-      error_detail: process.env.NODE_ENV === "development" ? rawMsg : undefined,
+      error_detail: rawMsg,
       sources: [],
       tool_calls: [],
       charts: [],

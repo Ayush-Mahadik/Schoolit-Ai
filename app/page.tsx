@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/Sidebar";
@@ -113,6 +113,28 @@ export default function Home() {
   useEffect(() => {
     saveUserSettings(settings);
   }, [settings]);
+
+  // ── Persist messages across page navigation (e.g. /schedule → back) ───
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem("schoolit-messages");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) {
+          setMessages(parsed);
+        }
+      }
+    } catch { /* ignore */ }
+    restoredRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    try {
+      sessionStorage.setItem("schoolit-messages", JSON.stringify(messages));
+    } catch { /* ignore */ }
+  }, [messages]);
 
   const currentMessages = messages[activeSubject] || [];
 

@@ -35,9 +35,6 @@ function preprocessLatex(text: string): string {
   text = text.replace(/\\\[([\s\S]+?)\\\]/g, (_, content) => `\n$$${content.trim()}$$\n`);
   // Fix double-escaped backslashes in common LaTeX commands
   text = text.replace(/\\\\(frac|sqrt|sum|int|prod|lim|infty|alpha|beta|gamma|delta|theta|pi|sigma|omega|text|mathrm|mathbf|mathit|begin|end|left|right|cdot|times|div|pm|leq|geq|neq|approx|equiv|subset|supset|cap|cup|forall|exists|nabla|partial|log|ln|sin|cos|tan|sec|csc|cot|vec|hat|bar|dot|ddot|tilde|overline|underline|overbrace|underbrace|binom|choose|pmatrix|bmatrix|vmatrix|cases|aligned|matrix|array)/g, '\\$1');
-  // Fix common broken patterns: _{ } where content got split
-  text = text.replace(/\$\s+/g, '$');
-  text = text.replace(/\s+\$/g, '$');
   // Ensure display math has proper newlines
   text = text.replace(/([^\n])\$\$/g, '$1\n$$');
   text = text.replace(/\$\$([^\n])/g, '$$\n$1');

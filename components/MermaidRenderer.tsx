@@ -270,7 +270,7 @@ function sanitizeMermaidCode(code: string): string {
   // 4. Fix "graph" without direction
   cleaned = cleaned.replace(/^graph\s*$/m, "graph TD");
 
-  // 5. Fix node labels with special chars
+  // 5. Fix node labels with special chars — wrap in quotes
   cleaned = cleaned.replace(
     /\[([^\]"]*[(){}|<>&][^\]"]*)\]/g,
     (_, inner) => `["${inner.replace(/"/g, "'")}"]`
@@ -292,6 +292,20 @@ function sanitizeMermaidCode(code: string): string {
 
   // 10. Fix --text--> to -->|text|
   cleaned = cleaned.replace(/--([^->\n|]+)-->/g, "-->|$1|");
+
+  // 11. Fix colons in node labels that break parsing (wrap in quotes)
+  cleaned = cleaned.replace(/\[([^\]"]*:[^\]"]*)\]/g, (_, inner) => `["${inner.replace(/"/g, "'")}"]`);
+
+  // 12. Fix emoji/special chars in labels — wrap unquoted labels containing non-ASCII
+  cleaned = cleaned.replace(/\[([^\]"]*[^\x00-\x7F][^\]"]*)\]/g, (_, inner) => `["${inner.replace(/"/g, "'")}"]`);
+
+  // 13. Ensure first line has a valid diagram type
+  const firstLine = cleaned.split("\n")[0].trim().toLowerCase();
+  const validTypes = ["graph", "flowchart", "sequencediagram", "classDiagram", "statediagram", "erdiagram", "gantt", "pie", "gitgraph", "mindmap", "timeline", "sankey", "xychart", "block"];
+  const hasValidType = validTypes.some(t => firstLine.startsWith(t.toLowerCase()));
+  if (!hasValidType && !firstLine.startsWith("---")) {
+    cleaned = "graph TD\n" + cleaned;
+  }
 
   return cleaned.trim();
 }

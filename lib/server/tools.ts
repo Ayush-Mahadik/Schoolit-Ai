@@ -675,16 +675,19 @@ async function executeWebSearch(
   const maxResults = Math.min(Number(input.max_results) || 3, 5);
 
   try {
-    // Use DuckDuckGo HTML search
-    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    // Use DuckDuckGo HTML search (POST for reliability, shorter timeout)
+    const searchUrl = `https://html.duckduckgo.com/html/`;
     const response = await fetch(searchUrl, {
+      method: "POST",
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
         Accept: "text/html",
         "Accept-Language": "en-US,en;q=0.9",
+        "Content-Type": "application/x-www-form-urlencoded",
       },
-      signal: AbortSignal.timeout(8000),
+      body: `q=${encodeURIComponent(query)}`,
+      signal: AbortSignal.timeout(5000),
     });
 
     if (!response.ok) {
@@ -741,23 +744,21 @@ async function executeWebSearch(
       };
     }
 
-    // Fetch content from top results (with timeout)
+    // Fetch content from top 2 results only (fast, parallel, short timeout)
     const enrichedResults = await Promise.all(
-      results.slice(0, maxResults).map(async (r) => {
+      results.slice(0, 2).map(async (r) => {
         try {
           const pageRes = await fetch(r.url, {
             headers: {
               "User-Agent": "Mozilla/5.0 (compatible; SmartSchoolAI/2.0)",
               Accept: "text/html",
             },
-            signal: AbortSignal.timeout(5000),
+            signal: AbortSignal.timeout(3000),
           });
           if (!pageRes.ok) return { ...r, content: r.snippet };
 
           const pageHtml = await pageRes.text();
-          // Deep content extraction — extract structured content
-          const textContent = deepExtractContent(pageHtml);
-          // Extract the actual page title for better source display
+          const textContent = deepExtractContent(pageHtml, 4000);
           const pageTitleMatch = pageHtml.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
           const pageTitle = pageTitleMatch ? pageTitleMatch[1].replace(/\s*[-|].*$/, "").trim() : r.title;
           return { ...r, title: pageTitle || r.title, content: textContent || r.snippet };
@@ -766,22 +767,51 @@ async function executeWebSearch(
         }
       })
     );
+    const allResults = [...enrichedResults, ...results.slice(2)];
 
     return {
       result: {
-        results: enrichedResults,
+        results: allResults,
         search_query: query,
-        result_count: enrichedResults.length,
+        result_count: allResults.length,
         instructions: "Use the search results to provide an accurate, well-sourced answer. " +
-          "When citing information from search results, mention the source naturally in your response " +
-          "(e.g., 'According to [source]...'). Include relevant URLs as references.",
+          "Cite sources naturally (e.g., 'According to [source]...'). Include relevant URLs.",
       },
-      sources: enrichedResults.map((r) => r.url).filter(Boolean),
+      sources: allResults.map((r) => r.url).filter(Boolean),
     };
-  } catch (error) {
+  } catch {
+    // DDG HTML failed — try DuckDuckGo Instant Answer API as fallback
+    try {
+      const apiUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+      const apiRes = await fetch(apiUrl, { signal: AbortSignal.timeout(3000) });
+      if (apiRes.ok) {
+        const data = await apiRes.json();
+        const fallbackResults: { url: string; title: string; snippet: string }[] = [];
+        if (data.AbstractURL && data.AbstractText) {
+          fallbackResults.push({ url: data.AbstractURL, title: data.Heading || query, snippet: data.AbstractText });
+        }
+        for (const topic of (data.RelatedTopics || []).slice(0, 4)) {
+          if (topic?.FirstURL && topic?.Text) {
+            fallbackResults.push({ url: topic.FirstURL, title: topic.Text.slice(0, 100), snippet: topic.Text });
+          }
+        }
+        if (fallbackResults.length > 0) {
+          return {
+            result: {
+              results: fallbackResults,
+              search_query: query,
+              result_count: fallbackResults.length,
+              instructions: "Use these search results to provide an accurate answer. Cite sources naturally.",
+            },
+            sources: fallbackResults.map((r) => r.url).filter(Boolean),
+          };
+        }
+      }
+    } catch { /* API also failed */ }
     return {
       result: {
-        message: `Web search could not complete: ${error instanceof Error ? error.message : "timeout"}. Please rely on your existing knowledge.`,
+        message: `Web search couldn't find results for: "${query}". Please provide a thorough answer based on your knowledge.`,
+        search_query: query,
       },
       sources: [],
     };
@@ -868,19 +898,37 @@ function executeFlashcardGeneration(
     if (typeof input.cards === "string") {
       let cardsStr = input.cards.trim();
       cardsStr = cardsStr.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+      cardsStr = cardsStr.replace(/,\s*]/g, "]").replace(/,\s*}/g, "}"); // Fix trailing commas
       cards = JSON.parse(cardsStr);
     } else if (Array.isArray(input.cards)) {
       cards = input.cards;
+    } else if (input.cards && typeof input.cards === "object") {
+      cards = [input.cards];
     } else {
       cards = [];
     }
   } catch {
-    return {
-      result: {
-        error: "Could not parse flashcard data. Please try again — the AI will regenerate the cards.",
-        retry_hint: "Regenerate the flashcards with properly formatted JSON.",
-      },
-    };
+    // Try regex extraction as last resort
+    try {
+      const raw = String(input.cards || "");
+      const cardRegex = /"front"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"back"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+      let cardMatch;
+      const extracted: { front: string; back: string }[] = [];
+      while ((cardMatch = cardRegex.exec(raw)) !== null) {
+        extracted.push({ front: cardMatch[1].replace(/\\"/g, '"'), back: cardMatch[2].replace(/\\"/g, '"') });
+      }
+      if (extracted.length > 0) {
+        cards = extracted;
+      }
+    } catch { /* give up */ }
+    if (cards.length === 0) {
+      return {
+        result: {
+          error: "Could not parse flashcard data. Please try again — the AI will regenerate the cards.",
+          retry_hint: "Regenerate the flashcards with properly formatted JSON.",
+        },
+      };
+    }
   }
 
   if (!Array.isArray(cards) || cards.length === 0) {
@@ -924,9 +972,12 @@ function executeQuizGeneration(
     if (typeof input.questions === "string") {
       let qStr = input.questions.trim();
       qStr = qStr.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+      qStr = qStr.replace(/,\s*]/g, "]").replace(/,\s*}/g, "}"); // Fix trailing commas
       questions = JSON.parse(qStr);
     } else if (Array.isArray(input.questions)) {
       questions = input.questions;
+    } else if (input.questions && typeof input.questions === "object") {
+      questions = [input.questions];
     } else {
       questions = [];
     }
@@ -1006,9 +1057,9 @@ function executeFlowchartGeneration(
 
 // ── Image Generation ──────────────────────────────────────────────────
 
-async function executeImageGeneration(
+function executeImageGeneration(
   input: Record<string, unknown>
-): Promise<{ result: unknown; imageData?: unknown }> {
+): { result: unknown; imageData?: unknown } {
   const prompt = String(input.prompt || "");
   const style = String(input.style || "diagram");
   const subject = String(input.subject || "general");
@@ -1025,38 +1076,7 @@ async function executeImageGeneration(
   // Use Pollinations.ai — free image generation, no API key needed
   const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt.slice(0, 500))}?width=1024&height=768&model=flux&nologo=true&seed=${Date.now()}`;
 
-  // Verify the URL works by doing a HEAD request
-  try {
-    const check = await fetch(imageUrl, {
-      method: "HEAD",
-      signal: AbortSignal.timeout(15000),
-    });
-    if (check.ok || check.status === 302 || check.status === 301) {
-      return {
-        result: {
-          message:
-            `**🖼️ Educational Illustration Generated** (${style} style for ${subject})\n\n` +
-            `${prompt}\n\n` +
-            "The AI-generated illustration is displayed below.",
-          prompt: enhancedPrompt,
-          style,
-          subject,
-          type: "image_rendered",
-          image_url: imageUrl,
-        },
-        imageData: {
-          prompt: enhancedPrompt,
-          style,
-          subject,
-          url: imageUrl,
-        },
-      };
-    }
-  } catch {
-    // Pollinations might take time, but the URL is valid — return it anyway
-  }
-
-  // Return the URL even without verification — Pollinations generates on-demand
+  // Pollinations generates on-demand when loaded — no verification needed
   return {
     result: {
       message:
@@ -1599,7 +1619,7 @@ async function executeDeepScrape(
         Accept: "text/html,application/xhtml+xml",
         "Accept-Language": "en-US,en;q=0.9",
       },
-      signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(6000),
     });
 
     if (!pageRes.ok) {
