@@ -15,6 +15,7 @@ interface ImageRendererProps {
 export function ImageRenderer({ prompt, style, subject, url }: ImageRendererProps) {
   const visual = useMemo(() => generateVisual(prompt, style, subject), [prompt, style, subject]);
   const [imageError, setImageError] = useState(false);
+  const [imageLoading, setImageLoading] = useState(!!url);
 
   return (
     <div className="my-4 rounded-xl border border-surface-4 bg-surface-2 overflow-hidden">
@@ -33,15 +34,23 @@ export function ImageRenderer({ prompt, style, subject, url }: ImageRendererProp
       </div>
 
       {/* Image or SVG Illustration */}
-      <div className="p-4 flex justify-center items-center bg-[#0a0a14]">
+      <div className="p-4 flex justify-center items-center bg-[#0a0a14] relative">
         {url && !imageError ? (
-          // DALL-E Generated Image
-          <img
-            src={url}
-            alt={prompt}
-            className="w-full max-w-2xl rounded-lg border border-surface-4"
-            onError={() => setImageError(true)}
-          />
+          <>
+            {imageLoading && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 z-10">
+                <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs text-slate-500">Generating image...</span>
+              </div>
+            )}
+            <img
+              src={url}
+              alt={prompt}
+              className={`w-full max-w-2xl rounded-lg border border-surface-4 transition-opacity duration-300 ${imageLoading ? "opacity-0" : "opacity-100"}`}
+              onLoad={() => setImageLoading(false)}
+              onError={() => { setImageError(true); setImageLoading(false); }}
+            />
+          </>
         ) : (
           // Fallback SVG
           <svg
@@ -188,8 +197,8 @@ function generateVisual(prompt: string, style: string, subject?: string): { elem
 // Parse image description blocks from content
 export function parseImageBlocks(
   content: string
-): { text: string; images: { prompt: string; style: string; subject?: string }[] } {
-  const images: { prompt: string; style: string; subject?: string }[] = [];
+): { text: string; images: { prompt: string; style: string; subject?: string; url?: string }[] } {
+  const images: { prompt: string; style: string; subject?: string; url?: string }[] = [];
   const text = content.replace(
     /```image\n([\s\S]*?)```/g,
     (fullMatch, json) => {

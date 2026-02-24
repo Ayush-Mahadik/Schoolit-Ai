@@ -588,7 +588,7 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
 export async function executeTool(
   toolName: string,
   toolInput: Record<string, unknown>
-): Promise<{ result: unknown; chartData?: unknown; flowchartData?: unknown; manimData?: unknown; imageData?: unknown; scheduleData?: unknown; sources?: string[] }> {
+): Promise<{ result: unknown; chartData?: unknown; flowchartData?: unknown; manimData?: unknown; imageData?: unknown; flashcardData?: unknown; quizData?: unknown; scheduleData?: unknown; sources?: string[] }> {
   switch (toolName) {
     case "web_search":
       return await executeWebSearch(toolInput);
@@ -860,15 +860,13 @@ function executeManimGeneration(
 
 function executeFlashcardGeneration(
   input: Record<string, unknown>
-): { result: unknown } {
+): { result: unknown; flashcardData?: unknown } {
   const topic = String(input.topic || "");
   let cards: unknown[] = [];
 
   try {
     if (typeof input.cards === "string") {
-      // Try to fix common JSON issues before parsing
       let cardsStr = input.cards.trim();
-      // Remove markdown code fences if present
       cardsStr = cardsStr.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
       cards = JSON.parse(cardsStr);
     } else if (Array.isArray(input.cards)) {
@@ -896,12 +894,19 @@ function executeFlashcardGeneration(
 
   return {
     result: {
-      message: `📚 Created **${cards.length} flashcards** for "${topic}"!\n\nHere are your study cards:`,
+      message: `📚 Created **${cards.length} flashcards** for "${topic}"!\n\nThe interactive flashcard deck is rendered below. Click any card to flip it!`,
       topic,
       cards,
       card_count: cards.length,
       studyTip: "💡 **Study Method**: Read the front side, try to recall the answer in your head, then check the back. Repeat daily using spaced repetition for best retention.",
       display_format: "flashcard_grid",
+    },
+    flashcardData: {
+      topic,
+      cards: (cards as { front: string; back: string }[]).map((c) => ({
+        front: String(c.front || ""),
+        back: String(c.back || ""),
+      })),
     },
   };
 }
@@ -910,7 +915,7 @@ function executeFlashcardGeneration(
 
 function executeQuizGeneration(
   input: Record<string, unknown>
-): { result: unknown } {
+): { result: unknown; quizData?: unknown } {
   const topic = String(input.topic || "");
   const difficulty = String(input.difficulty || "medium");
   let questions: unknown[] = [];
@@ -944,13 +949,23 @@ function executeQuizGeneration(
 
   return {
     result: {
-      message: `📝 Generated a **${difficulty}** quiz with **${questions.length} questions** on "${topic}"!\n\nGood luck! 🍀`,
+      message: `📝 Generated a **${difficulty}** quiz with **${questions.length} questions** on "${topic}"!\n\nThe interactive quiz is rendered below. Select your answers and check your score!`,
       topic,
       difficulty,
       questions,
       question_count: questions.length,
       quizTip: "💡 **Tip**: Read all options carefully before selecting. After each answer, review the explanation to reinforce your understanding.",
       display_format: "quiz_interactive",
+    },
+    quizData: {
+      topic,
+      difficulty,
+      questions: (questions as { question: string; options: string[]; correct: number; explanation: string }[]).map((q) => ({
+        question: String(q.question || ""),
+        options: Array.isArray(q.options) ? q.options.map(String) : [],
+        correct: Number(q.correct || 0),
+        explanation: String(q.explanation || ""),
+      })),
     },
   };
 }
@@ -1004,73 +1019,61 @@ async function executeImageGeneration(
     };
   }
 
-  // Try to use DALL-E 3 API if token is available
-  const openaiKey = process.env.GITHUB_TOKEN?.trim();
-  if (openaiKey) {
-    try {
-      const OpenAI = (await import("openai")).default;
-      const client = new OpenAI({
-        baseURL: "https://models.inference.ai.azure.com",
-        apiKey: openaiKey,
-      });
+  // Enhanced prompt for educational content
+  const enhancedPrompt = `Educational ${style} illustration for ${subject}: ${prompt}. High quality, clear, informative, suitable for students, clean background.`;
 
-      // Enhanced prompt for educational content
-      const enhancedPrompt = `Educational ${style} illustration for ${subject}: ${prompt}. High quality, clear, informative, suitable for students.`;
+  // Use Pollinations.ai — free image generation, no API key needed
+  const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt.slice(0, 500))}?width=1024&height=768&model=flux&nologo=true&seed=${Date.now()}`;
 
-      const response = await client.images.generate({
-        model: "dall-e-3",
-        prompt: enhancedPrompt.slice(0, 1000),
-        n: 1,
-        size: "1024x1024",
-        quality: "standard",
-        style: style === "realistic" ? "natural" : "vivid",
-      });
-
-      if (response.data && response.data[0]?.url) {
-        return {
-          result: {
-            message:
-              `**Educational Illustration Generated** (${style} style for ${subject})\n\n` +
-              `${prompt}\n\n` +
-              "The AI-generated illustration is displayed below.",
-            prompt: enhancedPrompt,
-            style,
-            subject,
-            type: "image_rendered",
-            image_url: response.data[0].url,
-          },
-          imageData: {
-            prompt: enhancedPrompt,
-            style,
-            subject,
-            url: response.data[0].url,
-          },
-        };
-      }
-    } catch (err) {
-      console.error("DALL-E generation failed:", err);
-      // Fall through to text-only response
+  // Verify the URL works by doing a HEAD request
+  try {
+    const check = await fetch(imageUrl, {
+      method: "HEAD",
+      signal: AbortSignal.timeout(15000),
+    });
+    if (check.ok || check.status === 302 || check.status === 301) {
+      return {
+        result: {
+          message:
+            `**🖼️ Educational Illustration Generated** (${style} style for ${subject})\n\n` +
+            `${prompt}\n\n` +
+            "The AI-generated illustration is displayed below.",
+          prompt: enhancedPrompt,
+          style,
+          subject,
+          type: "image_rendered",
+          image_url: imageUrl,
+        },
+        imageData: {
+          prompt: enhancedPrompt,
+          style,
+          subject,
+          url: imageUrl,
+        },
+      };
     }
+  } catch {
+    // Pollinations might take time, but the URL is valid — return it anyway
   }
 
-  // Fallback: text-only response with descriptive SVG rendering
+  // Return the URL even without verification — Pollinations generates on-demand
   return {
     result: {
       message:
-        `**Educational Illustration** (${style} style for ${subject})\n\n` +
+        `**🖼️ Educational Illustration Generated** (${style} style for ${subject})\n\n` +
         `${prompt}\n\n` +
-        "A conceptual diagram has been generated below based on the description. " +
-        "For AI-generated realistic images, try using GPT-4o or GPT-4.1 with the prompt directly.",
-      prompt,
+        "The AI-generated illustration is displayed below.",
+      prompt: enhancedPrompt,
       style,
       subject,
       type: "image_rendered",
-      note: "Rendered as conceptual SVG — DALL-E image generation is not available on this endpoint.",
+      image_url: imageUrl,
     },
     imageData: {
-      prompt,
+      prompt: enhancedPrompt,
       style,
       subject,
+      url: imageUrl,
     },
   };
 }

@@ -213,6 +213,8 @@ export default function Home() {
           flowcharts: response.flowcharts || undefined,
           manimAnimations: response.manim_animations || undefined,
           generatedImages: response.generated_images || undefined,
+          flashcardSets: response.flashcard_sets || undefined,
+          quizSets: response.quiz_sets || undefined,
           model: (response.model as AIModel) || settings.model,
         };
 

@@ -131,6 +131,8 @@ export interface Message {
   flowcharts?: FlowchartData[];
   manimAnimations?: ManimData[];
   generatedImages?: ImageGenData[];
+  flashcardSets?: FlashcardSetData[];
+  quizSets?: QuizSetData[];
   attachments?: FileAttachmentMeta[];
   model?: AIModel;
 }
@@ -233,5 +235,26 @@ export interface ImageGenData {
   prompt: string;
   style: string;
   subject?: string;
+  url?: string;
+}
+
+// ── Flashcard types ───────────────────────────────────────────────────
+
+export interface FlashcardSetData {
+  topic: string;
+  cards: { front: string; back: string }[];
+}
+
+// ── Quiz types ────────────────────────────────────────────────────────
+
+export interface QuizSetData {
+  topic: string;
+  difficulty?: string;
+  questions: {
+    question: string;
+    options: string[];
+    correct: number;
+    explanation: string;
+  }[];
 }
 

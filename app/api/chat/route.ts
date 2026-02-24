@@ -302,7 +302,9 @@ export async function POST(req: NextRequest) {
   const charts: unknown[] = [];
   const flowcharts: { mermaidCode: string; title?: string; explanation?: string }[] = [];
   const manimAnimations: { code: string; sceneName: string; explanation: string }[] = [];
-  const generatedImages: { prompt: string; style: string; subject?: string }[] = [];
+  const generatedImages: { prompt: string; style: string; subject?: string; url?: string }[] = [];
+  const flashcardSets: { topic: string; cards: { front: string; back: string }[] }[] = [];
+  const quizSets: { topic: string; questions: { question: string; options: string[]; correct: number; explanation: string }[]; difficulty?: string }[] = [];
   const scheduleActions: unknown[] = [];
 
   try {
@@ -376,18 +378,15 @@ export async function POST(req: NextRequest) {
         } catch (err: unknown) {
           const status = (err as { status?: number })?.status;
           const msg = err instanceof Error ? err.message.toLowerCase() : "";
-          // Only retry on genuine model-not-found (404) or rate-limit (429) errors
-          // NEVER match generic "model" text — that causes false fallback cascades
-          const isRetryable = status === 404 || status === 429 ||
-            msg.includes("not found") || msg.includes("does not exist") ||
-            msg.includes("rate limit") || msg.includes("too many requests") ||
-            msg.includes("429") || msg.includes("404");
+          // Retry on ANY server/model error as long as we have fallbacks
+          // This prevents Grok intermittent failures from showing "Something went wrong"
+          const isLastModel = tryModel === modelsToTry[modelsToTry.length - 1];
+          const isFatal = msg.includes("api_key") || msg.includes("unauthorized") || status === 401;
 
-          if (isRetryable && tryModel !== modelsToTry[modelsToTry.length - 1]) {
-            console.warn(`Model ${tryModel} failed (${status}), trying next fallback...`);
+          if (!isFatal && !isLastModel) {
+            console.warn(`Model ${tryModel} failed (status=${status}, msg="${msg.slice(0, 100)}"), trying next fallback...`);
             lastError = err;
-            // Brief delay before retry
-            await new Promise((r) => setTimeout(r, 500));
+            await new Promise((r) => setTimeout(r, 300));
             continue;
           }
           throw err;
@@ -424,19 +423,30 @@ export async function POST(req: NextRequest) {
           }
 
           toolCallsLog.push(toolName);
-          const toolResult = await executeTool(toolName, toolInput);
-          if (toolResult.sources) sources.push(...toolResult.sources);
-          if (toolResult.chartData) charts.push(toolResult.chartData);
-          if (toolResult.flowchartData) flowcharts.push(toolResult.flowchartData as { mermaidCode: string; title?: string; explanation?: string });
-          if (toolResult.manimData) manimAnimations.push(toolResult.manimData as { code: string; sceneName: string; explanation: string });
-          if (toolResult.imageData) generatedImages.push(toolResult.imageData as { prompt: string; style: string; subject?: string });
-          if (toolResult.scheduleData) scheduleActions.push(toolResult.scheduleData);
+          try {
+            const toolResult = await executeTool(toolName, toolInput);
+            if (toolResult.sources) sources.push(...toolResult.sources);
+            if (toolResult.chartData) charts.push(toolResult.chartData);
+            if (toolResult.flowchartData) flowcharts.push(toolResult.flowchartData as { mermaidCode: string; title?: string; explanation?: string });
+            if (toolResult.manimData) manimAnimations.push(toolResult.manimData as { code: string; sceneName: string; explanation: string });
+            if (toolResult.imageData) generatedImages.push(toolResult.imageData as { prompt: string; style: string; subject?: string; url?: string });
+            if (toolResult.flashcardData) flashcardSets.push(toolResult.flashcardData as { topic: string; cards: { front: string; back: string }[] });
+            if (toolResult.quizData) quizSets.push(toolResult.quizData as { topic: string; questions: { question: string; options: string[]; correct: number; explanation: string }[]; difficulty?: string });
+            if (toolResult.scheduleData) scheduleActions.push(toolResult.scheduleData);
 
-          messages.push({
-            role: "tool",
-            tool_call_id: tc.id,
-            content: JSON.stringify(toolResult.result),
-          });
+            messages.push({
+              role: "tool",
+              tool_call_id: tc.id,
+              content: JSON.stringify(toolResult.result),
+            });
+          } catch (toolErr) {
+            console.error(`Tool ${toolName} execution failed:`, toolErr);
+            messages.push({
+              role: "tool",
+              tool_call_id: tc.id,
+              content: JSON.stringify({ error: `Tool "${toolName}" failed. Continue without it.` }),
+            });
+          }
         }
 
         continue;
@@ -518,6 +528,8 @@ export async function POST(req: NextRequest) {
         flowcharts,
         manim_animations: manimAnimations,
         generated_images: generatedImages,
+        flashcard_sets: flashcardSets,
+        quiz_sets: quizSets,
         schedule_actions: scheduleActions,
         error: null,
         model: activeModelId,
@@ -536,6 +548,8 @@ export async function POST(req: NextRequest) {
       flowcharts,
       manim_animations: manimAnimations,
       generated_images: generatedImages,
+      flashcard_sets: flashcardSets,
+      quiz_sets: quizSets,
       schedule_actions: scheduleActions,
       error: null,
       model: activeModelId,

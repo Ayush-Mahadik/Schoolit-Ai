@@ -9,6 +9,8 @@ import { ChartRenderer, parseChartBlocks, type ChartSpec } from "@/components/Ch
 import { MermaidRenderer, parseMermaidBlocks } from "@/components/MermaidRenderer";
 import { ManimRenderer, parseManimBlocks } from "@/components/ManimRenderer";
 import { ImageRenderer, parseImageBlocks } from "@/components/ImageRenderer";
+import { FlashcardRenderer } from "@/components/FlashcardRenderer";
+import { QuizRenderer } from "@/components/QuizRenderer";
 import { FileUploadButton, FileChips, type FileAttachment } from "@/components/FileUploadButton";
 import { VoiceInputButton } from "@/components/VoiceInputButton";
 import { VideoPlayer } from "@/components/VideoPlayer";
@@ -476,7 +478,7 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
             ))}
 
             {inlineImages.map((img, i) => (
-              <ImageRenderer key={`img-${i}`} prompt={img.prompt} style={img.style} subject={img.subject} />
+              <ImageRenderer key={`img-${i}`} prompt={img.prompt} style={img.style} subject={img.subject} url={img.url} />
             ))}
 
             {/* Structured data from tool calls */}
@@ -489,7 +491,17 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
             ))}
 
             {message.generatedImages?.map((img, i) => (
-              <ImageRenderer key={`gi-${i}`} prompt={img.prompt} style={img.style} subject={img.subject} />
+              <ImageRenderer key={`gi-${i}`} prompt={img.prompt} style={img.style} subject={img.subject} url={img.url} />
+            ))}
+
+            {/* Flashcard sets from tool calls */}
+            {message.flashcardSets?.map((fc, i) => (
+              <FlashcardRenderer key={`fc-set-${i}`} topic={fc.topic} cards={fc.cards} />
+            ))}
+
+            {/* Quiz sets from tool calls */}
+            {message.quizSets?.map((quiz, i) => (
+              <QuizRenderer key={`quiz-${i}`} topic={quiz.topic} questions={quiz.questions} difficulty={quiz.difficulty} />
             ))}
           </div>
         </div>

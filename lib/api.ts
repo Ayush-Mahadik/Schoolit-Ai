@@ -57,7 +57,9 @@ export interface ChatResponse {
   charts?: unknown[];
   flowcharts?: { mermaidCode: string; title?: string; explanation?: string }[];
   manim_animations?: { code: string; sceneName: string; explanation: string }[];
-  generated_images?: { prompt: string; style: string; subject?: string }[];
+  generated_images?: { prompt: string; style: string; subject?: string; url?: string }[];
+  flashcard_sets?: { topic: string; cards: { front: string; back: string }[] }[];
+  quiz_sets?: { topic: string; questions: { question: string; options: string[]; correct: number; explanation: string }[]; difficulty?: string }[];
   schedule_actions?: { action: string; items?: unknown[] }[];
   error: string | null;
   model?: string;
