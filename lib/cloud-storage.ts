@@ -1,39 +1,37 @@
 /**
  * Cloud Storage Service — SchoolIT AI
  * =====================================
- * Provides cloud CRUD operations for conversation history using Firebase Firestore.
- * All functions gracefully return null/false when Firebase is not configured,
+ * Uses Supabase (free, GitHub Edu Pack) for persistent cloud storage.
+ * All functions gracefully return null/false when Supabase is not configured,
  * allowing seamless fallback to localStorage.
  *
- * Data structure in Firestore:
- *   users/{userEmail}/conversations/{conversationId}
+ * Table: conversations
+ *   id TEXT PRIMARY KEY
+ *   user_email TEXT
+ *   title TEXT
+ *   subject TEXT
+ *   timestamp BIGINT
+ *   message_count INT
+ *   preview TEXT
+ *   messages JSONB
+ *   updated_at BIGINT
  */
 
-import { db, isFirebaseEnabled } from "./firebase";
-import {
-  doc,
-  setDoc,
-  getDocs,
-  deleteDoc,
-  collection,
-  query,
-  orderBy,
-  limit,
-  writeBatch,
-} from "firebase/firestore";
+import { getSupabase, isCloudEnabled } from "./supabase";
 import type { Message } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
 export interface CloudConversation {
   id: string;
+  user_email: string;
   title: string;
   subject: string;
   timestamp: number;
-  messageCount: number;
+  message_count: number;
   preview: string;
   messages: SerializedMessage[];
-  updatedAt?: number;
+  updated_at: number;
 }
 
 interface SerializedMessage {
@@ -54,19 +52,14 @@ interface SerializedMessage {
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-function sanitizeEmail(email: string): string {
-  // Firestore document IDs can't contain '/'
-  return email.replace(/[/.]/g, "_");
-}
-
 function serializeMessages(messages: Message[]): SerializedMessage[] {
   return messages.map((m) => ({
     id: m.id,
     role: m.role,
-    content: m.content,
+    content: m.content.slice(0, 8000), // Limit per-message size
     timestamp:
       m.timestamp instanceof Date ? m.timestamp.toISOString() : String(m.timestamp),
-    thinking: m.thinking || undefined,
+    thinking: m.thinking ? m.thinking.slice(0, 2000) : undefined,
     sources: m.sources || undefined,
     toolCalls: m.toolCalls || undefined,
     model: m.model || undefined,
@@ -81,8 +74,7 @@ function serializeMessages(messages: Message[]): SerializedMessage[] {
 // ── Cloud CRUD ──────────────────────────────────────────────────────────
 
 /**
- * Save a conversation to Firestore.
- * Returns true on success, false if Firebase unavailable or error.
+ * Save a conversation to Supabase.
  */
 export async function cloudSaveConversation(
   userEmail: string,
@@ -96,34 +88,30 @@ export async function cloudSaveConversation(
     messages: Message[];
   }
 ): Promise<boolean> {
-  if (!isFirebaseEnabled() || !db || !userEmail) return false;
+  const sb = getSupabase();
+  if (!sb || !isCloudEnabled() || !userEmail) return false;
 
   try {
-    const userId = sanitizeEmail(userEmail);
-    const docRef = doc(db, "users", userId, "conversations", conv.id);
-
-    const cloudConv: CloudConversation = {
+    const row: CloudConversation = {
       id: conv.id,
-      title: conv.title,
+      user_email: userEmail,
+      title: conv.title.slice(0, 200),
       subject: conv.subject,
       timestamp: conv.timestamp,
-      messageCount: conv.messageCount,
-      preview: conv.preview,
+      message_count: conv.messageCount,
+      preview: conv.preview.slice(0, 300),
       messages: serializeMessages(conv.messages),
-      updatedAt: Date.now(),
+      updated_at: Date.now(),
     };
 
-    // Firestore doc size limit is 1MB. Truncate if needed.
-    const json = JSON.stringify(cloudConv);
-    if (json.length > 900_000) {
-      // Strip message content to fit
-      cloudConv.messages = cloudConv.messages.map((m) => ({
-        ...m,
-        content: m.content.slice(0, 3000),
-      }));
-    }
+    const { error } = await sb
+      .from("conversations")
+      .upsert(row, { onConflict: "id" });
 
-    await setDoc(docRef, cloudConv, { merge: true });
+    if (error) {
+      console.warn("Cloud save error:", error.message);
+      return false;
+    }
     return true;
   } catch (err) {
     console.warn("Cloud save failed:", err);
@@ -132,23 +120,29 @@ export async function cloudSaveConversation(
 }
 
 /**
- * Load all conversations for a user from Firestore.
- * Returns null if Firebase unavailable or error (caller should fall back to localStorage).
+ * Load all conversations for a user from Supabase.
+ * Returns null if unavailable (caller falls back to localStorage).
  */
 export async function cloudLoadConversations(
   userEmail: string
 ): Promise<CloudConversation[] | null> {
-  if (!isFirebaseEnabled() || !db || !userEmail) return null;
+  const sb = getSupabase();
+  if (!sb || !isCloudEnabled() || !userEmail) return null;
 
   try {
-    const userId = sanitizeEmail(userEmail);
-    const q = query(
-      collection(db, "users", userId, "conversations"),
-      orderBy("timestamp", "desc"),
-      limit(50)
-    );
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map((d) => d.data() as CloudConversation);
+    const { data, error } = await sb
+      .from("conversations")
+      .select("*")
+      .eq("user_email", userEmail)
+      .order("timestamp", { ascending: false })
+      .limit(50);
+
+    if (error) {
+      console.warn("Cloud load error:", error.message);
+      return null;
+    }
+
+    return (data as CloudConversation[]) || null;
   } catch (err) {
     console.warn("Cloud load failed:", err);
     return null;
@@ -156,17 +150,26 @@ export async function cloudLoadConversations(
 }
 
 /**
- * Delete a conversation from Firestore.
+ * Delete a conversation from Supabase.
  */
 export async function cloudDeleteConversation(
   userEmail: string,
   convId: string
 ): Promise<boolean> {
-  if (!isFirebaseEnabled() || !db || !userEmail) return false;
+  const sb = getSupabase();
+  if (!sb || !isCloudEnabled() || !userEmail) return false;
 
   try {
-    const userId = sanitizeEmail(userEmail);
-    await deleteDoc(doc(db, "users", userId, "conversations", convId));
+    const { error } = await sb
+      .from("conversations")
+      .delete()
+      .eq("id", convId)
+      .eq("user_email", userEmail);
+
+    if (error) {
+      console.warn("Cloud delete error:", error.message);
+      return false;
+    }
     return true;
   } catch (err) {
     console.warn("Cloud delete failed:", err);
@@ -175,21 +178,22 @@ export async function cloudDeleteConversation(
 }
 
 /**
- * Clear all conversations for a user from Firestore.
+ * Clear all conversations for a user from Supabase.
  */
 export async function cloudClearAll(userEmail: string): Promise<boolean> {
-  if (!isFirebaseEnabled() || !db || !userEmail) return false;
+  const sb = getSupabase();
+  if (!sb || !isCloudEnabled() || !userEmail) return false;
 
   try {
-    const userId = sanitizeEmail(userEmail);
-    const q = query(collection(db, "users", userId, "conversations"));
-    const snapshot = await getDocs(q);
+    const { error } = await sb
+      .from("conversations")
+      .delete()
+      .eq("user_email", userEmail);
 
-    if (snapshot.empty) return true;
-
-    const batch = writeBatch(db);
-    snapshot.docs.forEach((d) => batch.delete(d.ref));
-    await batch.commit();
+    if (error) {
+      console.warn("Cloud clear error:", error.message);
+      return false;
+    }
     return true;
   } catch (err) {
     console.warn("Cloud clear failed:", err);

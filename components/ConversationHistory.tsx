@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Icon } from "@/components/Icons";
-import { isFirebaseEnabled } from "@/lib/firebase";
+import { isCloudEnabled } from "@/lib/supabase";
 import {
   cloudSaveConversation,
   cloudLoadConversations,
@@ -43,7 +43,7 @@ export function ConversationHistory({
   const [cloudStatus, setCloudStatus] = useState<"idle" | "syncing" | "synced" | "offline">("idle");
   const { data: session } = useSession();
   const userEmail = session?.user?.email || null;
-  const cloudEnabled = isFirebaseEnabled() && !!userEmail;
+  const cloudEnabled = isCloudEnabled() && !!userEmail;
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load conversations from localStorage
@@ -90,7 +90,7 @@ export function ConversationHistory({
                 title: cloud.title,
                 subject: cloud.subject,
                 timestamp: cloud.timestamp,
-                messageCount: cloud.messageCount,
+                messageCount: cloud.message_count,
                 preview: cloud.preview,
               });
               // Also save cloud messages to localStorage for offline access
