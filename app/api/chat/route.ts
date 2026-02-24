@@ -420,7 +420,9 @@ export async function POST(req: NextRequest) {
           })),
         });
 
-        for (const tc of assistantMsg.tool_calls) {
+        // Execute ALL tool calls in PARALLEL for speed
+        // (prevents timeout when model calls multiple tools like flowchart + flashcards)
+        const toolPromises = assistantMsg.tool_calls.map(async (tc) => {
           const toolName = tc.function.name;
           let toolInput: Record<string, unknown> = {};
           try {
@@ -432,7 +434,6 @@ export async function POST(req: NextRequest) {
           toolCallsLog.push(toolName);
 
           // Auto-inject file context for document/screenshot analyzers
-          // so the AI doesn't have to manually copy content from the system prompt
           if (toolName === "analyze_document" && fileContext && !toolInput.content) {
             toolInput.content = fileContext;
           }
@@ -442,29 +443,43 @@ export async function POST(req: NextRequest) {
 
           try {
             const toolResult = await executeTool(toolName, toolInput);
-            if (toolResult.sources) sources.push(...toolResult.sources);
-            if (toolResult.chartData) charts.push(toolResult.chartData);
-            if (toolResult.flowchartData) flowcharts.push(toolResult.flowchartData as { mermaidCode: string; title?: string; explanation?: string });
-            if (toolResult.manimData) manimAnimations.push(toolResult.manimData as { code: string; sceneName: string; explanation: string });
-            if (toolResult.imageData) generatedImages.push(toolResult.imageData as { prompt: string; style: string; subject?: string; url?: string });
-            if (toolResult.flashcardData) flashcardSets.push(toolResult.flashcardData as { topic: string; cards: { front: string; back: string }[] });
-            if (toolResult.quizData) quizSets.push(toolResult.quizData as { topic: string; questions: { question: string; options: string[]; correct: number; explanation: string }[]; difficulty?: string });
-            if (toolResult.scheduleData) scheduleActions.push(toolResult.scheduleData);
-
-            const toolResultStr = JSON.stringify(toolResult.result);
-            messages.push({
-              role: "tool",
-              tool_call_id: tc.id,
-              content: toolResultStr.length > 25000 ? toolResultStr.slice(0, 25000) : toolResultStr,
-            });
+            return { tc, toolName, toolResult, error: null };
           } catch (toolErr) {
             console.error(`Tool ${toolName} execution failed:`, toolErr);
+            return { tc, toolName, toolResult: null, error: toolErr };
+          }
+        });
+
+        const toolResults = await Promise.allSettled(toolPromises);
+
+        for (const settled of toolResults) {
+          if (settled.status === "rejected") continue;
+          const { tc, toolName, toolResult, error: toolErr } = settled.value;
+
+          if (toolErr || !toolResult) {
             messages.push({
               role: "tool",
               tool_call_id: tc.id,
               content: JSON.stringify({ error: `Tool "${toolName}" failed. Continue without it.` }),
             });
+            continue;
           }
+
+          if (toolResult.sources) sources.push(...toolResult.sources);
+          if (toolResult.chartData) charts.push(toolResult.chartData);
+          if (toolResult.flowchartData) flowcharts.push(toolResult.flowchartData as { mermaidCode: string; title?: string; explanation?: string });
+          if (toolResult.manimData) manimAnimations.push(toolResult.manimData as { code: string; sceneName: string; explanation: string });
+          if (toolResult.imageData) generatedImages.push(toolResult.imageData as { prompt: string; style: string; subject?: string; url?: string });
+          if (toolResult.flashcardData) flashcardSets.push(toolResult.flashcardData as { topic: string; cards: { front: string; back: string }[] });
+          if (toolResult.quizData) quizSets.push(toolResult.quizData as { topic: string; questions: { question: string; options: string[]; correct: number; explanation: string }[]; difficulty?: string });
+          if (toolResult.scheduleData) scheduleActions.push(toolResult.scheduleData);
+
+          const toolResultStr = JSON.stringify(toolResult.result);
+          messages.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content: toolResultStr.length > 25000 ? toolResultStr.slice(0, 25000) : toolResultStr,
+          });
         }
 
         continue;

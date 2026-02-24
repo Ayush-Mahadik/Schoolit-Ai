@@ -352,7 +352,7 @@ export default function Home() {
       {/* ── Main Content ─────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* ── Header ─────────────────────────────────────────────── */}
-        <header className="flex items-center justify-between px-3 sm:px-5 h-14 border-b border-surface-3 bg-surface-0 shrink-0 z-20">
+        <header className="flex items-center justify-between px-3 sm:px-5 h-14 border-b border-surface-3 bg-surface-0 shrink-0 relative">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}

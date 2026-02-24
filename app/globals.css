@@ -173,6 +173,19 @@ button:focus-visible {
 }
 
 /* ── KaTeX overrides for dark theme ─────────────────────────────────── */
+
+/* CRITICAL: Hide MathML fallback text — prevents math duplication (e.g. f(x)f(x))
+   This MUST be in the stylesheet in case the CDN KaTeX CSS fails to load */
+.katex-mathml {
+  position: absolute !important;
+  clip: rect(1px, 1px, 1px, 1px) !important;
+  padding: 0 !important;
+  border: 0 !important;
+  height: 1px !important;
+  width: 1px !important;
+  overflow: hidden !important;
+}
+
 .katex {
   font-size: 1.1em !important;
   color: #e2e8f0 !important;
