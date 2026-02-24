@@ -7,6 +7,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { ChatInterface } from "@/components/ChatInterface";
 import { ModelSelector } from "@/components/ModelSelector";
 import { ThinkingModeToggle } from "@/components/ThinkingModeToggle";
+import { ConversationHistory } from "@/components/ConversationHistory";
 import { sendMessage, fetchPersonas } from "@/lib/api";
 import { getUserSettings, saveUserSettings } from "@/lib/store";
 import {
@@ -80,7 +81,7 @@ export default function Home() {
     persona: "balanced",
     useWebSearch: true,
     chainOfThought: true,
-    model: "gpt-4.1" as AIModel,
+    model: "claude-3.7-sonnet" as AIModel,
     thinkingMode: "balanced",
   });
   const [contextFiles, setContextFiles] = useState<Record<string, FileAttachment[]>>({});
@@ -431,6 +432,13 @@ export default function Home() {
 
         {/* ── Chat + Schedule ──────────────────────────────────── */}
         <div className="flex-1 flex min-h-0">
+          <ConversationHistory
+            currentMessages={currentMessages}
+            onNewChat={() => {
+              setMessages((prev) => ({ ...prev, [activeSubject]: [] }));
+              setContextFiles((prev) => ({ ...prev, [activeSubject]: [] }));
+            }}
+          />
           <ChatInterface
             messages={currentMessages}
             isLoading={isLoading}

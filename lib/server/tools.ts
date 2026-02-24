@@ -549,7 +549,7 @@ export async function executeTool(
       return executeFlowchartGeneration(toolInput);
 
     case "generate_image":
-      return executeImageGeneration(toolInput);
+      return await executeImageGeneration(toolInput);
 
     case "recognize_image":
       return executeImageRecognition(toolInput);
@@ -867,9 +867,9 @@ function executeFlowchartGeneration(
 
 // ── Image Generation ──────────────────────────────────────────────────
 
-function executeImageGeneration(
+async function executeImageGeneration(
   input: Record<string, unknown>
-): { result: unknown; imageData?: unknown } {
+): Promise<{ result: unknown; imageData?: unknown }> {
   const prompt = String(input.prompt || "");
   const style = String(input.style || "diagram");
   const subject = String(input.subject || "general");
@@ -880,6 +880,56 @@ function executeImageGeneration(
     };
   }
 
+  // Try to use DALL-E 3 API if token is available
+  const openaiKey = process.env.GITHUB_TOKEN?.trim();
+  if (openaiKey) {
+    try {
+      const OpenAI = (await import("openai")).default;
+      const client = new OpenAI({
+        baseURL: "https://models.inference.ai.azure.com",
+        apiKey: openaiKey,
+      });
+
+      // Enhanced prompt for educational content
+      const enhancedPrompt = `Educational ${style} illustration for ${subject}: ${prompt}. High quality, clear, informative, suitable for students.`;
+
+      const response = await client.images.generate({
+        model: "dall-e-3",
+        prompt: enhancedPrompt.slice(0, 1000),
+        n: 1,
+        size: "1024x1024",
+        quality: "standard",
+        style: style === "realistic" ? "natural" : "vivid",
+      });
+
+      if (response.data && response.data[0]?.url) {
+        return {
+          result: {
+            message:
+              `**Educational Illustration Generated** (${style} style for ${subject})\n\n` +
+              `${prompt}\n\n` +
+              "The AI-generated illustration is displayed below.",
+            prompt: enhancedPrompt,
+            style,
+            subject,
+            type: "image_rendered",
+            image_url: response.data[0].url,
+          },
+          imageData: {
+            prompt: enhancedPrompt,
+            style,
+            subject,
+            url: response.data[0].url,
+          },
+        };
+      }
+    } catch (err) {
+      console.error("DALL-E generation failed:", err);
+      // Fall through to text-only response
+    }
+  }
+
+  // Fallback: text-only response
   return {
     result: {
       message:

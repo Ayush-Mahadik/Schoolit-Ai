@@ -24,14 +24,19 @@ const MAX_MESSAGE_LENGTH = 12_000;
 const MAX_HISTORY_MESSAGES = 30;
 const VALID_PERSONAS = ["formal", "creative", "socratic", "balanced", "exam_coach"];
 
-// Model mapping for GitHub Models endpoint — all models support function calling
+// Model mapping for API endpoints
 const MODEL_MAP: Record<string, string> = {
-  "gpt-4.1": "gpt-4.1",
+  "claude-3.7-sonnet": "claude-3-7-sonnet-20250219", // Anthropic API
+  "gpt-4.1-turbo": "gpt-4-turbo", // GitHub Models / OpenAI
+  "o1-preview": "o1-preview", // OpenAI
   "gpt-4o": "gpt-4o",
   "gpt-4o-mini": "gpt-4o-mini",
   "Mistral-large-2411": "Mistral-large-2411",
   "xai/grok-3-mini": "xai/grok-3-mini",
 };
+
+// Models that use Anthropic API instead of OpenAI SDK
+const ANTHROPIC_MODELS = new Set<string>(["claude-3.7-sonnet"]);
 
 // Models that require max_completion_tokens instead of max_tokens
 const USES_MAX_COMPLETION_TOKENS = new Set<string>();
@@ -197,7 +202,7 @@ export async function POST(req: NextRequest) {
   const maxTokens = THINKING_MODE_TOKENS[thinkingMode] || 4096;
 
   // Model selection
-  const requestedModel = String(body.model || "gpt-4.1");
+  const requestedModel = String(body.model || "claude-3.7-sonnet");
   const modelId = MODEL_MAP[requestedModel] || "gpt-4.1";
 
   const history = Array.isArray(body.history) ? body.history : [];
@@ -296,11 +301,13 @@ export async function POST(req: NextRequest) {
   try {
     // Model fallback chain: try requested model, then fallback options
     const FALLBACK_CHAIN: Record<string, string[]> = {
-      "gpt-4.1": ["gpt-4o", "Mistral-large-2411", "gpt-4o-mini"],
-      "gpt-4o": ["gpt-4.1", "Mistral-large-2411", "gpt-4o-mini"],
-      "gpt-4o-mini": ["gpt-4o", "gpt-4.1"],
-      "Mistral-large-2411": ["gpt-4.1", "gpt-4o", "gpt-4o-mini"],
-      "xai/grok-3-mini": ["gpt-4.1", "gpt-4o", "Mistral-large-2411"],
+      "claude-3.7-sonnet": ["gpt-4.1-turbo", "gpt-4o", "Mistral-large-2411"],
+      "gpt-4.1-turbo": ["gpt-4o", "claude-3.7-sonnet", "Mistral-large-2411"],
+      "o1-preview": ["gpt-4.1-turbo", "gpt-4o"],
+      "gpt-4o": ["gpt-4.1-turbo", "Mistral-large-2411", "gpt-4o-mini"],
+      "gpt-4o-mini": ["gpt-4o", "gpt-4.1-turbo"],
+      "Mistral-large-2411": ["gpt-4.1-turbo", "gpt-4o", "gpt-4o-mini"],
+      "xai/grok-3-mini": ["gpt-4.1-turbo", "gpt-4o", "Mistral-large-2411"],
     };
 
     let activeModelId = modelId;

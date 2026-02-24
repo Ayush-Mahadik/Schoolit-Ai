@@ -5,7 +5,9 @@
 // ── AI Model & Thinking Mode ──────────────────────────────────────────
 
 export type AIModel =
-  | "gpt-4.1"
+  | "claude-3.7-sonnet"
+  | "gpt-4.1-turbo"
+  | "o1-preview"
   | "gpt-4o"
   | "gpt-4o-mini"
   | "Mistral-large-2411"
@@ -21,37 +23,51 @@ export interface ModelOption {
 
 export const MODEL_OPTIONS: ModelOption[] = [
   {
-    id: "gpt-4.1",
-    name: "GPT-4.1",
-    description: "Flagship — deep reasoning & complex tasks",
+    id: "claude-3.7-sonnet",
+    name: "Claude 3.7 Sonnet",
+    description: "🏆 Best — Anthropic's most capable model (200k context)",
+    icon: "sparkles",
+    speed: "medium",
+  },
+  {
+    id: "gpt-4.1-turbo",
+    name: "GPT-4.1 Turbo",
+    description: "🚀 Ultra fast flagship — best reasoning speed",
     icon: "brain",
+    speed: "medium",
+  },
+  {
+    id: "o1-preview",
+    name: "OpenAI o1-preview",
+    description: "🎯 Deep thinking — PhD-level reasoning",
+    icon: "target",
     speed: "slow",
   },
   {
     id: "gpt-4o",
     name: "GPT-4o",
-    description: "Balanced — fast with great quality",
+    description: "⚡ Balanced — fast with great quality",
     icon: "zap",
     speed: "medium",
   },
   {
     id: "gpt-4o-mini",
     name: "GPT-4o Mini",
-    description: "Lightning fast — quick answers & simple tasks",
+    description: "🌟 Lightning fast — quick answers & simple tasks",
     icon: "rocket",
     speed: "fast",
   },
   {
     id: "Mistral-large-2411",
     name: "Mistral Large",
-    description: "Powerful open model — excellent reasoning",
+    description: "💨 Powerful open model — excellent reasoning",
     icon: "wind",
     speed: "medium",
   },
   {
     id: "xai/grok-3-mini",
     name: "Grok 3 Mini",
-    description: "xAI reasoning — bold, fast & tool-capable",
+    description: "🔥 xAI reasoning — bold, fast & tool-capable",
     icon: "flame",
     speed: "fast",
   },

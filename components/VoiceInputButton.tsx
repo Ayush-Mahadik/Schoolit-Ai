@@ -60,6 +60,7 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
       (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setIsSupported(false);
+      console.warn("Web Speech API not supported in this browser");
     }
   }, []);
 

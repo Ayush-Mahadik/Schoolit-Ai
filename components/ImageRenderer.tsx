@@ -1,19 +1,20 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 interface ImageRendererProps {
   prompt: string;
   style: string;
   subject?: string;
+  url?: string; // Optional DALL-E generated image URL
 }
 
 /**
- * Renders an educational SVG illustration based on the image prompt.
- * Since we can't call DALL-E, we generate a styled SVG representation.
+ * Renders an educational illustration - either DALL-E generated or fallback SVG.
  */
-export function ImageRenderer({ prompt, style, subject }: ImageRendererProps) {
+export function ImageRenderer({ prompt, style, subject, url }: ImageRendererProps) {
   const visual = useMemo(() => generateVisual(prompt, style, subject), [prompt, style, subject]);
+  const [imageError, setImageError] = useState(false);
 
   return (
     <div className="my-4 rounded-xl border border-surface-4 bg-surface-2 overflow-hidden">
@@ -26,55 +27,66 @@ export function ImageRenderer({ prompt, style, subject }: ImageRendererProps) {
             <polyline points="21 15 16 10 5 21" />
           </svg>
           <span className="text-xs font-medium text-slate-300">
-            {style.charAt(0).toUpperCase() + style.slice(1)} — {subject || "Educational"}
+            {url && !imageError ? "AI-Generated Image" : `${style.charAt(0).toUpperCase() + style.slice(1)}`} — {subject || "Educational"}
           </span>
         </div>
       </div>
 
-      {/* SVG Illustration */}
+      {/* Image or SVG Illustration */}
       <div className="p-4 flex justify-center items-center bg-[#0a0a14]">
-        <svg
-          viewBox="0 0 600 400"
-          className="w-full max-h-[300px]"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <defs>
-            <linearGradient id="imgBg" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#0f172a" />
-              <stop offset="100%" stopColor="#0a0a14" />
-            </linearGradient>
-            <filter id="glow">
-              <feGaussianBlur stdDeviation="3" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          </defs>
-          <rect width="600" height="400" fill="url(#imgBg)" />
+        {url && !imageError ? (
+          // DALL-E Generated Image
+          <img
+            src={url}
+            alt={prompt}
+            className="w-full max-w-2xl rounded-lg border border-surface-4"
+            onError={() => setImageError(true)}
+          />
+        ) : (
+          // Fallback SVG
+          <svg
+            viewBox="0 0 600 400"
+            className="w-full max-h-[300px]"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <defs>
+              <linearGradient id="imgBg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#0f172a" />
+                <stop offset="100%" stopColor="#0a0a14" />
+              </linearGradient>
+              <filter id="glow">
+                <feGaussianBlur stdDeviation="3" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+            <rect width="600" height="400" fill="url(#imgBg)" />
 
-          {visual.elements.map((el, i) => {
-            if (el.type === "circle") {
-              return <circle key={i} cx={el.cx} cy={el.cy} r={el.r} fill={el.fill || "none"} stroke={el.stroke || "#3b82f6"} strokeWidth={el.sw || 2} opacity={el.op || 1} />;
-            }
-            if (el.type === "rect") {
-              return <rect key={i} x={el.x} y={el.y} width={el.w} height={el.h} rx={el.rx || 0} fill={el.fill || "none"} stroke={el.stroke || "#3b82f6"} strokeWidth={el.sw || 2} opacity={el.op || 1} />;
-            }
-            if (el.type === "text") {
-              return <text key={i} x={el.x} y={el.y} fill={el.fill || "#e2e8f0"} fontSize={el.fs || 14} textAnchor="middle" fontFamily="Inter, system-ui, sans-serif">{el.text}</text>;
-            }
-            if (el.type === "line") {
-              return <line key={i} x1={el.x1} y1={el.y1} x2={el.x2} y2={el.y2} stroke={el.stroke || "#3b82f6"} strokeWidth={el.sw || 2} opacity={el.op || 1} />;
-            }
-            if (el.type === "ellipse") {
-              return <ellipse key={i} cx={el.cx} cy={el.cy} rx={el.rx} ry={el.ry} fill={el.fill || "none"} stroke={el.stroke || "#3b82f6"} strokeWidth={el.sw || 2} opacity={el.op || 1} />;
-            }
-            if (el.type === "path") {
-              return <path key={i} d={el.d} fill={el.fill || "none"} stroke={el.stroke || "#3b82f6"} strokeWidth={el.sw || 2} opacity={el.op || 1} />;
-            }
-            return null;
-          })}
-        </svg>
+            {visual.elements.map((el, i) => {
+              if (el.type === "circle") {
+                return <circle key={i} cx={el.cx} cy={el.cy} r={el.r} fill={el.fill || "none"} stroke={el.stroke || "#3b82f6"} strokeWidth={el.sw || 2} opacity={el.op || 1} />;
+              }
+              if (el.type === "rect") {
+                return <rect key={i} x={el.x} y={el.y} width={el.w} height={el.h} rx={el.rx || 0} fill={el.fill || "none"} stroke={el.stroke || "#3b82f6"} strokeWidth={el.sw || 2} opacity={el.op || 1} />;
+              }
+              if (el.type === "text") {
+                return <text key={i} x={el.x} y={el.y} fill={el.fill || "#e2e8f0"} fontSize={el.fs || 14} textAnchor="middle" fontFamily="Inter, system-ui, sans-serif">{el.text}</text>;
+              }
+              if (el.type === "line") {
+                return <line key={i} x1={el.x1} y1={el.y1} x2={el.x2} y2={el.y2} stroke={el.stroke || "#3b82f6"} strokeWidth={el.sw || 2} opacity={el.op || 1} />;
+              }
+              if (el.type === "ellipse") {
+                return <ellipse key={i} cx={el.cx} cy={el.cy} rx={el.rx} ry={el.ry} fill={el.fill || "none"} stroke={el.stroke || "#3b82f6"} strokeWidth={el.sw || 2} opacity={el.op || 1} />;
+              }
+              if (el.type === "path") {
+                return <path key={i} d={el.d} fill={el.fill || "none"} stroke={el.stroke || "#3b82f6"} strokeWidth={el.sw || 2} opacity={el.op || 1} />;
+              }
+              return null;
+            })}
+          </svg>
+        )}
       </div>
 
       {/* Caption */}

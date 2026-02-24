@@ -440,7 +440,7 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
                     try {
                       const imgData = JSON.parse(codeStr);
                       if (imgData.prompt) {
-                        return <ImageRenderer prompt={imgData.prompt} style={imgData.style || "diagram"} subject={imgData.subject} />;
+                        return <ImageRenderer prompt={imgData.prompt} style={imgData.style || "diagram"} subject={imgData.subject} url={imgData.url} />;
                       }
                     } catch {
                       // Fall through

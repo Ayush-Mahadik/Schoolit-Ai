@@ -55,6 +55,8 @@ import {
   RotateCcw,
   Wind,
   Flame,
+  Target,
+  History,
   type LucideProps,
 } from "lucide-react";
 import type { FC } from "react";
@@ -99,7 +101,7 @@ const iconMap: Record<string, FC<LucideProps>> = {
   sparkles: Sparkles,
   bot: Bot,
   user: User,
-  trash2: Trash2,
+  "trash-2": Trash2,
   check: Check,
   clock: Clock,
   copy: Copy,
@@ -114,6 +116,8 @@ const iconMap: Record<string, FC<LucideProps>> = {
   "rotate-ccw": RotateCcw,
   wind: Wind,
   flame: Flame,
+  target: Target,
+  history: History,
 };
 
 interface IconProps extends LucideProps {
