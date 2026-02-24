@@ -28,27 +28,27 @@ const VALID_PERSONAS = ["formal", "creative", "socratic", "balanced", "exam_coac
 const MODEL_MAP: Record<string, string> = {
   "gpt-4.1": "gpt-4.1",
   "gpt-4o": "gpt-4o",
-  "gpt-4o-mini": "gpt-4o-mini",
-  "gpt-4.1-mini": "gpt-4.1-mini",
-  "gpt-4.1-nano": "gpt-4.1-nano",
-  "Llama-3.3-70B-Instruct": "Llama-3.3-70B-Instruct",
-  "Meta-Llama-3.1-405B-Instruct": "Meta-Llama-3.1-405B-Instruct",
-  "Cohere-command-r-plus-08-2024": "Cohere-command-r-plus-08-2024",
-  "DeepSeek-R1": "DeepSeek-R1",
-  "Phi-4-reasoning": "Phi-4-reasoning",
+  "grok-3": "grok-3",
+  "grok-3-mini": "grok-3-mini",
 };
 
 // Models that require max_completion_tokens instead of max_tokens
 const USES_MAX_COMPLETION_TOKENS = new Set<string>();
 
 // Models that do NOT support function calling (tools)
-const NO_TOOL_SUPPORT = new Set<string>(["DeepSeek-R1", "Phi-4-reasoning", "Meta-Llama-3.1-405B-Instruct"]);
+const NO_TOOL_SUPPORT = new Set<string>([]);
 
-// Token limits per thinking mode
+// Models that do NOT support vision (image_url content parts)
+const NO_VISION_SUPPORT = new Set<string>(["grok-3", "grok-3-mini"]);
+
+// Models that return reasoning_content (grok-3-mini style thinking)
+const HAS_REASONING_CONTENT = new Set<string>(["grok-3-mini"]);
+
+// Token limits per thinking mode — generous to avoid truncation
 const THINKING_MODE_TOKENS: Record<string, number> = {
-  fast: 2048,
-  balanced: 4096,
-  deep: 8192,
+  fast: 16384,
+  balanced: 16384,
+  deep: 16384,
 };
 
 // ── In-Memory Rate Limiter ────────────────────────────────────────────
@@ -269,7 +269,10 @@ export async function POST(req: NextRequest) {
       String(f.type || "").startsWith("image/") && String(f.content || "").startsWith("data:")
   );
 
-  if (imageFiles.length > 0) {
+  // Only send image_url parts to models that support vision
+  const modelSupportsVision = !NO_VISION_SUPPORT.has(modelId);
+
+  if (imageFiles.length > 0 && modelSupportsVision) {
     const contentParts: OpenAI.Chat.ChatCompletionContentPart[] = [
       { type: "text", text: message },
     ];
@@ -280,6 +283,10 @@ export async function POST(req: NextRequest) {
       });
     }
     messages.push({ role: "user", content: contentParts });
+  } else if (imageFiles.length > 0 && !modelSupportsVision) {
+    // Model doesn't support vision — add image context as text description
+    const imageNote = `\n\n[The user attached ${imageFiles.length} image(s): ${imageFiles.map((f: Record<string, unknown>) => String(f.name || "image")).join(", ")}. This model doesn't support direct image analysis. Please let the user know you can see they attached images but recommend switching to GPT-4.1 or GPT-4o for image/screenshot analysis.]`;
+    messages.push({ role: "user", content: message + imageNote });
   } else {
     messages.push({ role: "user", content: message });
   }
@@ -301,16 +308,10 @@ export async function POST(req: NextRequest) {
   try {
     // Model fallback chains — all verified on GitHub Models endpoint
     const FALLBACK_CHAIN: Record<string, string[]> = {
-      "gpt-4.1": ["gpt-4o", "gpt-4.1-mini", "gpt-4o-mini"],
-      "gpt-4o": ["gpt-4.1", "gpt-4.1-mini", "gpt-4o-mini"],
-      "gpt-4o-mini": ["gpt-4.1-nano", "gpt-4.1-mini", "gpt-4o"],
-      "gpt-4.1-mini": ["gpt-4o-mini", "gpt-4.1-nano", "gpt-4o"],
-      "gpt-4.1-nano": ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4o"],
-      "Llama-3.3-70B-Instruct": ["gpt-4.1", "gpt-4o", "Cohere-command-r-plus-08-2024"],
-      "Meta-Llama-3.1-405B-Instruct": ["Llama-3.3-70B-Instruct", "gpt-4.1", "gpt-4o"],
-      "Cohere-command-r-plus-08-2024": ["gpt-4.1", "gpt-4o", "Llama-3.3-70B-Instruct"],
-      "DeepSeek-R1": ["gpt-4.1", "gpt-4o", "gpt-4.1-mini"],
-      "Phi-4-reasoning": ["DeepSeek-R1", "gpt-4.1", "gpt-4o"],
+      "gpt-4.1": ["gpt-4o", "grok-3", "grok-3-mini"],
+      "gpt-4o": ["gpt-4.1", "grok-3", "grok-3-mini"],
+      "grok-3": ["grok-3-mini", "gpt-4.1", "gpt-4o"],
+      "grok-3-mini": ["grok-3", "gpt-4.1", "gpt-4o"],
     };
 
     let activeModelId = modelId;
@@ -341,6 +342,19 @@ export async function POST(req: NextRequest) {
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 const { tool_calls: _tc, ...rest } = m as unknown as Record<string, unknown>;
                 return rest as unknown as OpenAI.Chat.ChatCompletionMessageParam;
+              }
+              return m;
+            });
+          }
+
+          // Strip image_url parts from messages for models that don't support vision
+          if (NO_VISION_SUPPORT.has(tryModel)) {
+            filteredMsgs = filteredMsgs.map((m) => {
+              if (m.role === "user" && Array.isArray(m.content)) {
+                const textParts = (m.content as OpenAI.Chat.ChatCompletionContentPart[])
+                  .filter((p) => p.type === "text")
+                  .map((p) => (p as { type: "text"; text: string }).text);
+                return { ...m, content: textParts.join("\n") || "Analyze the attached content" };
               }
               return m;
             });
@@ -426,6 +440,41 @@ export async function POST(req: NextRequest) {
       // Model done — extract final response
       let finalText = assistantMsg.content || "";
 
+      // ── Extract thinking/reasoning content ──────────────────────
+      let thinkingContent: string | null = null;
+
+      // 1. Capture reasoning_content from Grok-3-mini style models
+      const rawMsg = assistantMsg as unknown as Record<string, unknown>;
+      if (rawMsg.reasoning_content && typeof rawMsg.reasoning_content === "string") {
+        thinkingContent = String(rawMsg.reasoning_content).trim();
+      }
+
+      // 2. Strip <think>...</think> tags from content (DeepSeek-R1, etc.)
+      const thinkMatch = finalText.match(/<think>([\s\S]*?)<\/think>/);
+      if (thinkMatch) {
+        if (!thinkingContent) {
+          thinkingContent = thinkMatch[1].trim();
+        }
+        finalText = finalText.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+      }
+
+      // 3. Also strip any remaining <think> without closing tag
+      if (finalText.includes("<think>")) {
+        const idx = finalText.indexOf("<think>");
+        const endIdx = finalText.indexOf("</think>", idx);
+        if (endIdx === -1) {
+          // Unclosed think tag — extract and remove
+          const thinkText = finalText.slice(idx + 7).trim();
+          if (!thinkingContent && thinkText) thinkingContent = thinkText;
+          finalText = finalText.slice(0, idx).trim();
+        }
+      }
+
+      // If deep thinking was active, label it even without model thinking content
+      if (chainOfThought && !thinkingContent) {
+        thinkingContent = "Deep reasoning mode was active for this response.";
+      }
+
       if (charts.length > 0) {
         for (const chart of charts) {
           finalText += `\n\n\`\`\`chart\n${JSON.stringify(chart)}\n\`\`\``;
@@ -456,7 +505,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         response: finalText,
         conversation_id: crypto.randomUUID(),
-        thinking: chainOfThought ? "Deep reasoning mode was active for this response." : null,
+        thinking: thinkingContent,
         animation_url: null,
         sources: Array.from(new Set(sources)),
         tool_calls: toolCallsLog,
@@ -514,7 +563,7 @@ export async function POST(req: NextRequest) {
       userError = "The request timed out. Try asking a shorter question or switch to a faster model.";
       statusHint = "timeout";
     } else if (statusCode === 404 || msg.includes("model") || msg.includes("not found") || msg.includes("does not exist") || msg.includes("404")) {
-      userError = `The model "${modelId}" isn't available right now. Try switching to GPT-4.1 or Grok 3 Mini.`;
+      userError = `The model "${modelId}" isn't available right now. Try switching to GPT-4.1 or GPT-4o.`;
       statusHint = "model_not_found";
     } else if (msg.includes("content_filter") || msg.includes("content policy") || msg.includes("safety")) {
       userError = "Your message was flagged by the content safety filter. Please rephrase your question.";

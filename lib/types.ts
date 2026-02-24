@@ -7,14 +7,8 @@
 export type AIModel =
   | "gpt-4.1"
   | "gpt-4o"
-  | "gpt-4o-mini"
-  | "gpt-4.1-mini"
-  | "gpt-4.1-nano"
-  | "Llama-3.3-70B-Instruct"
-  | "Meta-Llama-3.1-405B-Instruct"
-  | "Cohere-command-r-plus-08-2024"
-  | "DeepSeek-R1"
-  | "Phi-4-reasoning";
+  | "grok-3"
+  | "grok-3-mini";
 
 export interface ModelOption {
   id: AIModel;
@@ -23,88 +17,50 @@ export interface ModelOption {
   icon: string; // Lucide icon name
   speed: "fast" | "medium" | "slow";
   supportsTools: boolean;
+  supportsVision: boolean;
+  hasThinking: boolean;
 }
 
 export const MODEL_OPTIONS: ModelOption[] = [
   {
     id: "gpt-4.1",
     name: "GPT-4.1",
-    description: "Flagship — best reasoning, tool use & complex tasks",
+    description: "Flagship — best reasoning, coding & complex tasks",
     icon: "brain",
     speed: "medium",
     supportsTools: true,
+    supportsVision: true,
+    hasThinking: false,
   },
   {
     id: "gpt-4o",
     name: "GPT-4o",
-    description: "Balanced — fast multimodal with great quality",
+    description: "Multimodal — vision, analysis & fast quality",
     icon: "zap",
-    speed: "medium",
-    supportsTools: true,
-  },
-  {
-    id: "gpt-4o-mini",
-    name: "GPT-4o Mini",
-    description: "Lightning fast — quick answers & light tasks",
-    icon: "rocket",
     speed: "fast",
     supportsTools: true,
+    supportsVision: true,
+    hasThinking: false,
   },
   {
-    id: "gpt-4.1-mini",
-    name: "GPT-4.1 Mini",
-    description: "Smart & efficient — GPT-4.1 quality, faster",
-    icon: "sparkles",
-    speed: "fast",
-    supportsTools: true,
-  },
-  {
-    id: "Llama-3.3-70B-Instruct",
-    name: "Llama 3.3 70B",
-    description: "Meta's best open model — powerful & free",
+    id: "grok-3",
+    name: "Grok 3",
+    description: "xAI's most powerful — deep reasoning & tools",
     icon: "flame",
     speed: "medium",
     supportsTools: true,
+    supportsVision: false,
+    hasThinking: false,
   },
   {
-    id: "Cohere-command-r-plus-08-2024",
-    name: "Cohere Command R+",
-    description: "Enterprise-grade — excellent at RAG & search",
-    icon: "globe",
-    speed: "medium",
-    supportsTools: true,
-  },
-  {
-    id: "DeepSeek-R1",
-    name: "DeepSeek R1",
-    description: "Deep reasoning — think-step-by-step specialist",
-    icon: "target",
-    speed: "slow",
-    supportsTools: false,
-  },
-  {
-    id: "gpt-4.1-nano",
-    name: "GPT-4.1 Nano",
-    description: "Ultra-fast — instant answers for simple tasks",
-    icon: "bolt",
+    id: "grok-3-mini",
+    name: "Grok 3 Mini",
+    description: "Fast thinking — see AI reasoning in real-time",
+    icon: "sparkles",
     speed: "fast",
     supportsTools: true,
-  },
-  {
-    id: "Meta-Llama-3.1-405B-Instruct",
-    name: "Llama 3.1 405B",
-    description: "Largest open model — 405B parameter powerhouse",
-    icon: "mountain",
-    speed: "slow",
-    supportsTools: false,
-  },
-  {
-    id: "Phi-4-reasoning",
-    name: "Phi-4 Reasoning",
-    description: "Microsoft's reasoning model — math & logic expert",
-    icon: "calculator",
-    speed: "medium",
-    supportsTools: false,
+    supportsVision: false,
+    hasThinking: true,
   },
 ];
 
@@ -126,7 +82,7 @@ export const THINKING_MODES: ThinkingModeOption[] = [
     description: "Quick, direct answers",
     icon: "zap",
     chainOfThought: false,
-    maxTokens: 2048,
+    maxTokens: 16384,
   },
   {
     id: "balanced",
@@ -134,7 +90,7 @@ export const THINKING_MODES: ThinkingModeOption[] = [
     description: "Good quality with moderate speed",
     icon: "scale",
     chainOfThought: false,
-    maxTokens: 4096,
+    maxTokens: 16384,
   },
   {
     id: "deep",
@@ -142,7 +98,7 @@ export const THINKING_MODES: ThinkingModeOption[] = [
     description: "Rigorous step-by-step reasoning",
     icon: "brain",
     chainOfThought: true,
-    maxTokens: 8192,
+    maxTokens: 16384,
   },
 ];
 

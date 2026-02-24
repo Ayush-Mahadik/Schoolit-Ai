@@ -386,14 +386,17 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
           </div>
         )}
 
-        {/* Chain of Thought */}
+        {/* AI Thinking / Reasoning — Grok-style */}
         {message.thinking && (
-          <details className="thinking-block">
+          <details className="thinking-block" open={message.thinking.length < 500}>
             <summary className="flex items-center gap-1.5">
               <Brain className="w-3.5 h-3.5" />
-              Chain of Thought
+              <span>AI Thinking</span>
+              <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal ml-1">
+                {message.thinking.length > 200 ? `${Math.ceil(message.thinking.length / 4)} tokens` : ""}
+              </span>
             </summary>
-            <div className="mt-2 prose-chat text-xs">
+            <div className="mt-2 prose-chat text-xs leading-relaxed text-slate-400">
               <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
                 {preprocessLatex(message.thinking)}
               </ReactMarkdown>
@@ -554,55 +557,124 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
 
 // ── Empty state ──────────────────────────────────────────────────────
 function EmptyState({ subject, onSuggestion }: { subject: string; onSuggestion: (text: string) => void }) {
-  const suggestions: Record<string, string[]> = {
+  const allSuggestions: Record<string, string[]> = {
     math: [
       "Explain the quadratic formula step by step with a graph",
       "Show me the graph of sin(x), cos(x), and tan(x)",
       "Solve: ∫ x²·sin(x) dx using integration by parts",
+      "Prove that √2 is irrational",
+      "Explain matrices with real-world examples",
+      "What is the binomial theorem? Show with expansion",
+      "Solve a system of 3 equations with 3 unknowns",
+      "Explain the concept of limits with visual graphs",
+      "What are complex numbers? Show on Argand diagram",
+      "Derive the area of a circle using calculus",
     ],
     physics: [
       "Derive the equations of motion and show a v-t graph",
       "Show projectile motion at 30°, 45°, and 60° on a chart",
       "Explain electromagnetic induction with Faraday's Law",
+      "What is Bernoulli's principle? Give real-world examples",
+      "Compare series and parallel circuits with diagrams",
+      "Explain the Doppler effect with examples",
+      "How does a nuclear reactor work?",
+      "Derive the formula for time period of a simple pendulum",
+      "Explain wave-particle duality of light",
+      "What is special relativity? Explain time dilation",
     ],
     chemistry: [
       "Balance: Fe₂O₃ + CO → Fe + CO₂ and show the steps",
       "Compare electronegativity across Period 3 with a chart",
-      "What is Le Chatelier's Principle? Give examples.",
+      "What is Le Chatelier's Principle? Give examples",
+      "Explain the difference between SN1 and SN2 reactions",
+      "How does the periodic table organize elements?",
+      "What are hydrogen bonds? Why is water special?",
+      "Explain buffer solutions with pH calculations",
+      "What is chemical equilibrium? Explain Kc and Kp",
+      "Draw the molecular orbital diagram of O₂",
+      "Explain electrochemistry and galvanic cells",
     ],
     biology: [
       "Explain the Krebs cycle in simple terms with a table",
       "Compare mitosis and meiosis in a detailed table",
       "How does CRISPR gene editing work?",
+      "What is natural selection? Give modern examples",
+      "Explain photosynthesis: light and dark reactions",
+      "How do vaccines work? mRNA vs traditional",
+      "What is the central dogma of molecular biology?",
+      "Explain the human immune system simply",
+      "What are stem cells? Ethical considerations?",
+      "How does the nervous system transmit signals?",
     ],
     cs: [
       "Explain Big-O notation with a comparison chart",
-      "Compare sorting algorithms in a table with time complexity",
-      "Write a merge sort algorithm and explain it step by step",
+      "Compare sorting algorithms in a table with complexity",
+      "Write a merge sort algorithm and explain step by step",
+      "What is dynamic programming? Solve fibonacci with it",
+      "Explain how the internet works — DNS, HTTP, TCP/IP",
+      "What are design patterns? Explain 3 common ones",
+      "How does encryption work? RSA vs AES",
+      "Explain recursion vs iteration with examples",
+      "What is a binary search tree? Show operations",
+      "How does Git version control work internally?",
     ],
     english: [
       "How do I write a strong thesis statement?",
       "Analyse the theme of ambition in Macbeth",
       "Explain simile, metaphor, and personification with examples",
+      "Write a persuasive essay outline on climate change",
+      "What is the difference between active and passive voice?",
+      "Explain irony — dramatic, situational, and verbal",
+      "How to write a compelling introduction paragraph",
+      "Analyse symbolism in The Great Gatsby",
+      "What are the rules of using semicolons and colons?",
+      "Explain narrative techniques in first-person stories",
     ],
     sst: [
       "Compare the causes of World War I and II in a table",
       "What are the three branches of government?",
       "Show the world's largest economies in a bar chart",
+      "Explain the French Revolution and its consequences",
+      "What is globalization? Pros and cons",
+      "How does the United Nations work?",
+      "Explain the Cold War in simple terms",
+      "What caused the Industrial Revolution?",
+      "Compare democratic vs authoritarian governments",
+      "Explain climate change causes and effects with data",
     ],
     sanskrit: [
       "Explain sandhi rules with examples",
       "Translate this shloka and explain its meaning",
-      "What are the vibhaktis in Sanskrit? Give a table.",
+      "What are the vibhaktis in Sanskrit? Give a table",
+      "Explain dhatu (verb roots) in Sanskrit grammar",
+      "What is the structure of a Sanskrit sentence?",
+      "List the 10 lakaaras with examples",
+      "Explain samasa (compound words) types",
+      "What is the Paninian grammar system?",
     ],
     general: [
       "Help me prepare for my upcoming math exam",
       "Explain any scientific concept with charts and visuals",
       "Solve a complex problem step by step",
+      "Create a study schedule for my exams next week",
+      "Summarize a topic in 5 bullet points",
+      "Generate flashcards for any subject",
+      "Analyze this document I'm about to upload",
+      "Help me understand this screenshot",
+      "Create a mind map of a topic using a flowchart",
+      "Quiz me on any subject — 10 questions",
     ],
   };
 
-  const subjectSuggestions = suggestions[subject] || suggestions.general;
+  // Randomize: pick 4 suggestions from the pool
+  const [randomSuggestions, setRandomSuggestions] = useState<string[]>([]);
+
+  useEffect(() => {
+    const pool = allSuggestions[subject] || allSuggestions.general;
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    setRandomSuggestions(shuffled.slice(0, 4));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject]);
 
   return (
     <div className="flex flex-col items-center justify-center h-full max-w-xl mx-auto px-4">
@@ -620,14 +692,13 @@ function EmptyState({ subject, onSuggestion }: { subject: string; onSuggestion: 
             What can I help with?
           </h2>
           <p className="text-sm text-slate-500 max-w-sm mx-auto">
-            Ask me anything — I can search the web, create charts,
-            summarize videos, check grammar, analyze documents, and more.
-            Try the 🎤 mic button for voice input!
+            Ask anything — I search the web, create charts, analyze screenshots,
+            solve problems step-by-step, and more. Try 🎤 voice input!
           </p>
         </div>
 
         <div className="grid gap-2 w-full max-w-md mx-auto">
-          {subjectSuggestions.map((suggestion, i) => (
+          {randomSuggestions.map((suggestion, i) => (
             <button
               key={i}
               onClick={() => onSuggestion(suggestion)}

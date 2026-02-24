@@ -123,14 +123,22 @@ button:focus-visible {
   @apply text-white font-bold;
 }
 
-/* ── Thinking/CoT block ─────────────────────────────────────────────────── */
+/* ── Thinking/CoT block — Grok-style ────────────────────────────────────── */
 .thinking-block {
-  @apply bg-surface-2 border border-blue-500/20 rounded-xl p-3.5 mb-3;
-  @apply text-sm text-slate-500 italic;
+  @apply bg-gradient-to-br from-blue-500/5 to-purple-500/5 border border-blue-500/15 rounded-xl p-3.5 mb-3;
+  @apply text-sm text-slate-400;
 }
 
 .thinking-block summary {
-  @apply cursor-pointer text-blue-400 not-italic font-bold text-xs uppercase tracking-wide;
+  @apply cursor-pointer text-blue-400 font-bold text-xs uppercase tracking-wide flex items-center gap-1.5 select-none;
+}
+
+.thinking-block summary::marker {
+  color: #3b82f6;
+}
+
+.thinking-block[open] summary {
+  @apply mb-2 pb-2 border-b border-blue-500/10;
 }
 
 /* ── Animations ─────────────────────────────────────────────────────────── */

@@ -81,7 +81,7 @@ export default function Home() {
     persona: "balanced",
     useWebSearch: true,
     chainOfThought: true,
-    model: "gpt-4.1" as AIModel,
+    model: "gpt-4o" as AIModel,
     thinkingMode: "balanced",
   });
   const [contextFiles, setContextFiles] = useState<Record<string, FileAttachment[]>>({});
@@ -354,6 +354,13 @@ export default function Home() {
 
           {/* ── Desktop Controls ────────────────────────────────── */}
           <div className="hidden md:flex items-center gap-2">
+            <ConversationHistory
+              currentMessages={currentMessages}
+              onNewChat={() => {
+                setMessages((prev) => ({ ...prev, [activeSubject]: [] }));
+                setContextFiles((prev) => ({ ...prev, [activeSubject]: [] }));
+              }}
+            />
             <ThinkingModeToggle
               activeMode={settings.thinkingMode}
               onSelect={(mode: ThinkingMode) =>
@@ -381,6 +388,13 @@ export default function Home() {
 
           {/* ── Mobile Controls ─────────────────────────────────── */}
           <div className="flex md:hidden items-center gap-1">
+            <ConversationHistory
+              currentMessages={currentMessages}
+              onNewChat={() => {
+                setMessages((prev) => ({ ...prev, [activeSubject]: [] }));
+                setContextFiles((prev) => ({ ...prev, [activeSubject]: [] }));
+              }}
+            />
             <ModelSelector
               activeModel={settings.model}
               onSelect={(model: AIModel) =>
@@ -432,13 +446,6 @@ export default function Home() {
 
         {/* ── Chat + Schedule ──────────────────────────────────── */}
         <div className="flex-1 flex min-h-0">
-          <ConversationHistory
-            currentMessages={currentMessages}
-            onNewChat={() => {
-              setMessages((prev) => ({ ...prev, [activeSubject]: [] }));
-              setContextFiles((prev) => ({ ...prev, [activeSubject]: [] }));
-            }}
-          />
           <ChatInterface
             messages={currentMessages}
             isLoading={isLoading}

@@ -146,17 +146,17 @@ export function ConversationHistory({
 
   return (
     <>
-      {/* Toggle Button */}
+      {/* Toggle Button — rendered inline (not fixed), placed by parent layout */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`fixed top-4 left-4 z-40 p-2.5 rounded-xl transition-all duration-200 ${
+        className={`p-2 rounded-xl transition-all duration-200 shrink-0 ${
           isOpen
             ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-            : "bg-surface-2 hover:bg-surface-3 text-slate-400 hover:text-white border border-surface-4"
+            : "hover:bg-surface-3 text-slate-400 hover:text-white border border-transparent"
         }`}
-        title={isOpen ? "Close history" : "Open history"}
+        title={isOpen ? "Close history" : "Chat history"}
       >
-        <Icon name={isOpen ? "x" : "history"} className="w-5 h-5" />
+        <Icon name={isOpen ? "x" : "history"} className="w-4 h-4" />
       </button>
 
       {/* Sidebar */}

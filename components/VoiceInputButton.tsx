@@ -46,46 +46,42 @@ interface VoiceInputButtonProps {
 
 /**
  * VoiceInputButton: Web Speech API powered voice-to-text
- * - Click to start/stop recording
- * - Real-time interim results
- * - Pulse animation when active
- * - Graceful fallback with tooltip if unsupported
+ * Fixed: uses refs for state to avoid stale closure bugs
  */
 export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonProps) {
   const [isListening, setIsListening] = useState(false);
-  const [isSupported, setIsSupported] = useState<boolean | null>(null); // null = not checked yet
+  const [isSupported, setIsSupported] = useState<boolean | null>(null);
   const [interimText, setInterimText] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const isListeningRef = useRef(false); // ref mirrors state to avoid stale closures
   const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onTranscriptRef = useRef(onTranscript);
+
+  // Keep refs in sync
+  useEffect(() => { onTranscriptRef.current = onTranscript; }, [onTranscript]);
+  useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
 
   useEffect(() => {
-    // Check browser support on mount
     if (typeof window === "undefined") return;
     const SR =
       (window as unknown as Record<string, unknown>).SpeechRecognition ||
       (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
     setIsSupported(!!SR);
-    if (!SR) {
-      console.warn("[VoiceInput] Web Speech API not supported in this browser");
-    }
   }, []);
 
   const stopListening = useCallback(() => {
+    isListeningRef.current = false;
+    setIsListening(false);
+    setInterimText("");
     if (restartTimeoutRef.current) {
       clearTimeout(restartTimeoutRef.current);
       restartTimeoutRef.current = null;
     }
     if (recognitionRef.current) {
-      try {
-        recognitionRef.current.abort();
-      } catch {
-        // ignore
-      }
+      try { recognitionRef.current.abort(); } catch { /* ignore */ }
       recognitionRef.current = null;
     }
-    setIsListening(false);
-    setInterimText("");
   }, []);
 
   const startListening = useCallback(() => {
@@ -95,8 +91,14 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
       (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
     if (!SR) {
       setIsSupported(false);
-      setErrorMsg("Voice input not supported in this browser. Use Chrome or Edge.");
+      setErrorMsg("Voice not supported — use Chrome or Edge");
       return;
+    }
+
+    // Stop any existing recognition first
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch { /* ignore */ }
+      recognitionRef.current = null;
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -107,12 +109,14 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
+      isListeningRef.current = true;
       setIsListening(true);
       setErrorMsg("");
+      setInterimText("Listening...");
     };
 
     recognition.onaudiostart = () => {
-      // Microphone is active and receiving audio
+      setInterimText("Listening...");
     };
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
@@ -126,9 +130,9 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
           interim += transcript;
         }
       }
-      setInterimText(interim);
+      if (interim) setInterimText(interim);
       if (finalText) {
-        onTranscript(finalText);
+        onTranscriptRef.current(finalText);
         setInterimText("");
       }
     };
@@ -136,22 +140,20 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       const err = event.error;
       console.error("[VoiceInput] Error:", err);
-
       if (err === "not-allowed" || err === "service-not-allowed") {
-        setErrorMsg("Microphone access denied. Please allow microphone in browser settings.");
-        setIsSupported(false);
+        setErrorMsg("Microphone blocked. Allow mic access in browser settings → Site Settings → Microphone.");
         stopListening();
       } else if (err === "no-speech") {
-        // No speech detected — this is normal, just restart
-        setInterimText("Listening...");
+        // Normal — just keep listening, don't stop
+        setInterimText("No speech detected — try again...");
       } else if (err === "audio-capture") {
-        setErrorMsg("No microphone found. Please connect a microphone.");
+        setErrorMsg("No microphone found.");
         stopListening();
       } else if (err === "network") {
-        setErrorMsg("Network error — speech recognition requires internet.");
+        setErrorMsg("Network error — speech needs internet.");
         stopListening();
       } else if (err === "aborted") {
-        // User stopped — do nothing
+        // User stopped intentionally
       } else {
         setErrorMsg(`Voice error: ${err}`);
         stopListening();
@@ -159,31 +161,63 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
     };
 
     recognition.onend = () => {
-      // Auto-restart if still supposed to be listening (handles Chrome's auto-stop)
-      if (recognitionRef.current === recognition && isListening) {
+      // Only auto-restart if we're still supposed to be listening
+      if (isListeningRef.current && recognitionRef.current === recognition) {
         restartTimeoutRef.current = setTimeout(() => {
+          if (!isListeningRef.current) return;
           try {
             recognition.start();
           } catch {
+            isListeningRef.current = false;
             setIsListening(false);
+            setInterimText("");
           }
-        }, 100);
+        }, 200);
         return;
       }
-      setIsListening(false);
-      setInterimText("");
+      // Otherwise clean up
+      if (recognitionRef.current === recognition) {
+        isListeningRef.current = false;
+        setIsListening(false);
+        setInterimText("");
+      }
     };
 
     recognitionRef.current = recognition;
-    try {
-      recognition.start();
-      setIsListening(true);
-    } catch (e) {
-      console.error("[VoiceInput] Failed to start:", e);
-      setErrorMsg("Failed to start voice input. Try again.");
-      setIsListening(false);
+
+    // Request mic permission explicitly first, then start
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then((stream) => {
+          // Got permission — stop the stream (Speech API manages its own stream)
+          stream.getTracks().forEach((t) => t.stop());
+          try {
+            recognition.start();
+          } catch (e) {
+            console.error("[VoiceInput] Start failed after permission:", e);
+            setErrorMsg("Failed to start. Try again.");
+            isListeningRef.current = false;
+            setIsListening(false);
+          }
+        })
+        .catch((e) => {
+          console.error("[VoiceInput] Mic permission denied:", e);
+          setErrorMsg("Microphone access denied. Check browser permissions.");
+          isListeningRef.current = false;
+          setIsListening(false);
+        });
+    } else {
+      // Fallback — just try starting directly
+      try {
+        recognition.start();
+      } catch (e) {
+        console.error("[VoiceInput] Start failed:", e);
+        setErrorMsg("Failed to start voice input.");
+        isListeningRef.current = false;
+        setIsListening(false);
+      }
     }
-  }, [onTranscript, isListening, stopListening]);
+  }, [stopListening]);
 
   const handleClick = () => {
     if (isListening) {
@@ -203,7 +237,6 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
     };
   }, []);
 
-  // Show nothing while checking support; show disabled button if not supported
   if (isSupported === null) return null;
 
   return (
@@ -220,15 +253,14 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
         } disabled:opacity-30`}
         title={
           !isSupported
-            ? "Voice input not supported — use Chrome or Edge"
+            ? "Voice not supported — use Chrome or Edge"
             : isListening
-            ? "Click to stop recording"
-            : "Click for voice input"
+            ? "Stop recording"
+            : "Voice input"
         }
         type="button"
       >
         {isListening ? (
-          // Active — animated mic with rings
           <div className="relative">
             <svg className="w-4 h-4 animate-pulse" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
@@ -237,7 +269,6 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
             <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full animate-ping" />
           </div>
         ) : (
-          // Inactive mic
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
             <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
@@ -247,7 +278,7 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
       </button>
 
       {/* Interim transcript tooltip */}
-      {isListening && (interimText || !errorMsg) && (
+      {isListening && (
         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-surface-3 border border-surface-4 rounded-lg text-xs whitespace-nowrap max-w-[220px] truncate shadow-xl z-50">
           <span className="text-slate-300">
             {interimText || (
@@ -262,7 +293,7 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
 
       {/* Error tooltip */}
       {errorMsg && !isListening && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-red-500/10 border border-red-500/30 rounded-lg text-xs text-red-400 whitespace-nowrap max-w-[250px] truncate shadow-xl z-50">
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-red-500/10 border border-red-500/30 rounded-lg text-xs text-red-400 whitespace-nowrap max-w-[280px] truncate shadow-xl z-50">
           {errorMsg}
         </div>
       )}

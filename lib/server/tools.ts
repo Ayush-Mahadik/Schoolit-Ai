@@ -497,6 +497,81 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
       },
     },
   },
+
+  // ── 16. Screenshot Analyzer ───────────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "analyze_screenshot",
+      description:
+        "Analyze an uploaded screenshot or image for the student. " +
+        "Use this when the student uploads a screenshot of a problem, error, code, textbook page, " +
+        "handwritten notes, or any visual content they want help understanding. " +
+        "The image content is available as an attachment. Describe what you see and provide help. " +
+        "IMPORTANT: When a student sends an image/screenshot and asks for analysis, use this tool. " +
+        "Extract context from the image description in your system context.",
+      parameters: {
+        type: "object",
+        properties: {
+          description: {
+            type: "string",
+            description: "Description of what the screenshot/image contains (extracted from vision analysis or user description).",
+          },
+          task: {
+            type: "string",
+            enum: ["solve_problem", "explain_error", "read_text", "analyze_diagram", "explain_concept", "general"],
+            description: "What the student wants help with regarding the screenshot.",
+          },
+          subject: {
+            type: "string",
+            description: "The subject area if identifiable (math, physics, code, etc.).",
+          },
+        },
+        required: ["description", "task"],
+      },
+    },
+  },
+
+  // ── 17. Novel / Literature Analyzer ───────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "analyze_novel",
+      description:
+        "Perform deep literary analysis of a novel, poem, play, or any literary text. " +
+        "Use this tool when a student asks about themes, characters, symbolism, narrative techniques, " +
+        "literary devices, historical context, or any aspect of a literary work. " +
+        "Provides comprehensive analysis including: themes, character analysis, plot structure, " +
+        "literary devices, symbolism, historical/cultural context, and critical perspectives.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: {
+            type: "string",
+            description: "Title of the literary work to analyze.",
+          },
+          author: {
+            type: "string",
+            description: "Author of the work (if known).",
+          },
+          analysis_type: {
+            type: "string",
+            enum: ["themes", "characters", "plot_structure", "literary_devices", "symbolism", "historical_context", "compare", "full_analysis", "essay_help"],
+            description: "Type of literary analysis to perform.",
+          },
+          specific_question: {
+            type: "string",
+            description: "Specific question about the work (optional — for targeted analysis).",
+          },
+          passage: {
+            type: "string",
+            description: "Specific passage or excerpt to analyze (optional).",
+          },
+        },
+        required: ["title", "analysis_type"],
+      },
+    },
+  },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -569,6 +644,12 @@ export async function executeTool(
 
     case "deep_scrape":
       return await executeDeepScrape(toolInput);
+
+    case "analyze_screenshot":
+      return executeScreenshotAnalyzer(toolInput);
+
+    case "analyze_novel":
+      return executeNovelAnalyzer(toolInput);
 
     default:
       return { result: { error: `Unknown tool: ${toolName}` } };
@@ -1529,4 +1610,138 @@ async function executeDeepScrape(
       sources: [url],
     };
   }
+}
+
+// ── Screenshot Analyzer Implementation ────────────────────────────────
+
+function executeScreenshotAnalyzer(
+  input: Record<string, unknown>
+): { result: unknown } {
+  const description = String(input.description || "").trim();
+  const task = String(input.task || "general");
+  const subject = String(input.subject || "general");
+
+  const taskInstructions: Record<string, string> = {
+    solve_problem:
+      "The student uploaded a screenshot of a problem they need help solving. " +
+      "Based on the description, identify the problem type, extract all given information, " +
+      "and solve it step by step with complete working. Show all formulas used.",
+    explain_error:
+      "The student uploaded a screenshot of an error (code error, calculation mistake, etc.). " +
+      "Identify the error, explain WHY it occurred, and provide the correct solution. " +
+      "If it's a code error, provide the fixed code.",
+    read_text:
+      "The student uploaded a screenshot containing text (textbook page, notes, etc.). " +
+      "Read and transcribe the key content, then explain or summarize it clearly.",
+    analyze_diagram:
+      "The student uploaded a screenshot of a diagram, chart, or figure. " +
+      "Describe what the diagram shows, explain the relationships it illustrates, " +
+      "and provide additional context or explanation.",
+    explain_concept:
+      "The student uploaded a screenshot related to a concept they want explained. " +
+      "Identify the concept and provide a thorough, beginner-friendly explanation " +
+      "with examples and analogies.",
+    general:
+      "The student uploaded a screenshot for analysis. Examine the description carefully " +
+      "and provide helpful, detailed analysis and explanation.",
+  };
+
+  return {
+    result: {
+      message: "Screenshot analysis activated.",
+      instructions: taskInstructions[task] || taskInstructions.general,
+      image_description: description,
+      subject_area: subject,
+      analysis_task: task,
+      guidance:
+        "Analyze the screenshot based on the description provided. " +
+        "Be thorough, educational, and provide step-by-step explanations where applicable. " +
+        "If you can identify specific problems or content, solve/explain them in detail.",
+    },
+  };
+}
+
+// ── Novel / Literature Analyzer Implementation ────────────────────────
+
+function executeNovelAnalyzer(
+  input: Record<string, unknown>
+): { result: unknown } {
+  const title = String(input.title || "").trim();
+  const author = String(input.author || "Unknown");
+  const analysisType = String(input.analysis_type || "full_analysis");
+  const question = String(input.specific_question || "");
+  const passage = String(input.passage || "");
+
+  const analysisInstructions: Record<string, string> = {
+    themes:
+      "Identify and analyze ALL major themes in this work. For each theme: " +
+      "1) State the theme clearly, 2) Provide specific examples/quotes from the text, " +
+      "3) Explain how the theme develops throughout the work, " +
+      "4) Connect to broader literary/historical context.",
+    characters:
+      "Provide deep character analysis. For each major character: " +
+      "1) Physical/personality description, 2) Motivations and desires, " +
+      "3) Character arc (how they change), 4) Key relationships, " +
+      "5) Symbolic significance, 6) Key quotes that reveal character.",
+    plot_structure:
+      "Analyze the plot structure in detail: " +
+      "1) Exposition (setting, characters, initial situation), " +
+      "2) Rising action (key events building tension), " +
+      "3) Climax (turning point), 4) Falling action, " +
+      "5) Resolution/Denouement. Also identify: narrative structure type " +
+      "(linear, non-linear, frame narrative, etc.), subplots, and pacing.",
+    literary_devices:
+      "Identify and analyze ALL literary devices used: " +
+      "metaphors, similes, symbolism, imagery, foreshadowing, irony (all types), " +
+      "allusion, allegory, personification, hyperbole, juxtaposition, motifs, etc. " +
+      "Provide specific examples from the text for each device found.",
+    symbolism:
+      "Analyze ALL symbols in the work: " +
+      "1) Identify each symbol, 2) Explain what it represents, " +
+      "3) Show how the symbol evolves throughout the narrative, " +
+      "4) Connect symbols to the work's major themes.",
+    historical_context:
+      "Analyze the work in its historical and cultural context: " +
+      "1) When was it written and what was happening historically? " +
+      "2) How does the work reflect its time period? " +
+      "3) What literary movement does it belong to? " +
+      "4) How was it received when published? " +
+      "5) What is its lasting significance?",
+    compare:
+      "Compare this work with similar literary works. Analyze: " +
+      "1) Shared themes and how they differ in treatment, " +
+      "2) Similar characters and their different developments, " +
+      "3) Contrasting literary techniques, " +
+      "4) Different historical/cultural contexts.",
+    full_analysis:
+      "Perform a comprehensive literary analysis covering ALL aspects: " +
+      "1) Summary, 2) Themes, 3) Character analysis, 4) Plot structure, " +
+      "5) Literary devices and techniques, 6) Symbolism, " +
+      "7) Narrative perspective and voice, 8) Historical context, " +
+      "9) Critical perspectives, 10) Significance and legacy.",
+    essay_help:
+      "Help the student write a literary essay about this work. " +
+      "1) Suggest strong thesis statements, 2) Outline essay structure, " +
+      "3) Identify the best evidence/quotes to use, " +
+      "4) Provide analysis frameworks, 5) Help with conclusion.",
+  };
+
+  return {
+    result: {
+      message: "Literary analysis activated.",
+      work_title: title,
+      work_author: author,
+      analysis_type: analysisType,
+      instructions: analysisInstructions[analysisType] || analysisInstructions.full_analysis,
+      specific_question: question || null,
+      passage_to_analyze: passage || null,
+      guidance:
+        `Perform a thorough ${analysisType.replace(/_/g, " ")} of "${title}" by ${author}. ` +
+        "Be detailed, cite specific examples from the text, use proper literary terminology, " +
+        "and structure your analysis clearly with headings. " +
+        "Make it educational and suitable for a student studying this work." +
+        (question ? `\n\nSpecific focus: ${question}` : "") +
+        (passage ? `\n\nAnalyze this passage: "${passage}"` : ""),
+    },
+  };
 }
