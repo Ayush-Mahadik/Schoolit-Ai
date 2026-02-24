@@ -57,6 +57,8 @@ import {
   Flame,
   Target,
   History,
+  Bolt,
+  Mountain,
   type LucideProps,
 } from "lucide-react";
 import type { FC } from "react";
@@ -118,6 +120,8 @@ const iconMap: Record<string, FC<LucideProps>> = {
   flame: Flame,
   target: Target,
   history: History,
+  bolt: Bolt,
+  mountain: Mountain,
 };
 
 interface IconProps extends LucideProps {
@@ -186,4 +190,6 @@ export {
   RotateCcw,
   Wind,
   Flame,
+  Bolt,
+  Mountain,
 };

@@ -5,13 +5,16 @@
 // ── AI Model & Thinking Mode ──────────────────────────────────────────
 
 export type AIModel =
-  | "claude-3.7-sonnet"
-  | "gpt-4.1-turbo"
-  | "o1-preview"
+  | "gpt-4.1"
   | "gpt-4o"
   | "gpt-4o-mini"
-  | "Mistral-large-2411"
-  | "xai/grok-3-mini";
+  | "gpt-4.1-mini"
+  | "gpt-4.1-nano"
+  | "Llama-3.3-70B-Instruct"
+  | "Meta-Llama-3.1-405B-Instruct"
+  | "Cohere-command-r-plus-08-2024"
+  | "DeepSeek-R1"
+  | "Phi-4-reasoning";
 
 export interface ModelOption {
   id: AIModel;
@@ -19,57 +22,89 @@ export interface ModelOption {
   description: string;
   icon: string; // Lucide icon name
   speed: "fast" | "medium" | "slow";
+  supportsTools: boolean;
 }
 
 export const MODEL_OPTIONS: ModelOption[] = [
   {
-    id: "claude-3.7-sonnet",
-    name: "Claude 3.7 Sonnet",
-    description: "🏆 Best — Anthropic's most capable model (200k context)",
-    icon: "sparkles",
-    speed: "medium",
-  },
-  {
-    id: "gpt-4.1-turbo",
-    name: "GPT-4.1 Turbo",
-    description: "🚀 Ultra fast flagship — best reasoning speed",
+    id: "gpt-4.1",
+    name: "GPT-4.1",
+    description: "Flagship — best reasoning, tool use & complex tasks",
     icon: "brain",
     speed: "medium",
-  },
-  {
-    id: "o1-preview",
-    name: "OpenAI o1-preview",
-    description: "🎯 Deep thinking — PhD-level reasoning",
-    icon: "target",
-    speed: "slow",
+    supportsTools: true,
   },
   {
     id: "gpt-4o",
     name: "GPT-4o",
-    description: "⚡ Balanced — fast with great quality",
+    description: "Balanced — fast multimodal with great quality",
     icon: "zap",
     speed: "medium",
+    supportsTools: true,
   },
   {
     id: "gpt-4o-mini",
     name: "GPT-4o Mini",
-    description: "🌟 Lightning fast — quick answers & simple tasks",
+    description: "Lightning fast — quick answers & light tasks",
     icon: "rocket",
     speed: "fast",
+    supportsTools: true,
   },
   {
-    id: "Mistral-large-2411",
-    name: "Mistral Large",
-    description: "💨 Powerful open model — excellent reasoning",
-    icon: "wind",
-    speed: "medium",
-  },
-  {
-    id: "xai/grok-3-mini",
-    name: "Grok 3 Mini",
-    description: "🔥 xAI reasoning — bold, fast & tool-capable",
-    icon: "flame",
+    id: "gpt-4.1-mini",
+    name: "GPT-4.1 Mini",
+    description: "Smart & efficient — GPT-4.1 quality, faster",
+    icon: "sparkles",
     speed: "fast",
+    supportsTools: true,
+  },
+  {
+    id: "Llama-3.3-70B-Instruct",
+    name: "Llama 3.3 70B",
+    description: "Meta's best open model — powerful & free",
+    icon: "flame",
+    speed: "medium",
+    supportsTools: true,
+  },
+  {
+    id: "Cohere-command-r-plus-08-2024",
+    name: "Cohere Command R+",
+    description: "Enterprise-grade — excellent at RAG & search",
+    icon: "globe",
+    speed: "medium",
+    supportsTools: true,
+  },
+  {
+    id: "DeepSeek-R1",
+    name: "DeepSeek R1",
+    description: "Deep reasoning — think-step-by-step specialist",
+    icon: "target",
+    speed: "slow",
+    supportsTools: false,
+  },
+  {
+    id: "gpt-4.1-nano",
+    name: "GPT-4.1 Nano",
+    description: "Ultra-fast — instant answers for simple tasks",
+    icon: "bolt",
+    speed: "fast",
+    supportsTools: true,
+  },
+  {
+    id: "Meta-Llama-3.1-405B-Instruct",
+    name: "Llama 3.1 405B",
+    description: "Largest open model — 405B parameter powerhouse",
+    icon: "mountain",
+    speed: "slow",
+    supportsTools: false,
+  },
+  {
+    id: "Phi-4-reasoning",
+    name: "Phi-4 Reasoning",
+    description: "Microsoft's reasoning model — math & logic expert",
+    icon: "calculator",
+    speed: "medium",
+    supportsTools: false,
   },
 ];
 

@@ -24,25 +24,25 @@ const MAX_MESSAGE_LENGTH = 12_000;
 const MAX_HISTORY_MESSAGES = 30;
 const VALID_PERSONAS = ["formal", "creative", "socratic", "balanced", "exam_coach"];
 
-// Model mapping for API endpoints
+// Model mapping — ALL verified working on GitHub Models (models.inference.ai.azure.com)
 const MODEL_MAP: Record<string, string> = {
-  "claude-3.7-sonnet": "claude-3-7-sonnet-20250219", // Anthropic API
-  "gpt-4.1-turbo": "gpt-4-turbo", // GitHub Models / OpenAI
-  "o1-preview": "o1-preview", // OpenAI
+  "gpt-4.1": "gpt-4.1",
   "gpt-4o": "gpt-4o",
   "gpt-4o-mini": "gpt-4o-mini",
-  "Mistral-large-2411": "Mistral-large-2411",
-  "xai/grok-3-mini": "xai/grok-3-mini",
+  "gpt-4.1-mini": "gpt-4.1-mini",
+  "gpt-4.1-nano": "gpt-4.1-nano",
+  "Llama-3.3-70B-Instruct": "Llama-3.3-70B-Instruct",
+  "Meta-Llama-3.1-405B-Instruct": "Meta-Llama-3.1-405B-Instruct",
+  "Cohere-command-r-plus-08-2024": "Cohere-command-r-plus-08-2024",
+  "DeepSeek-R1": "DeepSeek-R1",
+  "Phi-4-reasoning": "Phi-4-reasoning",
 };
-
-// Models that use Anthropic API instead of OpenAI SDK
-const ANTHROPIC_MODELS = new Set<string>(["claude-3.7-sonnet"]);
 
 // Models that require max_completion_tokens instead of max_tokens
 const USES_MAX_COMPLETION_TOKENS = new Set<string>();
 
-// All current models support function calling — no exclusions needed
-const NO_TOOL_SUPPORT = new Set<string>();
+// Models that do NOT support function calling (tools)
+const NO_TOOL_SUPPORT = new Set<string>(["DeepSeek-R1", "Phi-4-reasoning", "Meta-Llama-3.1-405B-Instruct"]);
 
 // Token limits per thinking mode
 const THINKING_MODE_TOKENS: Record<string, number> = {
@@ -202,7 +202,7 @@ export async function POST(req: NextRequest) {
   const maxTokens = THINKING_MODE_TOKENS[thinkingMode] || 4096;
 
   // Model selection
-  const requestedModel = String(body.model || "claude-3.7-sonnet");
+  const requestedModel = String(body.model || "gpt-4.1");
   const modelId = MODEL_MAP[requestedModel] || "gpt-4.1";
 
   const history = Array.isArray(body.history) ? body.history : [];
@@ -299,15 +299,18 @@ export async function POST(req: NextRequest) {
   const scheduleActions: unknown[] = [];
 
   try {
-    // Model fallback chain: try requested model, then fallback options
+    // Model fallback chains — all verified on GitHub Models endpoint
     const FALLBACK_CHAIN: Record<string, string[]> = {
-      "claude-3.7-sonnet": ["gpt-4.1-turbo", "gpt-4o", "Mistral-large-2411"],
-      "gpt-4.1-turbo": ["gpt-4o", "claude-3.7-sonnet", "Mistral-large-2411"],
-      "o1-preview": ["gpt-4.1-turbo", "gpt-4o"],
-      "gpt-4o": ["gpt-4.1-turbo", "Mistral-large-2411", "gpt-4o-mini"],
-      "gpt-4o-mini": ["gpt-4o", "gpt-4.1-turbo"],
-      "Mistral-large-2411": ["gpt-4.1-turbo", "gpt-4o", "gpt-4o-mini"],
-      "xai/grok-3-mini": ["gpt-4.1-turbo", "gpt-4o", "Mistral-large-2411"],
+      "gpt-4.1": ["gpt-4o", "gpt-4.1-mini", "gpt-4o-mini"],
+      "gpt-4o": ["gpt-4.1", "gpt-4.1-mini", "gpt-4o-mini"],
+      "gpt-4o-mini": ["gpt-4.1-nano", "gpt-4.1-mini", "gpt-4o"],
+      "gpt-4.1-mini": ["gpt-4o-mini", "gpt-4.1-nano", "gpt-4o"],
+      "gpt-4.1-nano": ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4o"],
+      "Llama-3.3-70B-Instruct": ["gpt-4.1", "gpt-4o", "Cohere-command-r-plus-08-2024"],
+      "Meta-Llama-3.1-405B-Instruct": ["Llama-3.3-70B-Instruct", "gpt-4.1", "gpt-4o"],
+      "Cohere-command-r-plus-08-2024": ["gpt-4.1", "gpt-4o", "Llama-3.3-70B-Instruct"],
+      "DeepSeek-R1": ["gpt-4.1", "gpt-4o", "gpt-4.1-mini"],
+      "Phi-4-reasoning": ["DeepSeek-R1", "gpt-4.1", "gpt-4o"],
     };
 
     let activeModelId = modelId;

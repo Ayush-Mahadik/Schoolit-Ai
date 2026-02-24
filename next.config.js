@@ -20,8 +20,9 @@ const nextConfig = {
               "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net",
               "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
               "img-src 'self' data: blob: https: http:",
-              "font-src 'self' https://cdn.jsdelivr.net",
+              "font-src 'self' data: https://cdn.jsdelivr.net",
               "connect-src 'self' https://models.inference.ai.azure.com https://html.duckduckgo.com https://*",
+              "media-src 'self' blob:",
               "frame-src 'none'",
               "object-src 'none'",
               "base-uri 'self'",
@@ -40,11 +41,13 @@ const nextConfig = {
   // Prevent exposing server-side env vars to the client
   poweredByHeader: false,
 
-  // Image domains for user avatars (Google OAuth)
+  // Image domains for user avatars (Google OAuth) and DALL-E generated images
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "lh3.googleusercontent.com" },
       { protocol: "https", hostname: "avatars.githubusercontent.com" },
+      { protocol: "https", hostname: "oaidalleapiprodscus.blob.core.windows.net" },
+      { protocol: "https", hostname: "dalleprodsec.blob.core.windows.net" },
     ],
   },
 };

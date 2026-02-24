@@ -439,16 +439,17 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
     function: {
       name: "analyze_document",
       description:
-        "Analyze an uploaded document (PDF, text, code, etc.) in depth. " +
-        "Provides: summary, key points, structure analysis, important quotes/data, " +
-        "and answers questions about the document. " +
-        "Use when a student uploads a file and asks to analyze, summarize, or extract info from it.",
+        "Analyze an uploaded document in depth. The document content is available in the system prompt " +
+        "under 'Student's Reference Material'. Copy the relevant content from there into the 'content' parameter. " +
+        "Provides: summary, key points, structure analysis, and answers questions. " +
+        "IMPORTANT: When the student uploads a file and asks to analyze it, extract the content from " +
+        "the reference material section of your context and pass it to this tool.",
       parameters: {
         type: "object",
         properties: {
           content: {
             type: "string",
-            description: "The text content of the document to analyze.",
+            description: "The text content of the document to analyze. Extract this from the reference material in your system context.",
           },
           filename: {
             type: "string",
@@ -457,7 +458,7 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
           task: {
             type: "string",
             enum: ["summarize", "extract_key_points", "analyze_structure", "answer_questions", "full_analysis"],
-            description: "What type of analysis to perform.",
+            description: "What type of analysis to perform. Default to 'full_analysis' if not specified.",
           },
           question: {
             type: "string",
@@ -1329,8 +1330,18 @@ function executeDocumentAnalyzer(
   const question = String(input.question || "");
 
   if (!content.trim()) {
-    return { result: { error: "Document content is required." } };
+    return {
+      result: {
+        error: "No document content provided. If the student uploaded a file, the content should be available in your system context under 'Student's Reference Material'. Copy it into the content parameter.",
+        hint: "Check the system prompt for <reference_material> tags containing the file content.",
+      },
+    };
   }
+
+  // Basic text statistics
+  const words = content.split(/\s+/).filter(Boolean);
+  const sentences = content.split(/[.!?]+/).filter((s) => s.trim().length > 0);
+  const paragraphs = content.split(/\n\s*\n/).filter((p) => p.trim().length > 0);
 
   const taskInstructions: Record<string, string> = {
     summarize:
@@ -1353,7 +1364,7 @@ function executeDocumentAnalyzer(
       "4. **Strengths & Weaknesses** of the writing\n" +
       "5. **Suggestions** for improvement",
     answer_questions:
-      `Answer this specific question about the document: ${question}\n` +
+      `Answer this specific question about the document: "${question}"\n` +
       "Ground your answer with direct quotes/references from the document.",
     full_analysis:
       "Perform a complete analysis of this document:\n" +
@@ -1368,13 +1379,20 @@ function executeDocumentAnalyzer(
 
   return {
     result: {
-      message: "Document analysis mode activated.",
+      status: "success",
+      message: `Document "${filename}" loaded for analysis (${task}).`,
       filename,
-      content_preview: content.slice(0, 500) + (content.length > 500 ? "..." : ""),
-      content_length: content.length,
+      statistics: {
+        characters: content.length,
+        words: words.length,
+        sentences: sentences.length,
+        paragraphs: paragraphs.length,
+        estimated_reading_time: `${Math.ceil(words.length / 250)} minutes`,
+      },
       task,
       instructions: taskInstructions[task] || taskInstructions.full_analysis,
-      full_content: content.slice(0, 30000),
+      full_content: content.slice(0, 50000),
+      content_preview: content.slice(0, 800) + (content.length > 800 ? "\n... [content continues]" : ""),
     },
   };
 }

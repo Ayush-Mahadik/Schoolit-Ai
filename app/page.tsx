@@ -81,7 +81,7 @@ export default function Home() {
     persona: "balanced",
     useWebSearch: true,
     chainOfThought: true,
-    model: "claude-3.7-sonnet" as AIModel,
+    model: "gpt-4.1" as AIModel,
     thinkingMode: "balanced",
   });
   const [contextFiles, setContextFiles] = useState<Record<string, FileAttachment[]>>({});
