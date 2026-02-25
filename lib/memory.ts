@@ -1,10 +1,10 @@
 /**
- * Admin Memory System — SchoolIT AI
+ * Memory System — SchoolIT AI
  * ====================================
  * Persists conversation history, key facts, and user data
- * for the admin account ONLY (ayumahadik25@gmail.com).
- * Data is stored in browser localStorage with email-scoped keys.
- * Memory is ONLY accessible to the verified admin email.
+ * for ALL authenticated users (not just admin).
+ * Each user's data is stored separately using email-scoped localStorage keys.
+ * Admin user has additional privileges for system management.
  * Data is exported/imported as JSON "text file" format.
  *
  * STORAGE: Browser localStorage (per-browser, per-device).
@@ -16,7 +16,7 @@ const MAX_CONVERSATIONS = 100;
 const MAX_MEMORY_FACTS = 200;
 const MAX_SUMMARY_LENGTH = 500;
 
-// ── Admin Lock — Only this email can read/write memory ────────────────
+// ── User Management ───────────────────────────────────────────────────
 const ADMIN_EMAIL = "ayumahadik25@gmail.com";
 let _currentUserEmail: string | null = null;
 
@@ -25,14 +25,27 @@ export function setMemoryUser(email: string | null) {
   _currentUserEmail = email?.toLowerCase() || null;
 }
 
-/** Check if the current user is the admin who owns the memory */
-export function isMemoryOwner(): boolean {
+/** Check if current user is the admin (for admin-only features) */
+export function isAdmin(): boolean {
   return _currentUserEmail === ADMIN_EMAIL;
+}
+
+/** Check if the current user has memory access (all authenticated users do) */
+export function isMemoryOwner(): boolean {
+  return _currentUserEmail !== null;
 }
 
 /** Get the current memory user email */
 export function getMemoryUser(): string | null {
   return _currentUserEmail;
+}
+
+/** Get user-specific storage key (scoped to their email) */
+function getUserStorageKey(key: string): string {
+  if (!_currentUserEmail) return MEMORY_PREFIX + key;
+  // Hash email to create shorter key (or use full email)
+  const userPrefix = _currentUserEmail.replace(/[@.]/g, "_");
+  return `${MEMORY_PREFIX}${userPrefix}_${key}`;
 }
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -70,9 +83,10 @@ export interface AdminData {
 
 function getItem<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
-  if (!isMemoryOwner()) return fallback; // Only admin can read memory
+  if (!isMemoryOwner()) return fallback; // Only authenticated users can read memory
   try {
-    const raw = localStorage.getItem(MEMORY_PREFIX + key);
+    const storageKey = getUserStorageKey(key);
+    const raw = localStorage.getItem(storageKey);
     return raw ? JSON.parse(raw) : fallback;
   } catch {
     return fallback;
@@ -81,14 +95,16 @@ function getItem<T>(key: string, fallback: T): T {
 
 function setItem(key: string, value: unknown) {
   if (typeof window === "undefined") return;
-  if (!isMemoryOwner()) return; // Only admin can write memory
+  if (!isMemoryOwner()) return; // Only authenticated users can write memory
   try {
-    localStorage.setItem(MEMORY_PREFIX + key, JSON.stringify(value));
+    const storageKey = getUserStorageKey(key);
+    localStorage.setItem(storageKey, JSON.stringify(value));
   } catch {
     // Storage full — prune old conversations
     pruneOldConversations();
     try {
-      localStorage.setItem(MEMORY_PREFIX + key, JSON.stringify(value));
+      const storageKey = getUserStorageKey(key);
+      localStorage.setItem(storageKey, JSON.stringify(value));
     } catch {
       // Still full — give up silently
     }
