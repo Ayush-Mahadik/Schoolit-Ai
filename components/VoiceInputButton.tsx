@@ -2,78 +2,84 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 
-// Web Speech API type declarations
-interface SpeechRecognitionEvent extends Event {
-  resultIndex: number;
-  results: SpeechRecognitionResultList;
-}
-interface SpeechRecognitionResultList {
-  length: number;
-  [index: number]: SpeechRecognitionResult;
-}
-interface SpeechRecognitionResult {
-  isFinal: boolean;
-  length: number;
-  [index: number]: SpeechRecognitionAlternative;
-}
-interface SpeechRecognitionAlternative {
-  transcript: string;
-  confidence: number;
-}
-interface SpeechRecognitionErrorEvent extends Event {
-  error: string;
-  message?: string;
-}
-interface SpeechRecognitionInstance extends EventTarget {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  maxAlternatives: number;
-  start(): void;
-  stop(): void;
-  abort(): void;
-  onresult: ((event: SpeechRecognitionEvent) => void) | null;
-  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
-  onend: (() => void) | null;
-  onstart: (() => void) | null;
-  onaudiostart: (() => void) | null;
-}
-
+// ── Types ────────────────────────────────────────────────────────────
 interface VoiceInputButtonProps {
   onTranscript: (text: string) => void;
   disabled?: boolean;
 }
 
+type STTBackend = "sarvam" | "browser" | null;
+
 /**
- * VoiceInputButton: Web Speech API powered voice-to-text
- * Fixed: uses refs for state to avoid stale closure bugs
+ * VoiceInputButton — Hybrid STT with Sarvam AI + Web Speech API fallback
+ *
+ * Priority:
+ * 1. Sarvam AI Saaras v3 (server-side, multilingual, accurate)
+ * 2. Web Speech API (browser-native, Chrome/Edge only)
+ *
+ * Records audio via MediaRecorder → sends to /api/speech-to-text → transcript.
+ * If Sarvam isn't configured (501), falls back to Web Speech API transparently.
  */
 export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonProps) {
   const [isListening, setIsListening] = useState(false);
-  const [isSupported, setIsSupported] = useState<boolean | null>(null);
   const [interimText, setInterimText] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
-  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
-  const isListeningRef = useRef(false); // ref mirrors state to avoid stale closures
-  const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const onTranscriptRef = useRef(onTranscript);
+  const [backend, setBackend] = useState<STTBackend>(null);
+  const [isSupported, setIsSupported] = useState<boolean | null>(null);
 
-  // Keep refs in sync
+  // Refs for cleanup
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const isListeningRef = useRef(false);
+  const onTranscriptRef = useRef(onTranscript);
+  const recordingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Web Speech API refs (fallback)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
+  const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Keep callback ref fresh
   useEffect(() => { onTranscriptRef.current = onTranscript; }, [onTranscript]);
   useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
 
+  // Detect available backend on mount
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const SR =
-      (window as unknown as Record<string, unknown>).SpeechRecognition ||
-      (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
-    setIsSupported(!!SR);
+
+    // Check if MediaRecorder is available (needed for Sarvam)
+    const hasMediaRecorder = typeof MediaRecorder !== "undefined";
+
+    // Check if Web Speech API is available (fallback)
+    const SR = (window as unknown as Record<string, unknown>).SpeechRecognition ||
+               (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
+
+    if (hasMediaRecorder) {
+      // Sarvam AI is preferred — it works on all browsers with mic access
+      // If the server returns 501 (not configured), we'll fall back at runtime
+      setBackend("sarvam");
+      setIsSupported(true);
+    } else if (SR) {
+      setBackend("browser");
+      setIsSupported(true);
+    } else {
+      setBackend(null);
+      setIsSupported(false);
+    }
   }, []);
 
-  const stopListening = useCallback(() => {
-    isListeningRef.current = false;
-    setIsListening(false);
-    setInterimText("");
+  // ── Stop helpers ───────────────────────────────────────────────────
+  const stopSarvamRecording = useCallback(() => {
+    if (recordingTimerRef.current) {
+      clearTimeout(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop(); // triggers ondataavailable + onstop
+    }
+  }, []);
+
+  const stopBrowserRecognition = useCallback(() => {
     if (restartTimeoutRef.current) {
       clearTimeout(restartTimeoutRef.current);
       restartTimeoutRef.current = null;
@@ -84,25 +90,153 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
     }
   }, []);
 
-  const startListening = useCallback(() => {
+  const stopListening = useCallback(() => {
+    isListeningRef.current = false;
+    setIsListening(false);
+    setInterimText("");
+    stopSarvamRecording();
+    stopBrowserRecognition();
+    // Release microphone stream
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+  }, [stopSarvamRecording, stopBrowserRecognition]);
+
+  // ── Sarvam AI recording ────────────────────────────────────────────
+  const startSarvamRecording = useCallback(async () => {
     setErrorMsg("");
-    const SR =
-      (window as unknown as Record<string, unknown>).SpeechRecognition ||
-      (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
+    setInterimText("Starting mic...");
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 },
+      });
+      streamRef.current = stream;
+
+      // Use webm/opus if available, otherwise wav
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : "audio/mp4";
+
+      audioChunksRef.current = [];
+      const recorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        // Assemble audio blob and send to Sarvam
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        audioChunksRef.current = [];
+
+        if (audioBlob.size < 100) {
+          setInterimText("");
+          setIsListening(false);
+          isListeningRef.current = false;
+          return;
+        }
+
+        setInterimText("Transcribing...");
+
+        try {
+          const formData = new FormData();
+          formData.append("file", audioBlob, `recording.${mimeType.includes("webm") ? "webm" : "mp4"}`);
+          formData.append("model", "saaras:v3");
+          formData.append("language", "unknown"); // auto-detect
+
+          const res = await fetch("/api/speech-to-text", {
+            method: "POST",
+            body: formData,
+          });
+
+          if (res.status === 501) {
+            // Sarvam not configured — fall back to browser STT
+            console.log("[Voice] Sarvam not configured, falling back to Web Speech API");
+            setBackend("browser");
+            setInterimText("");
+            setIsListening(false);
+            isListeningRef.current = false;
+            // Auto-start browser recognition
+            return;
+          }
+
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.message || `STT failed (${res.status})`);
+          }
+
+          const data = await res.json();
+          const transcript = (data.transcript || "").trim();
+
+          if (transcript) {
+            onTranscriptRef.current(transcript);
+          } else {
+            setInterimText("No speech detected");
+            setTimeout(() => setInterimText(""), 2000);
+          }
+        } catch (err) {
+          console.error("[Voice] Sarvam STT error:", err);
+          setErrorMsg(err instanceof Error ? err.message : "Transcription failed");
+        } finally {
+          setIsListening(false);
+          isListeningRef.current = false;
+          setInterimText("");
+          // Release mic
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach((t) => t.stop());
+            streamRef.current = null;
+          }
+        }
+      };
+
+      // Start recording with timeslice for periodic data
+      recorder.start(250);
+      isListeningRef.current = true;
+      setIsListening(true);
+      setInterimText("🎙️ Listening... (tap to stop)");
+
+      // Auto-stop after 25 seconds (Sarvam sync limit is 30s)
+      recordingTimerRef.current = setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+          setInterimText("Processing...");
+          mediaRecorderRef.current.stop();
+        }
+      }, 25_000);
+
+    } catch (err) {
+      console.error("[Voice] Mic access error:", err);
+      if (err instanceof DOMException && err.name === "NotAllowedError") {
+        setErrorMsg("Mic blocked. Allow in browser settings.");
+      } else {
+        setErrorMsg("Could not access microphone.");
+      }
+      setIsListening(false);
+      isListeningRef.current = false;
+    }
+  }, []);
+
+  // ── Browser Web Speech API (fallback) ──────────────────────────────
+  const startBrowserRecognition = useCallback(() => {
+    setErrorMsg("");
+    const SR = (window as unknown as Record<string, unknown>).SpeechRecognition ||
+               (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
     if (!SR) {
       setIsSupported(false);
       setErrorMsg("Voice not supported — use Chrome or Edge");
       return;
     }
 
-    // Stop any existing recognition first
     if (recognitionRef.current) {
       try { recognitionRef.current.abort(); } catch { /* ignore */ }
-      recognitionRef.current = null;
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const recognition = new (SR as any)() as SpeechRecognitionInstance;
+    const recognition = new (SR as any)();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = "en-US";
@@ -111,15 +245,11 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
     recognition.onstart = () => {
       isListeningRef.current = true;
       setIsListening(true);
-      setErrorMsg("");
       setInterimText("Listening...");
     };
 
-    recognition.onaudiostart = () => {
-      setInterimText("Listening...");
-    };
-
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onresult = (event: any) => {
       let interim = "";
       let finalText = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -137,45 +267,31 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
       }
     };
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onerror = (event: any) => {
       const err = event.error;
-      console.error("[VoiceInput] Error:", err);
       if (err === "not-allowed" || err === "service-not-allowed") {
-        setErrorMsg("Microphone blocked. Allow mic access in browser settings → Site Settings → Microphone.");
+        setErrorMsg("Microphone blocked.");
         stopListening();
       } else if (err === "no-speech") {
-        // Normal — just keep listening, don't stop
-        setInterimText("No speech detected — try again...");
+        setInterimText("No speech detected...");
       } else if (err === "audio-capture") {
         setErrorMsg("No microphone found.");
         stopListening();
-      } else if (err === "network") {
-        setErrorMsg("Network error — speech needs internet.");
-        stopListening();
-      } else if (err === "aborted") {
-        // User stopped intentionally
-      } else {
+      } else if (err !== "aborted") {
         setErrorMsg(`Voice error: ${err}`);
         stopListening();
       }
     };
 
     recognition.onend = () => {
-      // Only auto-restart if we're still supposed to be listening
       if (isListeningRef.current && recognitionRef.current === recognition) {
         restartTimeoutRef.current = setTimeout(() => {
           if (!isListeningRef.current) return;
-          try {
-            recognition.start();
-          } catch {
-            isListeningRef.current = false;
-            setIsListening(false);
-            setInterimText("");
-          }
+          try { recognition.start(); } catch { stopListening(); }
         }, 200);
         return;
       }
-      // Otherwise clean up
       if (recognitionRef.current === recognition) {
         isListeningRef.current = false;
         setIsListening(false);
@@ -185,54 +301,52 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
 
     recognitionRef.current = recognition;
 
-    // Request mic permission explicitly first, then start
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    // Request mic then start
+    if (navigator.mediaDevices?.getUserMedia) {
       navigator.mediaDevices.getUserMedia({ audio: true })
         .then((stream) => {
-          // Got permission — stop the stream (Speech API manages its own stream)
           stream.getTracks().forEach((t) => t.stop());
-          try {
-            recognition.start();
-          } catch (e) {
-            console.error("[VoiceInput] Start failed after permission:", e);
-            setErrorMsg("Failed to start. Try again.");
-            isListeningRef.current = false;
+          try { recognition.start(); } catch {
+            setErrorMsg("Failed to start.");
             setIsListening(false);
           }
         })
-        .catch((e) => {
-          console.error("[VoiceInput] Mic permission denied:", e);
-          setErrorMsg("Microphone access denied. Check browser permissions.");
-          isListeningRef.current = false;
+        .catch(() => {
+          setErrorMsg("Mic access denied.");
           setIsListening(false);
         });
     } else {
-      // Fallback — just try starting directly
-      try {
-        recognition.start();
-      } catch (e) {
-        console.error("[VoiceInput] Start failed:", e);
+      try { recognition.start(); } catch {
         setErrorMsg("Failed to start voice input.");
-        isListeningRef.current = false;
         setIsListening(false);
       }
     }
   }, [stopListening]);
 
-  const handleClick = () => {
+  // ── Main click handler ─────────────────────────────────────────────
+  const handleClick = useCallback(() => {
     if (isListening) {
       stopListening();
-    } else {
-      startListening();
+    } else if (backend === "sarvam") {
+      startSarvamRecording();
+    } else if (backend === "browser") {
+      startBrowserRecognition();
     }
-  };
+  }, [isListening, backend, stopListening, startSarvamRecording, startBrowserRecognition]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (recordingTimerRef.current) clearTimeout(recordingTimerRef.current);
       if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        try { mediaRecorderRef.current.stop(); } catch { /* ignore */ }
+      }
       if (recognitionRef.current) {
         try { recognitionRef.current.abort(); } catch { /* ignore */ }
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
       }
     };
   }, []);
@@ -243,7 +357,7 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
     <div className="relative group">
       <button
         onClick={handleClick}
-        disabled={disabled || (!isSupported && !isListening)}
+        disabled={disabled || !isSupported}
         className={`p-2 rounded-lg transition-all duration-200 shrink-0 ${
           isListening
             ? "bg-red-500/20 text-red-400 ring-2 ring-red-500/40 shadow-lg shadow-red-500/10"
@@ -253,10 +367,10 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
         } disabled:opacity-30`}
         title={
           !isSupported
-            ? "Voice not supported — use Chrome or Edge"
+            ? "Voice not supported"
             : isListening
             ? "Stop recording"
-            : "Voice input"
+            : `Voice input${backend === "sarvam" ? " (Sarvam AI)" : ""}`
         }
         type="button"
       >
@@ -277,9 +391,9 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
         )}
       </button>
 
-      {/* Interim transcript tooltip */}
+      {/* Interim transcript / status tooltip */}
       {isListening && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-surface-3 border border-surface-4 rounded-lg text-xs whitespace-nowrap max-w-[220px] truncate shadow-xl z-50">
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-surface-3 border border-surface-4 rounded-lg text-xs whitespace-nowrap max-w-[250px] truncate shadow-xl z-50">
           <span className="text-slate-300">
             {interimText || (
               <span className="flex items-center gap-1.5">
@@ -301,7 +415,7 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
       {/* Unsupported browser tooltip on hover */}
       {!isSupported && !errorMsg && (
         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-surface-3 border border-surface-4 rounded-lg text-xs text-slate-400 whitespace-nowrap shadow-xl z-50 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-          Use Chrome or Edge for voice input
+          Voice input not available
         </div>
       )}
     </div>

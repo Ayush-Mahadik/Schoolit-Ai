@@ -313,6 +313,7 @@ export async function POST(req: NextRequest) {
   const flashcardSets: { topic: string; cards: { front: string; back: string }[] }[] = [];
   const quizSets: { topic: string; questions: { question: string; options: string[]; correct: number; explanation: string }[]; difficulty?: string }[] = [];
   const scheduleActions: unknown[] = [];
+  const searchImages: { url: string; thumbnail: string; title: string; source: string }[] = [];
 
   try {
     // Model fallback chains — all verified on GitHub Models endpoint
@@ -330,10 +331,19 @@ export async function POST(req: NextRequest) {
       ? { max_completion_tokens: maxTokens }
       : { max_tokens: maxTokens };
 
+    // Track which round we're on for smarter timeout management
+    let loopRound = 0;
+
     // Helper: attempt an API call, with automatic model fallback on 404/rate-limit
+    // Uses per-call timeout to prevent burning through the 60s Vercel limit
     const callWithFallback = async (msgs: OpenAI.Chat.ChatCompletionMessageParam[]) => {
-      const modelsToTry = [activeModelId, ...(FALLBACK_CHAIN[activeModelId] || [])];
+      // After first success, only try 1 fallback (save time for tool-loop rounds)
+      const chain = FALLBACK_CHAIN[activeModelId] || [];
+      const maxFallbacks = loopRound === 0 ? 2 : 1;
+      const modelsToTry = [activeModelId, ...chain.slice(0, maxFallbacks)];
       let lastError: unknown = null;
+      // Per-call timeout: 25s on first round, 20s on subsequent (leave room for Vercel 60s)
+      const callTimeout = loopRound === 0 ? 25_000 : 20_000;
 
       for (const tryModel of modelsToTry) {
         try {
@@ -345,7 +355,6 @@ export async function POST(req: NextRequest) {
           let filteredMsgs = msgs;
           if (!modelSupportsTools) {
             filteredMsgs = msgs.filter((m) => m.role !== "tool");
-            // Also strip tool_calls from assistant messages
             filteredMsgs = filteredMsgs.map((m) => {
               if (m.role === "assistant" && "tool_calls" in m) {
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -369,13 +378,19 @@ export async function POST(req: NextRequest) {
             });
           }
 
-          const response = await client!.chat.completions.create({
-            model: tryModel,
-            ...tokenParam,
-            messages: filteredMsgs,
-            tools: useTools ? tools : undefined,
-            tool_choice: useTools ? "auto" : undefined,
-          });
+          // Use AbortSignal.timeout to prevent a single model call from eating all 60s
+          const response = await Promise.race([
+            client!.chat.completions.create({
+              model: tryModel,
+              ...tokenParam,
+              messages: filteredMsgs,
+              tools: useTools ? tools : undefined,
+              tool_choice: useTools ? "auto" : undefined,
+            }),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error(`Model ${tryModel} timed out after ${callTimeout / 1000}s`)), callTimeout)
+            ),
+          ]);
           // If we fell back to a different model, remember it
           if (tryModel !== activeModelId) {
             console.log(`Model fallback: ${activeModelId} → ${tryModel}`);
@@ -385,15 +400,13 @@ export async function POST(req: NextRequest) {
         } catch (err: unknown) {
           const status = (err as { status?: number })?.status;
           const msg = err instanceof Error ? err.message.toLowerCase() : "";
-          // Retry on ANY server/model error as long as we have fallbacks
-          // This prevents Grok intermittent failures from showing "Something went wrong"
           const isLastModel = tryModel === modelsToTry[modelsToTry.length - 1];
           const isFatal = msg.includes("api_key") || msg.includes("unauthorized") || status === 401;
 
           if (!isFatal && !isLastModel) {
-            console.warn(`Model ${tryModel} failed (status=${status}, msg="${msg.slice(0, 100)}"), trying next fallback...`);
+            console.warn(`Model ${tryModel} failed (status=${status}, msg="${msg.slice(0, 80)}"), trying fallback...`);
             lastError = err;
-            await new Promise((r) => setTimeout(r, 300));
+            await new Promise((r) => setTimeout(r, 200));
             continue;
           }
           throw err;
@@ -402,7 +415,41 @@ export async function POST(req: NextRequest) {
       throw lastError;
     }
 
+    // Wall-clock start time — we MUST return before Vercel's 60s limit
+    const wallClockStart = Date.now();
+    const WALL_CLOCK_LIMIT_MS = 52_000; // 52s — leaves 8s safety margin
+
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      // Bail out if we're running out of time
+      if (Date.now() - wallClockStart > WALL_CLOCK_LIMIT_MS) {
+        console.warn(`Wall-clock limit reached after ${round} rounds, returning partial results`);
+        // Return whatever tool results we've collected so far
+        let partialText = "I found some information but ran out of processing time. Here's what I have:\n\n";
+        if (flashcardSets.length > 0) partialText = ""; // Flashcards are self-contained
+        if (flowcharts.length > 0) partialText = "Here's the flowchart:\n\n";
+        if (charts.length > 0) {
+          for (const chart of charts) partialText += `\n\n\`\`\`chart\n${JSON.stringify(chart)}\n\`\`\``;
+        }
+        if (flowcharts.length > 0) {
+          for (const fc of flowcharts) partialText += `\n\n\`\`\`mermaid\n${fc.mermaidCode}\n\`\`\``;
+        }
+        return NextResponse.json({
+          response: partialText || "The request took too long. Please try again with a simpler query.",
+          model: activeModelId,
+          toolsUsed: toolCallsLog,
+          sources,
+          charts,
+          flowcharts,
+          flashcardSets,
+          quizSets,
+          manimAnimations,
+          generatedImages,
+          scheduleActions,
+          search_images: searchImages.length > 0 ? searchImages : undefined,
+        });
+      }
+
+      loopRound = round;
       const response = await callWithFallback(messages);
 
       const choice = response.choices[0];
@@ -473,6 +520,12 @@ export async function POST(req: NextRequest) {
           if (toolResult.flashcardData) flashcardSets.push(toolResult.flashcardData as { topic: string; cards: { front: string; back: string }[] });
           if (toolResult.quizData) quizSets.push(toolResult.quizData as { topic: string; questions: { question: string; options: string[]; correct: number; explanation: string }[]; difficulty?: string });
           if (toolResult.scheduleData) scheduleActions.push(toolResult.scheduleData);
+
+          // Capture search images from web_search results
+          const resultObj = toolResult.result as Record<string, unknown>;
+          if (resultObj?.images && Array.isArray(resultObj.images)) {
+            searchImages.push(...(resultObj.images as { url: string; thumbnail: string; title: string; source: string }[]));
+          }
 
           const toolResultStr = JSON.stringify(toolResult.result);
           messages.push({
@@ -559,6 +612,7 @@ export async function POST(req: NextRequest) {
         flashcard_sets: flashcardSets,
         quiz_sets: quizSets,
         schedule_actions: scheduleActions,
+        search_images: searchImages.length > 0 ? searchImages : undefined,
         error: null,
         model: activeModelId,
         rate_limit_remaining: rateCheck.remaining,

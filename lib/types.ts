@@ -133,6 +133,7 @@ export interface Message {
   generatedImages?: ImageGenData[];
   flashcardSets?: FlashcardSetData[];
   quizSets?: QuizSetData[];
+  searchImages?: { url: string; thumbnail: string; title: string; source: string }[];
   attachments?: FileAttachmentMeta[];
   model?: AIModel;
 }

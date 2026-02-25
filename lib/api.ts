@@ -60,6 +60,7 @@ export interface ChatResponse {
   generated_images?: { prompt: string; style: string; subject?: string; url?: string }[];
   flashcard_sets?: { topic: string; cards: { front: string; back: string }[] }[];
   quiz_sets?: { topic: string; questions: { question: string; options: string[]; correct: number; explanation: string }[]; difficulty?: string }[];
+  search_images?: { url: string; thumbnail: string; title: string; source: string }[];
   schedule_actions?: { action: string; items?: unknown[] }[];
   error: string | null;
   model?: string;

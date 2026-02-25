@@ -663,6 +663,89 @@ export async function executeTool(
   }
 }
 
+// ── Image Search (for Grok-style visual results) ─────────────────────
+
+async function fetchSearchImages(
+  query: string
+): Promise<{ url: string; thumbnail: string; title: string; source: string }[]> {
+  const images: { url: string; thumbnail: string; title: string; source: string }[] = [];
+
+  try {
+    // Use DuckDuckGo image search via their vqd token system
+    // Step 1: Get vqd token
+    const tokenRes = await fetch(
+      `https://duckduckgo.com/?q=${encodeURIComponent(query)}&ia=images`,
+      {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        },
+        signal: AbortSignal.timeout(3000),
+      }
+    );
+    const tokenHtml = await tokenRes.text();
+    const vqdMatch = tokenHtml.match(/vqd=["']?([^"'&]+)/);
+
+    if (vqdMatch) {
+      const vqd = vqdMatch[1];
+      const imgRes = await fetch(
+        `https://duckduckgo.com/i.js?l=us-en&o=json&q=${encodeURIComponent(query)}&vqd=${vqd}&f=,,,,,&p=1`,
+        {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+            "Referer": "https://duckduckgo.com/",
+          },
+          signal: AbortSignal.timeout(3000),
+        }
+      );
+
+      if (imgRes.ok) {
+        const imgData = await imgRes.json();
+        const imgResults = imgData.results || [];
+        for (const img of imgResults.slice(0, 6)) {
+          if (img.image && img.thumbnail) {
+            images.push({
+              url: img.image,
+              thumbnail: img.thumbnail,
+              title: img.title || "",
+              source: img.source || new URL(img.image).hostname,
+            });
+          }
+        }
+      }
+    }
+  } catch {
+    // Image search is best-effort — don't fail the whole search
+  }
+
+  // Fallback: try Wikimedia Commons API for educational images
+  if (images.length === 0) {
+    try {
+      const wikiRes = await fetch(
+        `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=4&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=300&format=json`,
+        { signal: AbortSignal.timeout(3000) }
+      );
+      if (wikiRes.ok) {
+        const wikiData = await wikiRes.json();
+        const pages = wikiData.query?.pages || {};
+        for (const page of Object.values(pages) as Record<string, unknown>[]) {
+          const info = (page.imageinfo as Record<string, unknown>[])?.[0];
+          if (info?.thumburl && info?.url) {
+            images.push({
+              url: String(info.url),
+              thumbnail: String(info.thumburl),
+              title: String(page.title || "").replace("File:", ""),
+              source: "Wikimedia Commons",
+            });
+          }
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  return images;
+}
+
 // ── Web Search Implementation ─────────────────────────────────────────
 
 async function executeWebSearch(
@@ -744,38 +827,45 @@ async function executeWebSearch(
       };
     }
 
-    // Fetch content from top 2 results only (fast, parallel, short timeout)
-    const enrichedResults = await Promise.all(
-      results.slice(0, 2).map(async (r) => {
-        try {
-          const pageRes = await fetch(r.url, {
-            headers: {
-              "User-Agent": "Mozilla/5.0 (compatible; SmartSchoolAI/2.0)",
-              Accept: "text/html",
-            },
-            signal: AbortSignal.timeout(3000),
-          });
-          if (!pageRes.ok) return { ...r, content: r.snippet };
+    // Fetch content from top 2 results AND search for images in parallel
+    const [enrichedResults, searchImages] = await Promise.all([
+      // Text enrichment
+      Promise.all(
+        results.slice(0, 2).map(async (r) => {
+          try {
+            const pageRes = await fetch(r.url, {
+              headers: {
+                "User-Agent": "Mozilla/5.0 (compatible; SmartSchoolAI/2.0)",
+                Accept: "text/html",
+              },
+              signal: AbortSignal.timeout(3000),
+            });
+            if (!pageRes.ok) return { ...r, content: r.snippet };
 
-          const pageHtml = await pageRes.text();
-          const textContent = deepExtractContent(pageHtml, 4000);
-          const pageTitleMatch = pageHtml.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-          const pageTitle = pageTitleMatch ? pageTitleMatch[1].replace(/\s*[-|].*$/, "").trim() : r.title;
-          return { ...r, title: pageTitle || r.title, content: textContent || r.snippet };
-        } catch {
-          return { ...r, content: r.snippet };
-        }
-      })
-    );
+            const pageHtml = await pageRes.text();
+            const textContent = deepExtractContent(pageHtml, 4000);
+            const pageTitleMatch = pageHtml.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+            const pageTitle = pageTitleMatch ? pageTitleMatch[1].replace(/\s*[-|].*$/, "").trim() : r.title;
+            return { ...r, title: pageTitle || r.title, content: textContent || r.snippet };
+          } catch {
+            return { ...r, content: r.snippet };
+          }
+        })
+      ),
+      // Image search (parallel, non-blocking)
+      fetchSearchImages(query).catch(() => [] as { url: string; thumbnail: string; title: string; source: string }[]),
+    ]);
     const allResults = [...enrichedResults, ...results.slice(2)];
 
     return {
       result: {
         results: allResults,
+        images: searchImages.length > 0 ? searchImages : undefined,
         search_query: query,
         result_count: allResults.length,
         instructions: "Use the search results to provide an accurate, well-sourced answer. " +
-          "Cite sources naturally (e.g., 'According to [source]...'). Include relevant URLs.",
+          "Cite sources naturally (e.g., 'According to [source]...'). Include relevant URLs." +
+          (searchImages.length > 0 ? " Relevant images have been found and will be displayed to the user." : ""),
       },
       sources: allResults.map((r) => r.url).filter(Boolean),
     };

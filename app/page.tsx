@@ -237,6 +237,7 @@ export default function Home() {
           generatedImages: response.generated_images || undefined,
           flashcardSets: response.flashcard_sets || undefined,
           quizSets: response.quiz_sets || undefined,
+          searchImages: response.search_images || undefined,
           model: (response.model as AIModel) || settings.model,
         };
 
