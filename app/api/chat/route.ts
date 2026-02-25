@@ -335,15 +335,16 @@ export async function POST(req: NextRequest) {
     let loopRound = 0;
 
     // Helper: attempt an API call, with automatic model fallback on 404/rate-limit
-    // Uses per-call timeout to prevent burning through the 60s Vercel limit
-    const callWithFallback = async (msgs: OpenAI.Chat.ChatCompletionMessageParam[]) => {
-      // After first success, only try 1 fallback (save time for tool-loop rounds)
+    // Uses DYNAMIC per-call timeout based on remaining wall-clock
+    const callWithFallback = async (msgs: OpenAI.Chat.ChatCompletionMessageParam[], wallStart: number) => {
+      // Only try 1 fallback to save time (primary + 1 backup)
       const chain = FALLBACK_CHAIN[activeModelId] || [];
-      const maxFallbacks = loopRound === 0 ? 2 : 1;
-      const modelsToTry = [activeModelId, ...chain.slice(0, maxFallbacks)];
+      const modelsToTry = [activeModelId, ...chain.slice(0, 1)];
       let lastError: unknown = null;
-      // Per-call timeout: 25s on first round, 20s on subsequent (leave room for Vercel 60s)
-      const callTimeout = loopRound === 0 ? 25_000 : 20_000;
+      // Dynamic timeout: use remaining wall-clock time minus 3s safety buffer, max 22s per call
+      const elapsed = Date.now() - wallStart;
+      const remaining = Math.max(52_000 - elapsed, 6_000);
+      const callTimeout = Math.min(Math.floor(remaining / modelsToTry.length) - 1000, 22_000);
 
       for (const tryModel of modelsToTry) {
         try {
@@ -415,13 +416,12 @@ export async function POST(req: NextRequest) {
       throw lastError;
     }
 
-    // Wall-clock start time — we MUST return before Vercel's 60s limit
+    // Wall-clock start time — MUST return before Vercel's 60s limit
     const wallClockStart = Date.now();
-    const WALL_CLOCK_LIMIT_MS = 52_000; // 52s — leaves 8s safety margin
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      // Bail out if we're running out of time
-      if (Date.now() - wallClockStart > WALL_CLOCK_LIMIT_MS) {
+      // Bail out if we're running out of time (52s limit, leaves 8s safety)
+      if (Date.now() - wallClockStart > 52_000) {
         console.warn(`Wall-clock limit reached after ${round} rounds, returning partial results`);
         // Return whatever tool results we've collected so far
         let partialText = "I found some information but ran out of processing time. Here's what I have:\n\n";
@@ -435,22 +435,26 @@ export async function POST(req: NextRequest) {
         }
         return NextResponse.json({
           response: partialText || "The request took too long. Please try again with a simpler query.",
+          conversation_id: crypto.randomUUID(),
+          thinking: null,
+          animation_url: null,
           model: activeModelId,
-          toolsUsed: toolCallsLog,
-          sources,
+          tool_calls: toolCallsLog,
+          sources: Array.from(new Set(sources)),
           charts,
           flowcharts,
-          flashcardSets,
-          quizSets,
-          manimAnimations,
-          generatedImages,
-          scheduleActions,
+          flashcard_sets: flashcardSets,
+          quiz_sets: quizSets,
+          manim_animations: manimAnimations,
+          generated_images: generatedImages,
+          schedule_actions: scheduleActions,
           search_images: searchImages.length > 0 ? searchImages : undefined,
+          error: null,
         });
       }
 
       loopRound = round;
-      const response = await callWithFallback(messages);
+      const response = await callWithFallback(messages, wallClockStart);
 
       const choice = response.choices[0];
       const assistantMsg = choice.message;
@@ -540,6 +544,11 @@ export async function POST(req: NextRequest) {
 
       // Model done — extract final response
       let finalText = assistantMsg.content || "";
+
+      // ── Strip hallucinated image markdown ───────────────────────
+      // Models often generate ![Image](url) with non-existent URLs.
+      // Real images come from the ImageRenderer component, not markdown.
+      finalText = finalText.replace(/!\[([^\]]*)\]\((?!https:\/\/image\.pollinations\.ai)[^)]+\)/g, "**$1**");
 
       // ── Extract thinking/reasoning content ──────────────────────
       let thinkingContent: string | null = null;

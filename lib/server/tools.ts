@@ -240,11 +240,12 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
       name: "generate_flowchart",
       description:
         "Generate a flowchart or diagram using Mermaid.js syntax. " +
-        "Use this when the student asks for: flowcharts, process diagrams, sequence diagrams, " +
-        "class diagrams, state diagrams, ER diagrams, Gantt charts, mind maps, or any visual " +
-        "representation of processes, algorithms, or relationships. " +
-        "ALWAYS use this for: algorithm flowcharts, biology pathways, chemistry reaction steps, " +
-        "decision trees, organizational charts, timelines.",
+        "Use for: flowcharts, process diagrams, sequence diagrams, class diagrams, " +
+        "ER diagrams, mind maps, decision trees, biology pathways, algorithm flowcharts. " +
+        "CRITICAL: Use simple node IDs (A, B, C). Wrap ALL labels in double-quoted brackets: A[\"Label\"]. " +
+        "Start with 'graph TD' for top-down or 'graph LR' for left-right. " +
+        "Use --> for arrows, -->|text| for labeled edges. Keep under 25 nodes. " +
+        "AVOID special characters in labels — no parentheses, colons, or emoji in labels.",
       parameters: {
         type: "object",
         properties: {
@@ -1160,11 +1161,12 @@ function executeImageGeneration(
     };
   }
 
-  // Enhanced prompt for educational content
-  const enhancedPrompt = `Educational ${style} illustration for ${subject}: ${prompt}. High quality, clear, informative, suitable for students, clean background.`;
+  // Enhanced prompt for educational content - keep it concise for URL
+  const enhancedPrompt = `Educational ${style} diagram: ${prompt}. Labeled, clear, informative, white text on dark background, suitable for students.`.slice(0, 400);
 
   // Use Pollinations.ai — free image generation, no API key needed
-  const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt.slice(0, 500))}?width=1024&height=768&model=flux&nologo=true&seed=${Date.now()}`;
+  const seed = Math.floor(Math.random() * 999999);
+  const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=768&model=flux&nologo=true&seed=${seed}`;
 
   // Pollinations generates on-demand when loaded — no verification needed
   return {
