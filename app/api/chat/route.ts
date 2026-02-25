@@ -110,11 +110,11 @@ function validateOrigin(req: NextRequest): boolean {
   if (!origin && !referer) return true; // Server-side or non-browser
   const allowed = [
     "https://schoolit-ai.vercel.app",
+    "https://frontend-",  // Vercel preview deployments for this project
     "http://localhost:3000",
     "http://localhost:3001",
   ];
-  return allowed.some((a) => origin.startsWith(a) || referer.startsWith(a)) ||
-    origin.includes(".vercel.app") || referer.includes(".vercel.app");
+  return allowed.some((a) => origin.startsWith(a) || referer.startsWith(a));
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -223,8 +223,8 @@ export async function POST(req: NextRequest) {
     fileContext = parts.join("\n\n");
   }
 
-  // Build system prompt (with memory context for admin)
-  const systemPrompt = buildSystemPrompt(persona, subject, chainOfThought, fileContext, memoryContext || undefined);
+  // Build system prompt (with memory context for admin, admin PII only for admin)
+  const systemPrompt = buildSystemPrompt(persona, subject, chainOfThought, fileContext, memoryContext || undefined, isAdmin);
 
   // Append schedule context if available
   const fullSystemPrompt = scheduleContext
@@ -702,7 +702,6 @@ export async function POST(req: NextRequest) {
       response: userError,
       conversation_id: crypto.randomUUID(),
       error: statusHint || "unknown_error",
-      error_detail: rawMsg.slice(0, 500),
       sources: [],
       tool_calls: toolCallsLog || [],
       charts: charts || [],

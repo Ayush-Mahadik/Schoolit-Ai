@@ -120,6 +120,32 @@ export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
       throw new Error(String(msg));
     }
 
+    // Check if API returned an error inside a 200 response
+    // Only treat as error if there's no useful data (flashcards, charts, etc.)
+    if (body?.error && body.error !== null) {
+      const hasUsefulData = (body.flashcard_sets && body.flashcard_sets.length > 0) ||
+        (body.flowcharts && body.flowcharts.length > 0) ||
+        (body.charts && body.charts.length > 0) ||
+        (body.generated_images && body.generated_images.length > 0) ||
+        (body.quiz_sets && body.quiz_sets.length > 0);
+
+      if (!hasUsefulData) {
+        // Pure error — retry or throw
+        const userMsg = body.response || "Something went wrong";
+        if (attempt < maxRetries - 1 && ["timeout", "rate_limited", "network_error", "server_error"].includes(body.error)) {
+          lastErr = new Error(userMsg);
+          await new Promise((r) => setTimeout(r, 2000));
+          continue;
+        }
+        // THROW so the frontend catch block handles it with ⚠️ prefix
+        throw new Error(userMsg);
+      }
+      // Has useful data — clear the error text from response so it doesn't show "Something went wrong" alongside real data
+      if (body.response?.toLowerCase().includes("something went wrong") || body.response?.toLowerCase().includes("error")) {
+        body.response = "";
+      }
+    }
+
     return body!;
   }
 

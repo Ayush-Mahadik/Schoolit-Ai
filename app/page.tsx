@@ -166,8 +166,8 @@ export default function Home() {
 
       try {
         const history = (messages[activeSubject] || [])
-          .slice(-20)
-          .map((m) => ({ role: m.role, content: m.content }));
+          .slice(-15)
+          .map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }));
 
         const textFiles = currentFiles
           .filter((f) => !f.type.startsWith("image/"))
@@ -187,7 +187,7 @@ export default function Home() {
           history,
           context_files: [...textFiles, ...imageFiles],
           schedule_context: getScheduleContext(),
-          memory_context: isMemoryOwner() ? buildMemoryContext() : "",
+          memory_context: isMemoryOwner() ? buildMemoryContext().slice(0, 3000) : "",
         });
 
         // Process schedule actions from AI (add items to localStorage)

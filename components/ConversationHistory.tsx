@@ -106,7 +106,7 @@ export function ConversationHistory({
           }
           const mergedList = Array.from(merged.values()).sort((a, b) => b.timestamp - a.timestamp);
           setConversations(mergedList);
-          localStorage.setItem("schoolit_conversations", JSON.stringify(mergedList));
+          try { localStorage.setItem("schoolit_conversations", JSON.stringify(mergedList)); } catch { /* storage full */ }
           setCloudStatus("synced");
         } else {
           setCloudStatus("synced");
@@ -165,7 +165,7 @@ export function ConversationHistory({
       existing = existing.slice(0, 50);
     }
 
-    localStorage.setItem("schoolit_conversations", JSON.stringify(existing));
+    try { localStorage.setItem("schoolit_conversations", JSON.stringify(existing)); } catch { /* storage full */ }
 
     // Save actual messages for this conversation
     try {
@@ -218,8 +218,8 @@ export function ConversationHistory({
   function deleteConversation(id: string, e: React.MouseEvent) {
     e.stopPropagation();
     const updated = conversations.filter((c) => c.id !== id);
-    localStorage.setItem("schoolit_conversations", JSON.stringify(updated));
-    localStorage.removeItem(`schoolit_msgs_${id}`);
+    try { localStorage.setItem("schoolit_conversations", JSON.stringify(updated)); } catch { /* ignore */ }
+    try { localStorage.removeItem(`schoolit_msgs_${id}`); } catch { /* ignore */ }
     // Also delete from cloud (fire-and-forget)
     if (cloudEnabled && userEmail) {
       cloudDeleteConversation(userEmail, id).catch(() => {});

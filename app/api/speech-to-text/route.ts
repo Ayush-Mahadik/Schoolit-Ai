@@ -10,6 +10,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -18,6 +20,15 @@ const SARVAM_API_URL = "https://api.sarvam.ai/speech-to-text";
 
 export async function POST(req: NextRequest) {
   try {
+    // Require authentication
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      return NextResponse.json(
+        { error: "unauthorized", message: "Sign in to use voice input." },
+        { status: 401 }
+      );
+    }
+
     const apiKey = process.env.SARVAM_API_KEY?.trim();
 
     if (!apiKey) {

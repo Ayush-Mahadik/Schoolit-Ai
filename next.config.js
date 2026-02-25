@@ -21,7 +21,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
               "img-src 'self' data: blob: https: http:",
               "font-src 'self' data: https://cdn.jsdelivr.net",
-              "connect-src 'self' https://models.inference.ai.azure.com https://html.duckduckgo.com https://*",
+              "connect-src 'self' https://models.inference.ai.azure.com https://html.duckduckgo.com https://api.sarvam.ai https://image.pollinations.ai https://*.supabase.co https://*.vercel.app",
               "media-src 'self' blob:",
               "frame-src 'none'",
               "object-src 'none'",

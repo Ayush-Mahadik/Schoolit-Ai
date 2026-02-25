@@ -21,9 +21,12 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 // ── Server-only Supabase client (NEVER exposed to browser) ───────────
 function getSupabase(): SupabaseClient | null {
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-  if (!url || !key) return null;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    console.warn("Supabase not configured: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+    return null;
+  }
   return createClient(url, key, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
@@ -108,6 +111,17 @@ export async function POST(req: NextRequest) {
       messages: body.messages || [],
       updated_at: Date.now(),
     };
+
+    // SECURITY: Check if this conversation belongs to the current user before upsert
+    const { data: existing } = await sb
+      .from("conversations")
+      .select("user_email")
+      .eq("id", row.id)
+      .single();
+
+    if (existing && existing.user_email !== session.user.email) {
+      return NextResponse.json({ error: "Forbidden — this conversation belongs to another user" }, { status: 403 });
+    }
 
     const { error } = await sb
       .from("conversations")
