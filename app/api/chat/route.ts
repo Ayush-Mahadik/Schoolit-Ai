@@ -319,12 +319,13 @@ export async function POST(req: NextRequest) {
   const searchImages: { url: string; thumbnail: string; title: string; source: string }[] = [];
 
   try {
-    // Model fallback chains — all verified on GitHub Models endpoint
+    // Model fallback chains — keep SHORT to maximize time per model
+    // grok-3-mini excluded from fallbacks: only 4K context, too small for our prompts
     const FALLBACK_CHAIN: Record<string, string[]> = {
-      "gpt-4.1": ["gpt-4o", "grok-3", "grok-3-mini"],
-      "gpt-4o": ["gpt-4.1", "grok-3", "grok-3-mini"],
-      "grok-3": ["grok-3-mini", "gpt-4.1", "gpt-4o"],
-      "grok-3-mini": ["grok-3", "gpt-4.1", "gpt-4o"],
+      "gpt-4.1": ["gpt-4o"],
+      "gpt-4o": ["gpt-4.1"],
+      "grok-3": ["gpt-4o"],
+      "grok-3-mini": ["gpt-4o"],
     };
 
     let activeModelId = modelId;
@@ -341,21 +342,21 @@ export async function POST(req: NextRequest) {
     const wallClockStart = Date.now();
 
     // Helper: attempt an API call, with automatic model fallback on 404/rate-limit
-    // Tries ALL fallback models to maximize reliability
     const callWithFallback = async (msgs: OpenAI.Chat.ChatCompletionMessageParam[]) => {
-      const chain = FALLBACK_CHAIN[activeModelId] || [];
-      // Try primary + ALL fallbacks for maximum reliability
-      const modelsToTry = [activeModelId, ...chain];
+      const chain = FALLBACK_CHAIN[activeModelId] || ["gpt-4o"];
+      // Try primary + ONE fallback only — gives each model ~25s
+      const modelsToTry = [activeModelId, ...chain.slice(0, 1)];
       let lastError: unknown = null;
 
       for (let i = 0; i < modelsToTry.length; i++) {
         const tryModel = modelsToTry[i];
-        // Dynamic timeout: use remaining wall-clock time, leave 6s safety buffer
+        // Dynamic timeout: primary gets 70% of remaining time, fallback gets rest
         const elapsed = Date.now() - wallClockStart;
         const remaining = Math.max(54_000 - elapsed, 8_000);
-        const modelsLeft = modelsToTry.length - i;
-        // Give each remaining model a fair share, min 5s, max 30s
-        const callTimeout = Math.max(Math.min(Math.floor(remaining / modelsLeft) - 500, 30_000), 5_000);
+        const isFirst = i === 0;
+        const callTimeout = isFirst
+          ? Math.min(Math.floor(remaining * 0.7), 40_000) // Primary: up to 40s
+          : Math.max(remaining - 3_000, 8_000);           // Fallback: rest minus 3s safety
 
         try {
           // Disable tools for models that don't support OpenAI function-calling
@@ -416,11 +417,12 @@ export async function POST(req: NextRequest) {
           const errMsg = err instanceof Error ? err.message.toLowerCase() : "";
           const isLastModel = i === modelsToTry.length - 1;
           const isFatal = errMsg.includes("api_key") || errMsg.includes("unauthorized") || status === 401;
+          const isPayloadTooLarge = status === 413 || errMsg.includes("too large");
 
           console.warn(`Model ${tryModel} failed (status=${status}, msg="${(err instanceof Error ? err.message : "").slice(0, 120)}"), isLast=${isLastModel}`);
           lastError = err;
 
-          if (isFatal || isLastModel) {
+          if (isFatal || isPayloadTooLarge || isLastModel) {
             throw err;
           }
 
@@ -702,6 +704,9 @@ export async function POST(req: NextRequest) {
     } else if (statusCode === 400 || msg.includes("bad request") || msg.includes("bad_request")) {
       userError = "The AI model rejected this request. Try a shorter message or different wording.";
       statusHint = "bad_request";
+    } else if (statusCode === 413 || msg.includes("too large") || msg.includes("413")) {
+      userError = "The request was too large for the AI model. Try a shorter message or fewer attachments.";
+      statusHint = "payload_too_large";
     } else if (statusCode && statusCode >= 500) {
       userError = "The AI service is experiencing issues. Please try again in a moment.";
       statusHint = "server_error";
