@@ -223,6 +223,11 @@ export default function Home() {
           }
         }
 
+        // Check if the AI response itself contains an error
+        if (response.error && response.error !== null) {
+          console.warn("API returned error:", response.error, response.error_detail);
+        }
+
         const assistantMsg: Message = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
@@ -256,7 +261,7 @@ export default function Home() {
         const errorMsg: Message = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: `⚠️ ${errorMessage}`,
+          content: `⚠️ ${errorMessage}\n\n*Tip: Try switching to a different model (GPT-4o or Grok-3) or ask a shorter question.*`,
           timestamp: new Date(),
         };
         setMessages((prev) => ({

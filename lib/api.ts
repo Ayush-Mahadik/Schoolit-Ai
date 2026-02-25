@@ -63,43 +63,67 @@ export interface ChatResponse {
   search_images?: { url: string; thumbnail: string; title: string; source: string }[];
   schedule_actions?: { action: string; items?: unknown[] }[];
   error: string | null;
+  error_detail?: string;
   model?: string;
   rate_limit_remaining?: number;
 }
 
 export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
-  let res: Response;
-  try {
-    res = await fetchWithTimeout(`${API_URL}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
-    });
-  } catch (err) {
-    // Network-level failure (offline, DNS, CORS, timeout, Vercel 504)
-    const msg = err instanceof Error ? err.message : "Network error";
-    if (msg.includes("timed out") || msg.includes("abort")) {
-      throw new Error("The request timed out. Try a shorter question or switch to a faster model.");
+  // Retry once on transient failures
+  const maxRetries = 2;
+  let lastErr: Error | null = null;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    let res: Response;
+    try {
+      res = await fetchWithTimeout(`${API_URL}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+      });
+    } catch (err) {
+      // Network-level failure (offline, DNS, CORS, timeout, Vercel 504)
+      const msg = err instanceof Error ? err.message : "Network error";
+      if (attempt < maxRetries - 1 && !msg.includes("abort")) {
+        lastErr = new Error(msg);
+        await new Promise((r) => setTimeout(r, 1500));
+        continue;
+      }
+      if (msg.includes("timed out") || msg.includes("abort")) {
+        throw new Error("The request timed out. Try a shorter question or switch to a faster model.");
+      }
+      throw new Error("Could not connect to the server. Please check your connection and try again.");
     }
-    throw new Error("Could not connect to the server. Please check your connection and try again.");
+
+    // Try to parse JSON regardless of status code — our API always returns JSON
+    let body: ChatResponse | null = null;
+    try {
+      body = await res.json();
+    } catch {
+      // Server returned non-JSON (e.g. Vercel 502/504 HTML page)
+      if (attempt < maxRetries - 1) {
+        lastErr = new Error(`Server error (${res.status})`);
+        await new Promise((r) => setTimeout(r, 1500));
+        continue;
+      }
+      throw new Error(`Server error (${res.status}). The service may be temporarily unavailable.`);
+    }
+
+    if (!res.ok && !body?.response) {
+      const b = body as unknown as Record<string, unknown>;
+      const msg = b?.message || b?.detail || `Server error (${res.status})`;
+      if (attempt < maxRetries - 1 && res.status >= 500) {
+        lastErr = new Error(String(msg));
+        await new Promise((r) => setTimeout(r, 1500));
+        continue;
+      }
+      throw new Error(String(msg));
+    }
+
+    return body!;
   }
 
-  // Try to parse JSON regardless of status code — our API always returns JSON
-  let body: ChatResponse | null = null;
-  try {
-    body = await res.json();
-  } catch {
-    // Server returned non-JSON (e.g. Vercel 502/504 HTML page)
-    throw new Error(`Server error (${res.status}). The service may be temporarily unavailable.`);
-  }
-
-  if (!res.ok && !body?.response) {
-    const b = body as unknown as Record<string, unknown>;
-    const msg = b?.message || b?.detail || `Server error (${res.status})`;
-    throw new Error(String(msg));
-  }
-
-  return body!;
+  throw lastErr || new Error("Request failed after retries.");
 }
 
 // ── Personas ─────────────────────────────────────────────────────────────────

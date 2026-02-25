@@ -334,19 +334,26 @@ export async function POST(req: NextRequest) {
     // Track which round we're on for smarter timeout management
     let loopRound = 0;
 
-    // Helper: attempt an API call, with automatic model fallback on 404/rate-limit
-    // Uses DYNAMIC per-call timeout based on remaining wall-clock
-    const callWithFallback = async (msgs: OpenAI.Chat.ChatCompletionMessageParam[], wallStart: number) => {
-      // Only try 1 fallback to save time (primary + 1 backup)
-      const chain = FALLBACK_CHAIN[activeModelId] || [];
-      const modelsToTry = [activeModelId, ...chain.slice(0, 1)];
-      let lastError: unknown = null;
-      // Dynamic timeout: use remaining wall-clock time minus 3s safety buffer, max 22s per call
-      const elapsed = Date.now() - wallStart;
-      const remaining = Math.max(52_000 - elapsed, 6_000);
-      const callTimeout = Math.min(Math.floor(remaining / modelsToTry.length) - 1000, 22_000);
+    // Wall-clock start time — MUST return before Vercel's 60s limit
+    const wallClockStart = Date.now();
 
-      for (const tryModel of modelsToTry) {
+    // Helper: attempt an API call, with automatic model fallback on 404/rate-limit
+    // Tries ALL fallback models to maximize reliability
+    const callWithFallback = async (msgs: OpenAI.Chat.ChatCompletionMessageParam[]) => {
+      const chain = FALLBACK_CHAIN[activeModelId] || [];
+      // Try primary + ALL fallbacks for maximum reliability
+      const modelsToTry = [activeModelId, ...chain];
+      let lastError: unknown = null;
+
+      for (let i = 0; i < modelsToTry.length; i++) {
+        const tryModel = modelsToTry[i];
+        // Dynamic timeout: use remaining wall-clock time, leave 6s safety buffer
+        const elapsed = Date.now() - wallClockStart;
+        const remaining = Math.max(54_000 - elapsed, 8_000);
+        const modelsLeft = modelsToTry.length - i;
+        // Give each remaining model a fair share, min 5s, max 30s
+        const callTimeout = Math.max(Math.min(Math.floor(remaining / modelsLeft) - 500, 30_000), 5_000);
+
         try {
           // Disable tools for models that don't support OpenAI function-calling
           const modelSupportsTools = !NO_TOOL_SUPPORT.has(tryModel);
@@ -379,6 +386,8 @@ export async function POST(req: NextRequest) {
             });
           }
 
+          console.log(`Trying model ${tryModel} (timeout=${callTimeout}ms, round=${loopRound})`);
+
           // Use AbortSignal.timeout to prevent a single model call from eating all 60s
           const response = await Promise.race([
             client!.chat.completions.create({
@@ -392,6 +401,7 @@ export async function POST(req: NextRequest) {
               setTimeout(() => reject(new Error(`Model ${tryModel} timed out after ${callTimeout / 1000}s`)), callTimeout)
             ),
           ]);
+
           // If we fell back to a different model, remember it
           if (tryModel !== activeModelId) {
             console.log(`Model fallback: ${activeModelId} → ${tryModel}`);
@@ -400,24 +410,24 @@ export async function POST(req: NextRequest) {
           return response;
         } catch (err: unknown) {
           const status = (err as { status?: number })?.status;
-          const msg = err instanceof Error ? err.message.toLowerCase() : "";
-          const isLastModel = tryModel === modelsToTry[modelsToTry.length - 1];
-          const isFatal = msg.includes("api_key") || msg.includes("unauthorized") || status === 401;
+          const errMsg = err instanceof Error ? err.message.toLowerCase() : "";
+          const isLastModel = i === modelsToTry.length - 1;
+          const isFatal = errMsg.includes("api_key") || errMsg.includes("unauthorized") || status === 401;
 
-          if (!isFatal && !isLastModel) {
-            console.warn(`Model ${tryModel} failed (status=${status}, msg="${msg.slice(0, 80)}"), trying fallback...`);
-            lastError = err;
-            await new Promise((r) => setTimeout(r, 200));
-            continue;
+          console.warn(`Model ${tryModel} failed (status=${status}, msg="${(err instanceof Error ? err.message : "").slice(0, 120)}"), isLast=${isLastModel}`);
+          lastError = err;
+
+          if (isFatal || isLastModel) {
+            throw err;
           }
-          throw err;
+
+          // Brief pause before trying next model
+          await new Promise((r) => setTimeout(r, 150));
+          continue;
         }
       }
       throw lastError;
-    }
-
-    // Wall-clock start time — MUST return before Vercel's 60s limit
-    const wallClockStart = Date.now();
+    };
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       // Bail out if we're running out of time (52s limit, leaves 8s safety)
@@ -454,7 +464,7 @@ export async function POST(req: NextRequest) {
       }
 
       loopRound = round;
-      const response = await callWithFallback(messages, wallClockStart);
+      const response = await callWithFallback(messages);
 
       const choice = response.choices[0];
       const assistantMsg = choice.message;
@@ -655,10 +665,10 @@ export async function POST(req: NextRequest) {
     let statusHint = "";
 
     if (statusCode === 429 || msg.includes("rate") || msg.includes("429")) {
-      userError = "The AI service is rate-limited. Please wait 30 seconds and try again.";
+      userError = "The AI service is rate-limited right now. Please wait 30 seconds and try again.";
       statusHint = "rate_limited";
     } else if (statusCode === 401 || msg.includes("auth") || msg.includes("401") || msg.includes("api_key") || msg.includes("unauthorized") || msg.includes("invalid")) {
-      userError = "API authentication failed. The server token may be expired — please contact the admin.";
+      userError = "API authentication failed. The server token may need to be refreshed — please contact the admin.";
       statusHint = "auth_error";
     } else if (statusCode === 403 || msg.includes("403") || msg.includes("forbidden") || msg.includes("permission")) {
       userError = "Access denied by the AI service. The API token may not have the required permissions.";
@@ -670,10 +680,10 @@ export async function POST(req: NextRequest) {
       userError = "Could not reach the AI service. This is usually a temporary issue — please try again.";
       statusHint = "network_error";
     } else if (msg.includes("timeout") || msg.includes("timed out") || msg.includes("deadline")) {
-      userError = "The request timed out. Try asking a shorter question or switch to a faster model.";
+      userError = "The request took too long. Try asking a shorter question or switch to a faster model like GPT-4o.";
       statusHint = "timeout";
     } else if (statusCode === 404 || msg.includes("not found") || msg.includes("does not exist") || msg.includes("404")) {
-      userError = `The model "${modelId}" isn't available right now. Try switching to GPT-4.1 or GPT-4o.`;
+      userError = `The model "${modelId}" isn't available right now. Please try switching to GPT-4o.`;
       statusHint = "model_not_found";
     } else if (msg.includes("content_filter") || msg.includes("content policy") || msg.includes("safety")) {
       userError = "Your message was flagged by the content safety filter. Please rephrase your question.";
@@ -692,10 +702,14 @@ export async function POST(req: NextRequest) {
       response: userError,
       conversation_id: crypto.randomUUID(),
       error: statusHint || "unknown_error",
-      error_detail: rawMsg,
+      error_detail: rawMsg.slice(0, 500),
       sources: [],
-      tool_calls: [],
-      charts: [],
+      tool_calls: toolCallsLog || [],
+      charts: charts || [],
+      flowcharts: flowcharts || [],
+      generated_images: generatedImages || [],
+      flashcard_sets: flashcardSets || [],
+      quiz_sets: quizSets || [],
       model: modelId,
     });
   }

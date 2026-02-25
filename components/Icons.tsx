@@ -59,6 +59,9 @@ import {
   History,
   Bolt,
   Mountain,
+  BarChart3,
+  PenLine,
+  Loader,
   type LucideProps,
 } from "lucide-react";
 import type { FC } from "react";
@@ -192,4 +195,7 @@ export {
   Flame,
   Bolt,
   Mountain,
+  BarChart3,
+  PenLine,
+  Loader,
 };
