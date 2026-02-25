@@ -319,14 +319,9 @@ export async function POST(req: NextRequest) {
   const searchImages: { url: string; thumbnail: string; title: string; source: string }[] = [];
 
   try {
-    // Model fallback chains — keep SHORT to maximize time per model
-    // grok-3-mini excluded from fallbacks: only 4K context, too small for our prompts
-    const FALLBACK_CHAIN: Record<string, string[]> = {
-      "gpt-4.1": ["gpt-4o"],
-      "gpt-4o": ["gpt-4.1"],
-      "grok-3": ["gpt-4o"],
-      "grok-3-mini": ["gpt-4o"],
-    };
+    // All available models — ordered by preference
+    // grok-3-mini excluded: only 4K context window, too small for our prompts+tools
+    const ALL_MODELS = ["gpt-4.1", "gpt-4o", "grok-3"];
 
     let activeModelId = modelId;
 
@@ -341,22 +336,33 @@ export async function POST(req: NextRequest) {
     // Wall-clock start time — MUST return before Vercel's 60s limit
     const wallClockStart = Date.now();
 
-    // Helper: attempt an API call, with automatic model fallback on 404/rate-limit
+    // Helper: attempt an API call, with automatic model fallback
+    // For rate limits (429): tries ALL other models since each has separate quota
+    // For other errors: tries only 1 fallback to preserve time budget
     const callWithFallback = async (msgs: OpenAI.Chat.ChatCompletionMessageParam[]) => {
-      const chain = FALLBACK_CHAIN[activeModelId] || ["gpt-4o"];
-      // Try primary + ONE fallback only — gives each model ~25s
-      const modelsToTry = [activeModelId, ...chain.slice(0, 1)];
+      // Build model list: primary first, then others
+      const otherModels = ALL_MODELS.filter(m => m !== activeModelId);
+      const modelsToTry = [activeModelId, ...otherModels];
       let lastError: unknown = null;
+      let modelsAttempted = 0;
 
       for (let i = 0; i < modelsToTry.length; i++) {
         const tryModel = modelsToTry[i];
-        // Dynamic timeout: primary gets 70% of remaining time, fallback gets rest
+        // Dynamic timeout based on how many models we might still try
         const elapsed = Date.now() - wallClockStart;
         const remaining = Math.max(54_000 - elapsed, 8_000);
-        const isFirst = i === 0;
-        const callTimeout = isFirst
-          ? Math.min(Math.floor(remaining * 0.7), 40_000) // Primary: up to 40s
-          : Math.max(remaining - 3_000, 8_000);           // Fallback: rest minus 3s safety
+
+        // First model gets generous time; fallbacks split the rest
+        let callTimeout: number;
+        if (i === 0) {
+          callTimeout = Math.min(Math.floor(remaining * 0.6), 35_000);
+        } else {
+          const fallbacksLeft = modelsToTry.length - i;
+          callTimeout = Math.max(Math.floor((remaining - 2_000) / fallbacksLeft), 8_000);
+        }
+
+        // Skip if we're almost out of time
+        if (remaining < 6_000 && i > 0) break;
 
         try {
           // Disable tools for models that don't support OpenAI function-calling
@@ -418,13 +424,24 @@ export async function POST(req: NextRequest) {
           const isLastModel = i === modelsToTry.length - 1;
           const isFatal = errMsg.includes("api_key") || errMsg.includes("unauthorized") || status === 401;
           const isPayloadTooLarge = status === 413 || errMsg.includes("too large");
+          const isRateLimited = status === 429 || errMsg.includes("rate limit");
 
-          console.warn(`Model ${tryModel} failed (status=${status}, msg="${(err instanceof Error ? err.message : "").slice(0, 120)}"), isLast=${isLastModel}`);
+          console.warn(`Model ${tryModel} failed (status=${status}, rateLimited=${isRateLimited}, msg="${(err instanceof Error ? err.message : "").slice(0, 150)}"), isLast=${isLastModel}`);
           lastError = err;
+          modelsAttempted++;
 
-          if (isFatal || isPayloadTooLarge || isLastModel) {
-            throw err;
+          // Fatal or payload errors: no point trying other models
+          if (isFatal || isPayloadTooLarge) throw err;
+
+          // Rate limited: ALWAYS try next model (each model has separate quota)
+          if (isRateLimited && !isLastModel) {
+            await new Promise((r) => setTimeout(r, 100));
+            continue;
           }
+
+          // Non-rate-limit errors: try 1 fallback max (preserve time budget)
+          if (!isRateLimited && modelsAttempted >= 2) throw err;
+          if (isLastModel) throw err;
 
           // Brief pause before trying next model
           await new Promise((r) => setTimeout(r, 150));
