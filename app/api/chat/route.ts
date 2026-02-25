@@ -320,8 +320,8 @@ export async function POST(req: NextRequest) {
 
   try {
     // All available models — ordered by preference
-    // grok-3-mini excluded: only 4K context window, too small for our prompts+tools
-    const ALL_MODELS = ["gpt-4.1", "gpt-4o", "grok-3"];
+    // Grok models excluded: 4K context window limit, too small for our system prompt + tools
+    const ALL_MODELS = ["gpt-4.1", "gpt-4o"];
 
     let activeModelId = modelId;
 
@@ -695,7 +695,7 @@ export async function POST(req: NextRequest) {
     let statusHint = "";
 
     if (statusCode === 429 || msg.includes("rate") || msg.includes("429")) {
-      userError = "The AI service is rate-limited right now. Please wait 30 seconds and try again.";
+      userError = "Daily AI quota reached (50 requests/model/day on GitHub Models). All available models are exhausted — please try again tomorrow, or switch to a different model.";
       statusHint = "rate_limited";
     } else if (statusCode === 401 || msg.includes("auth") || msg.includes("401") || msg.includes("api_key") || msg.includes("unauthorized") || msg.includes("invalid")) {
       userError = "API authentication failed. The server token may need to be refreshed — please contact the admin.";
