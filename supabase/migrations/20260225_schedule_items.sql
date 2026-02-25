@@ -17,5 +17,21 @@ CREATE INDEX IF NOT EXISTS idx_schedule_user ON public.schedule_items(user_email
 -- Enable RLS
 ALTER TABLE public.schedule_items ENABLE ROW LEVEL SECURITY;
 
--- Policy: service role can do everything (our API uses service role key)
--- No direct browser access policies needed since all access goes through /api/schedule
+-- Policy: Users can only access their own schedule items
+CREATE POLICY "user_own_schedule" ON public.schedule_items
+  FOR ALL
+  USING (
+    user_email = COALESCE(
+      current_setting('request.jwt.claims', true)::json->>'email',
+      current_setting('request.headers', true)::json->>'x-user-email'
+    )
+  )
+  WITH CHECK (
+    user_email = COALESCE(
+      current_setting('request.jwt.claims', true)::json->>'email',
+      current_setting('request.headers', true)::json->>'x-user-email'
+    )
+  );
+
+-- Note: API routes using service_role key bypass RLS
+-- This is secure because server-side code validates the user session
