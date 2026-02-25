@@ -741,13 +741,5 @@ export async function POST(req: NextRequest) {
       },
       { status: 200 }
     );
-        sources: [],
-        tool_calls: [],
-        charts: [],
-        model: "unknown",
-      },
-      { status: 200 }
-    );
   }
 }
-

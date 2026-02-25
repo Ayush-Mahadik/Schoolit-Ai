@@ -1,4 +1,4 @@
-// Quick test of the chat route logic without running Next.js
+npx next build 2>&1 // Quick test of the chat route logic without running Next.js
 import OpenAI from "openai";
 
 const token = process.env.GITHUB_TOKEN;
