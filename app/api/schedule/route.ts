@@ -44,7 +44,7 @@ export async function GET() {
     const { data, error } = await sb
       .from("schedule_items")
       .select("*")
-      .eq("user_email", session.user.email)
+      .eq("user_email", session.user?.email ?? "")
       .order("start_time", { ascending: true });
 
     if (error) {
@@ -94,19 +94,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
-    const items = Array.isArray(body.items) ? body.items : [];
+    const items = Array.isArray(body.items) ? body.items as Record<string, unknown>[] : [];
 
     // Delete existing schedule for this user
     await sb
       .from("schedule_items")
       .delete()
-      .eq("user_email", session.user.email);
+      .eq("user_email", session.user?.email ?? "");
 
     // Insert new items
     if (items.length > 0) {
       const rows = items.slice(0, 200).map((item: Record<string, unknown>) => ({
         id: String(item.id || `sch-${Date.now()}-${Math.random()}`),
-        user_email: session.user.email,
+        user_email: session.user?.email ?? "",
         title: String(item.title || "").slice(0, 300),
         subject: String(item.subject || "general"),
         start_time: String(item.startTime || ""),
