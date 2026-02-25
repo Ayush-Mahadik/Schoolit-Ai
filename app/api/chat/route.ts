@@ -251,6 +251,9 @@ export async function POST(req: NextRequest) {
     { role: "system", content: fullSystemPrompt },
   ];
 
+  // Log system prompt size for debugging
+  console.log(`System prompt size: ${fullSystemPrompt.length} chars, model: ${modelId}, isAdmin: ${isAdmin}, historyLen: ${history.length}`);
+
   // Add conversation history
   const trimmedHistory = history.slice(-MAX_HISTORY_MESSAGES);
   for (const msg of trimmedHistory) {
@@ -657,6 +660,14 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: unknown) {
     console.error("Chat API error:", error);
+    console.error("Error type:", typeof error);
+    console.error("Error constructor:", error?.constructor?.name);
+    if (error instanceof Error) {
+      console.error("Error stack:", error.stack);
+    }
+    // Log OpenAI-specific error properties
+    const apiErr = error as { status?: number; code?: string; type?: string; headers?: Record<string, string> };
+    console.error("Status:", apiErr.status, "Code:", apiErr.code, "Type:", apiErr.type);
 
     const rawMsg = error instanceof Error ? error.message : String(error);
     const msg = rawMsg.toLowerCase();
