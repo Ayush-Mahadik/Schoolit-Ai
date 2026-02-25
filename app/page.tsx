@@ -261,7 +261,7 @@ export default function Home() {
         const errorMsg: Message = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: `⚠️ ${errorMessage}\n\n*Tip: Try switching to a different model (GPT-4o or Grok-3) or ask a shorter question.*`,
+          content: `⚠️ ${errorMessage}\n\n*Tip: Try switching to a different model (Gemini, Llama, or GPT-4o) or ask a shorter question.*`,
           timestamp: new Date(),
         };
         setMessages((prev) => ({

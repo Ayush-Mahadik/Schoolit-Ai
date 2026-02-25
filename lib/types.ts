@@ -7,8 +7,12 @@
 export type AIModel =
   | "gpt-4.1"
   | "gpt-4o"
-  | "grok-3"
-  | "grok-3-mini";
+  | "llama-3.3-70b"
+  | "gemma2-9b"
+  | "gemini-2.0-flash"
+  | "gemini-1.5-flash";
+
+export type AIProvider = "github" | "groq" | "gemini";
 
 export interface ModelOption {
   id: AIModel;
@@ -19,6 +23,7 @@ export interface ModelOption {
   supportsTools: boolean;
   supportsVision: boolean;
   hasThinking: boolean;
+  provider: AIProvider;
 }
 
 export const MODEL_OPTIONS: ModelOption[] = [
@@ -31,6 +36,7 @@ export const MODEL_OPTIONS: ModelOption[] = [
     supportsTools: true,
     supportsVision: true,
     hasThinking: false,
+    provider: "github",
   },
   {
     id: "gpt-4o",
@@ -41,26 +47,51 @@ export const MODEL_OPTIONS: ModelOption[] = [
     supportsTools: true,
     supportsVision: true,
     hasThinking: false,
+    provider: "github",
   },
   {
-    id: "grok-3",
-    name: "Grok 3",
-    description: "xAI's most powerful — deep reasoning & tools",
+    id: "llama-3.3-70b",
+    name: "Llama 3.3 70B",
+    description: "Meta's powerful open model — fast on Groq",
     icon: "flame",
-    speed: "medium",
+    speed: "fast",
     supportsTools: true,
     supportsVision: false,
     hasThinking: false,
+    provider: "groq",
   },
   {
-    id: "grok-3-mini",
-    name: "Grok 3 Mini",
-    description: "Fast thinking — see AI reasoning in real-time",
+    id: "gemma2-9b",
+    name: "Gemma 2 9B",
+    description: "Google's open model — lightweight & efficient",
     icon: "sparkles",
     speed: "fast",
     supportsTools: true,
     supportsVision: false,
-    hasThinking: true,
+    hasThinking: false,
+    provider: "groq",
+  },
+  {
+    id: "gemini-2.0-flash",
+    name: "Gemini 2.0 Flash",
+    description: "Google's latest — vision, tools & high quality",
+    icon: "star",
+    speed: "fast",
+    supportsTools: true,
+    supportsVision: true,
+    hasThinking: false,
+    provider: "gemini",
+  },
+  {
+    id: "gemini-1.5-flash",
+    name: "Gemini 1.5 Flash",
+    description: "Reliable backup — 1M context, always available",
+    icon: "shield",
+    speed: "fast",
+    supportsTools: true,
+    supportsVision: true,
+    hasThinking: false,
+    provider: "gemini",
   },
 ];
 

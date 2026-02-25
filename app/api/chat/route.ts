@@ -1,7 +1,7 @@
 /**
  * Chat API Route — SchoolIT AI
  * ==============================
- * Multi-model support (GPT-4.1, GPT-4o, GPT-4o-mini)
+ * Multi-provider support: GitHub Models → Groq → Google Gemini
  * Thinking modes (fast, balanced, deep)
  * Admin bypass for rate limiting
  * Agentic tool-use conversation loop
@@ -24,25 +24,58 @@ const MAX_MESSAGE_LENGTH = 12_000;
 const MAX_HISTORY_MESSAGES = 30;
 const VALID_PERSONAS = ["formal", "creative", "socratic", "balanced", "exam_coach"];
 
-// Model mapping — ALL verified working on GitHub Models (models.inference.ai.azure.com)
-const MODEL_MAP: Record<string, string> = {
-  "gpt-4.1": "gpt-4.1",
-  "gpt-4o": "gpt-4o",
-  "grok-3": "grok-3",
-  "grok-3-mini": "grok-3-mini",
+// ── Provider Configuration ────────────────────────────────────────────
+type ProviderName = "github" | "groq" | "gemini";
+
+interface ProviderConfig {
+  name: ProviderName;
+  baseURL: string;
+  getApiKey: () => string | undefined;
+}
+
+const PROVIDERS: Record<ProviderName, ProviderConfig> = {
+  github: {
+    name: "github",
+    baseURL: "https://models.inference.ai.azure.com",
+    getApiKey: () => process.env.GITHUB_TOKEN?.trim(),
+  },
+  groq: {
+    name: "groq",
+    baseURL: "https://api.groq.com/openai/v1",
+    getApiKey: () => process.env.GROQ_API_KEY?.trim(),
+  },
+  gemini: {
+    name: "gemini",
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    getApiKey: () => process.env.GEMINI_API_KEY?.trim(),
+  },
 };
+
+// Model → provider + actual API model name
+interface ModelConfig {
+  provider: ProviderName;
+  apiModel: string;       // the model name sent to the API
+  supportsTools: boolean;
+  supportsVision: boolean;
+}
+
+const MODEL_MAP: Record<string, ModelConfig> = {
+  "gpt-4.1":          { provider: "github", apiModel: "gpt-4.1",                    supportsTools: true,  supportsVision: true  },
+  "gpt-4o":           { provider: "github", apiModel: "gpt-4o",                     supportsTools: true,  supportsVision: true  },
+  "llama-3.3-70b":    { provider: "groq",   apiModel: "llama-3.3-70b-versatile",    supportsTools: true,  supportsVision: false },
+  "gemma2-9b":        { provider: "groq",   apiModel: "gemma2-9b-it",               supportsTools: true,  supportsVision: false },
+  "gemini-2.0-flash": { provider: "gemini", apiModel: "gemini-2.0-flash",           supportsTools: true,  supportsVision: true  },
+  "gemini-1.5-flash": { provider: "gemini", apiModel: "gemini-1.5-flash",           supportsTools: true,  supportsVision: true  },
+};
+
+// Ordered fallback preference: GitHub → Groq → Gemini
+const ALL_MODEL_IDS = ["gpt-4.1", "gpt-4o", "llama-3.3-70b", "gemma2-9b", "gemini-2.0-flash", "gemini-1.5-flash"];
 
 // Models that require max_completion_tokens instead of max_tokens
 const USES_MAX_COMPLETION_TOKENS = new Set<string>();
 
-// Models that do NOT support function calling (tools)
-const NO_TOOL_SUPPORT = new Set<string>([]);
-
-// Models that do NOT support vision (image_url content parts)
-const NO_VISION_SUPPORT = new Set<string>(["grok-3", "grok-3-mini"]);
-
 // Models that return reasoning_content (grok-3-mini style thinking)
-const HAS_REASONING_CONTENT = new Set<string>(["grok-3-mini"]);
+const HAS_REASONING_CONTENT = new Set<string>([]);
 
 // Token limits per thinking mode — generous to avoid truncation
 const THINKING_MODE_TOKENS: Record<string, number> = {
@@ -82,14 +115,31 @@ function checkRateLimit(ip: string, isAdmin: boolean): { allowed: boolean; remai
   return { allowed: true, remaining: limit - entry.count };
 }
 
-// ── OpenAI Client ─────────────────────────────────────────────────────
-function getClient(): OpenAI | null {
-  const token = process.env.GITHUB_TOKEN?.trim();
-  if (!token) return null;
-  return new OpenAI({
-    baseURL: (process.env.AI_BASE_URL || "https://models.inference.ai.azure.com").trim(),
-    apiKey: token,
+// ── Multi-Provider Client Factory ─────────────────────────────────────
+const clientCache = new Map<ProviderName, OpenAI>();
+
+function getClientForProvider(provider: ProviderName): OpenAI | null {
+  const cached = clientCache.get(provider);
+  if (cached) return cached;
+
+  const config = PROVIDERS[provider];
+  const apiKey = config.getApiKey();
+  if (!apiKey) return null;
+
+  const client = new OpenAI({
+    baseURL: config.baseURL,
+    apiKey,
   });
+  clientCache.set(provider, client);
+  return client;
+}
+
+function getClientForModel(modelId: string): { client: OpenAI; apiModel: string; config: ModelConfig } | null {
+  const config = MODEL_MAP[modelId];
+  if (!config) return null;
+  const client = getClientForProvider(config.provider);
+  if (!client) return null;
+  return { client, apiModel: config.apiModel, config };
 }
 
 // ── Input Sanitization ────────────────────────────────────────────────
@@ -203,7 +253,7 @@ export async function POST(req: NextRequest) {
 
   // Model selection
   const requestedModel = String(body.model || "gpt-4.1");
-  const modelId = MODEL_MAP[requestedModel] || "gpt-4.1";
+  const modelId = MODEL_MAP[requestedModel] ? requestedModel : "gpt-4.1";
 
   const history = Array.isArray(body.history) ? body.history : [];
   const contextFiles = Array.isArray(body.context_files) ? body.context_files : [];
@@ -231,19 +281,23 @@ export async function POST(req: NextRequest) {
     ? systemPrompt + `\n\n## Student's Current Schedule:\n${scheduleContext}\n\nWhen the student asks about scheduling, planning, or study sessions, use the manage_schedule tool to add items. Reference their existing schedule when relevant.`
     : systemPrompt;
 
-  // Get OpenAI client
-  const client = getClient();
-  if (!client) {
-    return NextResponse.json({
-      response:
-        "The AI service is not configured. Please set the GITHUB_TOKEN environment variable on the server.",
-      conversation_id: crypto.randomUUID(),
-      error: "GITHUB_TOKEN not configured. Get one at github.com/settings/tokens",
-      sources: [],
-      tool_calls: [],
-      charts: [],
-      model: modelId,
-    });
+  // Get AI client for requested model
+  const primarySetup = getClientForModel(modelId);
+  if (!primarySetup) {
+    // Check if ANY provider is configured
+    const anyAvailable = ALL_MODEL_IDS.some(m => getClientForModel(m) !== null);
+    if (!anyAvailable) {
+      return NextResponse.json({
+        response:
+          "The AI service is not configured. Please set at least one API key (GITHUB_TOKEN, GROQ_API_KEY, or GEMINI_API_KEY) in environment variables.",
+        conversation_id: crypto.randomUUID(),
+        error: "No AI providers configured",
+        sources: [],
+        tool_calls: [],
+        charts: [],
+        model: modelId,
+      });
+    }
   }
 
   // Build messages array
@@ -273,7 +327,8 @@ export async function POST(req: NextRequest) {
   );
 
   // Only send image_url parts to models that support vision
-  const modelSupportsVision = !NO_VISION_SUPPORT.has(modelId);
+  const primaryConfig = MODEL_MAP[modelId];
+  const modelSupportsVision = primaryConfig?.supportsVision ?? false;
 
   // Filter oversized images (>2MB base64 ≈ 1.5MB actual) to prevent API failures
   const safeImages = imageFiles.filter((f: Record<string, unknown>) => String(f.content || "").length < 2_000_000);
@@ -293,7 +348,7 @@ export async function POST(req: NextRequest) {
     messages.push({ role: "user", content: contentParts });
   } else if (imageFiles.length > 0 && !modelSupportsVision) {
     // Model doesn't support vision — add image context as text description
-    const imageNote = `\n\n[The user attached ${imageFiles.length} image(s): ${imageFiles.map((f: Record<string, unknown>) => String(f.name || "image")).join(", ")}. This model doesn't support direct image analysis. Please let the user know you can see they attached images but recommend switching to GPT-4.1 or GPT-4o for image/screenshot analysis.]`;
+    const imageNote = `\n\n[The user attached ${imageFiles.length} image(s): ${imageFiles.map((f: Record<string, unknown>) => String(f.name || "image")).join(", ")}. This model doesn't support direct image analysis. Please let the user know you can see they attached images but recommend switching to GPT-4.1, GPT-4o, or Gemini for image/screenshot analysis.]`;
     messages.push({ role: "user", content: message + imageNote });
   } else if (oversizedCount > 0) {
     messages.push({ role: "user", content: message + `\n\n[The uploaded image(s) were too large to process. Please resize to under 1.5MB per image and try again.]` });
@@ -319,13 +374,9 @@ export async function POST(req: NextRequest) {
   const searchImages: { url: string; thumbnail: string; title: string; source: string }[] = [];
 
   try {
-    // All available models — ordered by preference
-    // Grok models excluded: 4K context window limit, too small for our system prompt + tools
-    const ALL_MODELS = ["gpt-4.1", "gpt-4o"];
-
     let activeModelId = modelId;
 
-    // Newer models (gpt-5-mini) require max_completion_tokens, older ones use max_tokens
+    // Newer models require max_completion_tokens, older ones use max_tokens
     const tokenParam = USES_MAX_COMPLETION_TOKENS.has(modelId)
       ? { max_completion_tokens: maxTokens }
       : { max_tokens: maxTokens };
@@ -336,18 +387,29 @@ export async function POST(req: NextRequest) {
     // Wall-clock start time — MUST return before Vercel's 60s limit
     const wallClockStart = Date.now();
 
-    // Helper: attempt an API call, with automatic model fallback
-    // For rate limits (429): tries ALL other models since each has separate quota
-    // For other errors: tries only 1 fallback to preserve time budget
+    // Helper: attempt an API call with automatic multi-provider fallback
+    // Priority: user's chosen model → same-provider alt → other providers
     const callWithFallback = async (msgs: OpenAI.Chat.ChatCompletionMessageParam[]) => {
-      // Build model list: primary first, then others
-      const otherModels = ALL_MODELS.filter(m => m !== activeModelId);
-      const modelsToTry = [activeModelId, ...otherModels];
+      // Build model list: primary first, then all others (skip unavailable)
+      const otherModels = ALL_MODEL_IDS.filter(m => m !== activeModelId && getClientForModel(m) !== null);
+      const modelsToTry = getClientForModel(activeModelId)
+        ? [activeModelId, ...otherModels]
+        : otherModels;
+
+      if (modelsToTry.length === 0) {
+        throw new Error("No AI providers are configured. Set GITHUB_TOKEN, GROQ_API_KEY, or GEMINI_API_KEY.");
+      }
+
       let lastError: unknown = null;
       let modelsAttempted = 0;
 
       for (let i = 0; i < modelsToTry.length; i++) {
-        const tryModel = modelsToTry[i];
+        const tryModelId = modelsToTry[i];
+        const setup = getClientForModel(tryModelId);
+        if (!setup) continue;
+
+        const { client: modelClient, apiModel, config: modelConfig } = setup;
+
         // Dynamic timeout based on how many models we might still try
         const elapsed = Date.now() - wallClockStart;
         const remaining = Math.max(54_000 - elapsed, 8_000);
@@ -365,13 +427,12 @@ export async function POST(req: NextRequest) {
         if (remaining < 6_000 && i > 0) break;
 
         try {
-          // Disable tools for models that don't support OpenAI function-calling
-          const modelSupportsTools = !NO_TOOL_SUPPORT.has(tryModel);
-          const useTools = modelSupportsTools && tools.length > 0;
+          // Disable tools for models that don't support function-calling
+          const useTools = modelConfig.supportsTools && tools.length > 0;
 
           // Filter out tool messages if switching to a no-tool model
           let filteredMsgs = msgs;
-          if (!modelSupportsTools) {
+          if (!modelConfig.supportsTools) {
             filteredMsgs = msgs.filter((m) => m.role !== "tool");
             filteredMsgs = filteredMsgs.map((m) => {
               if (m.role === "assistant" && "tool_calls" in m) {
@@ -384,7 +445,7 @@ export async function POST(req: NextRequest) {
           }
 
           // Strip image_url parts from messages for models that don't support vision
-          if (NO_VISION_SUPPORT.has(tryModel)) {
+          if (!modelConfig.supportsVision) {
             filteredMsgs = filteredMsgs.map((m) => {
               if (m.role === "user" && Array.isArray(m.content)) {
                 const textParts = (m.content as OpenAI.Chat.ChatCompletionContentPart[])
@@ -396,26 +457,26 @@ export async function POST(req: NextRequest) {
             });
           }
 
-          console.log(`Trying model ${tryModel} (timeout=${callTimeout}ms, round=${loopRound})`);
+          console.log(`[${modelConfig.provider}] Trying ${apiModel} (timeout=${callTimeout}ms, round=${loopRound})`);
 
-          // Use AbortSignal.timeout to prevent a single model call from eating all 60s
+          // Use timeout to prevent a single model call from eating all 60s
           const response = await Promise.race([
-            client!.chat.completions.create({
-              model: tryModel,
+            modelClient.chat.completions.create({
+              model: apiModel,
               ...tokenParam,
               messages: filteredMsgs,
               tools: useTools ? tools : undefined,
               tool_choice: useTools ? "auto" : undefined,
             }),
             new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error(`Model ${tryModel} timed out after ${callTimeout / 1000}s`)), callTimeout)
+              setTimeout(() => reject(new Error(`Model ${apiModel} timed out after ${callTimeout / 1000}s`)), callTimeout)
             ),
           ]);
 
           // If we fell back to a different model, remember it
-          if (tryModel !== activeModelId) {
-            console.log(`Model fallback: ${activeModelId} → ${tryModel}`);
-            activeModelId = tryModel;
+          if (tryModelId !== activeModelId) {
+            console.log(`Model fallback: ${activeModelId} → ${tryModelId} [${modelConfig.provider}]`);
+            activeModelId = tryModelId;
           }
           return response;
         } catch (err: unknown) {
@@ -426,21 +487,32 @@ export async function POST(req: NextRequest) {
           const isPayloadTooLarge = status === 413 || errMsg.includes("too large");
           const isRateLimited = status === 429 || errMsg.includes("rate limit");
 
-          console.warn(`Model ${tryModel} failed (status=${status}, rateLimited=${isRateLimited}, msg="${(err instanceof Error ? err.message : "").slice(0, 150)}"), isLast=${isLastModel}`);
+          console.warn(`[${modelConfig.provider}] ${apiModel} failed (status=${status}, rateLimited=${isRateLimited}, msg="${(err instanceof Error ? err.message : "").slice(0, 150)}"), isLast=${isLastModel}`);
           lastError = err;
           modelsAttempted++;
 
-          // Fatal or payload errors: no point trying other models
-          if (isFatal || isPayloadTooLarge) throw err;
+          // Fatal auth errors for a specific provider: skip to next provider's models
+          if (isFatal && !isLastModel) {
+            await new Promise((r) => setTimeout(r, 50));
+            continue;
+          }
+          if (isFatal && isLastModel) throw err;
 
-          // Rate limited: ALWAYS try next model (each model has separate quota)
+          // Payload too large: skip to next model (might have larger context)
+          if (isPayloadTooLarge && !isLastModel) {
+            await new Promise((r) => setTimeout(r, 50));
+            continue;
+          }
+          if (isPayloadTooLarge && isLastModel) throw err;
+
+          // Rate limited: ALWAYS try next model (each provider has separate quota)
           if (isRateLimited && !isLastModel) {
             await new Promise((r) => setTimeout(r, 100));
             continue;
           }
 
-          // Non-rate-limit errors: try 1 fallback max (preserve time budget)
-          if (!isRateLimited && modelsAttempted >= 2) throw err;
+          // Non-rate-limit errors: try up to 3 fallbacks (we now have 6 models across 3 providers)
+          if (!isRateLimited && modelsAttempted >= 3) throw err;
           if (isLastModel) throw err;
 
           // Brief pause before trying next model
@@ -695,7 +767,7 @@ export async function POST(req: NextRequest) {
     let statusHint = "";
 
     if (statusCode === 429 || msg.includes("rate") || msg.includes("429")) {
-      userError = "Daily AI quota reached (50 requests/model/day on GitHub Models). All available models are exhausted — please try again tomorrow, or switch to a different model.";
+      userError = "All AI providers are rate-limited right now. GitHub Models allows 50/day, Groq and Gemini have per-minute limits. Please try again in a minute.";
       statusHint = "rate_limited";
     } else if (statusCode === 401 || msg.includes("auth") || msg.includes("401") || msg.includes("api_key") || msg.includes("unauthorized") || msg.includes("invalid")) {
       userError = "API authentication failed. The server token may need to be refreshed — please contact the admin.";

@@ -62,6 +62,7 @@ import {
   BarChart3,
   PenLine,
   Loader,
+  ShieldCheck,
   type LucideProps,
 } from "lucide-react";
 import type { FC } from "react";
@@ -104,6 +105,7 @@ const iconMap: Record<string, FC<LucideProps>> = {
   "log-out": LogOut,
   star: Star,
   sparkles: Sparkles,
+  shield: ShieldCheck,
   bot: Bot,
   user: User,
   "trash-2": Trash2,
@@ -198,4 +200,5 @@ export {
   BarChart3,
   PenLine,
   Loader,
+  ShieldCheck,
 };
