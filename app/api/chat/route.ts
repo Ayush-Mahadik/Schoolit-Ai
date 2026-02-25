@@ -735,8 +735,6 @@ export async function POST(req: NextRequest) {
       response: userError,
       conversation_id: crypto.randomUUID(),
       error: statusHint || "unknown_error",
-      // Temporarily include debug info to diagnose production errors
-      _debug: `${(error as {constructor?: {name?: string}})?.constructor?.name}: ${rawMsg.slice(0, 300)} | status=${statusCode}`,
       sources: [],
       tool_calls: toolCallsLog || [],
       charts: charts || [],
@@ -755,7 +753,6 @@ export async function POST(req: NextRequest) {
         response: "An unexpected error occurred. Please try again.",
         conversation_id: crypto.randomUUID(),
         error: "internal_error",
-        _debug: `FATAL: ${fatal instanceof Error ? fatal.message : String(fatal)}`,
         sources: [],
         tool_calls: [],
         charts: [],

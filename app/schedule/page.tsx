@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { Icon, Calendar, Plus, Trash2, Check, Clock } from "@/components/Icons";
@@ -32,15 +33,45 @@ function getStoredSchedule(): ScheduleItem[] {
   }
 }
 
-function saveSchedule(items: ScheduleItem[]) {
+function saveScheduleLocal(items: ScheduleItem[]) {
   if (typeof window !== "undefined") {
-    localStorage.setItem("schoolit-schedule", JSON.stringify(items));
+    try {
+      localStorage.setItem("schoolit-schedule", JSON.stringify(items));
+    } catch { /* ignore */ }
+  }
+}
+
+// Cloud sync helpers
+async function cloudLoadSchedule(): Promise<ScheduleItem[] | null> {
+  try {
+    const res = await fetch("/api/schedule");
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.items || null;
+  } catch {
+    return null;
+  }
+}
+
+async function cloudSaveSchedule(items: ScheduleItem[]): Promise<boolean> {
+  try {
+    const res = await fetch("/api/schedule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items }),
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 
 export default function SchedulePage() {
+  const { data: session } = useSession();
   const [items, setItems] = useState<ScheduleItem[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const [form, setForm] = useState({
     title: "",
     subject: "general",
@@ -49,9 +80,43 @@ export default function SchedulePage() {
     type: "study" as ScheduleItem["type"],
   });
 
+  // Load from localStorage first, then try cloud
   useEffect(() => {
-    setItems(getStoredSchedule());
-  }, []);
+    const localItems = getStoredSchedule();
+    setItems(localItems);
+
+    // If logged in, try to load from cloud
+    if (session?.user?.email) {
+      cloudLoadSchedule().then((cloudItems) => {
+        if (cloudItems && cloudItems.length > 0) {
+          // Merge: cloud wins for items with same ID, keep unique local items
+          const cloudMap = new Map(cloudItems.map(i => [i.id, i]));
+          const merged = [...cloudItems];
+          for (const local of localItems) {
+            if (!cloudMap.has(local.id)) merged.push(local);
+          }
+          merged.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+          setItems(merged);
+          saveScheduleLocal(merged);
+          setSyncStatus("synced");
+        } else if (localItems.length > 0) {
+          // Cloud empty but local has data — push local to cloud
+          cloudSaveSchedule(localItems).then(ok => setSyncStatus(ok ? "synced" : "idle"));
+        }
+      });
+    }
+  }, [session]);
+
+  // Debounced cloud save
+  const saveToCloud = useCallback((updatedItems: ScheduleItem[]) => {
+    saveScheduleLocal(updatedItems);
+    if (!session?.user?.email) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    setSyncStatus("syncing");
+    saveTimerRef.current = setTimeout(() => {
+      cloudSaveSchedule(updatedItems).then(ok => setSyncStatus(ok ? "synced" : "error"));
+    }, 1500);
+  }, [session]);
 
   const handleAdd = () => {
     if (!form.title || !form.startTime) return;
@@ -68,7 +133,7 @@ export default function SchedulePage() {
       (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
     );
     setItems(updated);
-    saveSchedule(updated);
+    saveToCloud(updated);
     setForm({ title: "", subject: "general", startTime: "", endTime: "", type: "study" });
     setShowForm(false);
   };
@@ -78,13 +143,13 @@ export default function SchedulePage() {
       i.id === id ? { ...i, completed: !i.completed } : i
     );
     setItems(updated);
-    saveSchedule(updated);
+    saveToCloud(updated);
   };
 
   const deleteItem = (id: string) => {
     const updated = items.filter((i) => i.id !== id);
     setItems(updated);
-    saveSchedule(updated);
+    saveToCloud(updated);
   };
 
   const today = new Date().toISOString().split("T")[0];
@@ -120,6 +185,15 @@ export default function SchedulePage() {
             <div className="flex items-center gap-2">
               <Calendar className="w-5 h-5 text-brand-400" />
               <h1 className="text-base font-semibold text-white">Schedule</h1>
+              {syncStatus === "syncing" && (
+                <span className="text-xs text-slate-500 animate-pulse">Saving…</span>
+              )}
+              {syncStatus === "synced" && (
+                <span className="text-xs text-green-500">✓ Synced</span>
+              )}
+              {syncStatus === "error" && (
+                <span className="text-xs text-red-400">Sync failed</span>
+              )}
             </div>
           </div>
           <button
