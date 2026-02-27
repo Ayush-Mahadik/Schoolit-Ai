@@ -138,10 +138,10 @@ export const SUBJECT_CONTEXTS: Record<string, string> = {
 };
 
 // ── Admin context (only injected for admin users) ────────────────────
+// NOTE: No PII is hardcoded here. Admin identity comes from the session.
 export const ADMIN_CONTEXT = `
 ## About This Student (Admin):
 - **Name**: Ayush Mahadik (creator of SchoolIT AI)
-- **Email**: ayumahadik25@gmail.com
 - **Portfolio**: https://ayush-mahadik.github.io
 - **Board**: CBSE Class 9 (until March 2026)
 - **School**: 5AM-3PM Mon-Sat, Sleep: 9PM-5AM, IST timezone

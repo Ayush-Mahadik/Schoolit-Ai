@@ -9,7 +9,7 @@ import { ModelSelector } from "@/components/ModelSelector";
 import { ThinkingModeToggle } from "@/components/ThinkingModeToggle";
 import { ConversationHistory } from "@/components/ConversationHistory";
 import { sendMessage, fetchPersonas } from "@/lib/api";
-import { getUserSettings, saveUserSettings } from "@/lib/store";
+import { getUserSettings, saveUserSettings, getScheduleContext, addScheduleItems, runStoreMigrations } from "@/lib/store";
 import {
   buildMemoryContext,
   saveConversation,
@@ -20,44 +20,8 @@ import {
   isMemoryOwner,
 } from "@/lib/memory";
 import { Icon, Menu, Globe } from "@/components/Icons";
-import type { Message, Persona, Subject, ChatSettings, AIModel, ThinkingMode } from "@/lib/types";
+import type { Message, Persona, Subject, ChatSettings, AIModel, ThinkingMode, ScheduleItem } from "@/lib/types";
 import type { FileAttachment } from "@/components/FileUploadButton";
-
-// ── Helper: read schedule from localStorage ──────────────────────────
-function getScheduleContext(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    const data = localStorage.getItem("schoolit-schedule");
-    if (!data) return "";
-    const items = JSON.parse(data);
-    if (!Array.isArray(items) || items.length === 0) return "";
-    const now = new Date();
-    const upcoming = items
-      .filter((i: Record<string, unknown>) => new Date(String(i.startTime)) >= now || !i.completed)
-      .slice(0, 20);
-    if (upcoming.length === 0) return "";
-    return "Student's current schedule:\n" + upcoming.map((i: Record<string, unknown>) =>
-      `- ${i.title} (${i.type}, ${i.subject}) — ${new Date(String(i.startTime)).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}${i.completed ? " [DONE]" : ""}`
-    ).join("\n");
-  } catch {
-    return "";
-  }
-}
-
-// Helper: add items to schedule in localStorage
-function addToSchedule(items: Record<string, unknown>[]) {
-  if (typeof window === "undefined") return;
-  try {
-    const existing = JSON.parse(localStorage.getItem("schoolit-schedule") || "[]");
-    const updated = [...existing, ...items].sort(
-      (a: Record<string, unknown>, b: Record<string, unknown>) =>
-        new Date(String(a.startTime)).getTime() - new Date(String(b.startTime)).getTime()
-    );
-    localStorage.setItem("schoolit-schedule", JSON.stringify(updated));
-  } catch {
-    // ignore
-  }
-}
 
 // ── Subject definitions (now with Lucide icon names) ─────────────────
 const SUBJECTS: Subject[] = [
@@ -91,6 +55,8 @@ export default function Home() {
 
   // ── Load saved settings & personas on mount ─────────────────────────
   useEffect(() => {
+    // Run storage migrations (e.g., schoolit-schedule → schoolit_schedule)
+    runStoreMigrations();
     fetchPersonas().then(setPersonas).catch(console.error);
     const saved = getUserSettings();
     if (saved) {
@@ -107,7 +73,8 @@ export default function Home() {
 
   // ── Sync memory user with session ───────────────────────────────────
   useEffect(() => {
-    setMemoryUser(session?.user?.email || null);
+    const isAdmin = !!(session?.user as Record<string, unknown>)?.isAdmin;
+    setMemoryUser(session?.user?.email || null, isAdmin);
   }, [session]);
 
   useEffect(() => {
@@ -190,11 +157,11 @@ export default function Home() {
           memory_context: isMemoryOwner() ? buildMemoryContext().slice(0, 3000) : "",
         });
 
-        // Process schedule actions from AI (add items to localStorage)
+        // Process schedule actions from AI (add items via unified store)
         if (response.schedule_actions && response.schedule_actions.length > 0) {
           for (const action of response.schedule_actions) {
             if (action.action === "add" && Array.isArray(action.items)) {
-              addToSchedule(action.items as Record<string, unknown>[]);
+              addScheduleItems(action.items as ScheduleItem[]);
             }
           }
         }

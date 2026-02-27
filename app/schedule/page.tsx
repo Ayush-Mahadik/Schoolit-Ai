@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { Icon, Calendar, Plus, Trash2, Check, Clock } from "@/components/Icons";
+import { getScheduleItems, saveScheduleItems, runStoreMigrations } from "@/lib/store";
 import type { ScheduleItem } from "@/lib/types";
 
 const TYPE_COLORS: Record<string, string> = {
@@ -22,24 +23,6 @@ const TYPE_ICON_NAMES: Record<string, string> = {
   class: "graduation-cap",
   other: "clock",
 };
-
-function getStoredSchedule(): ScheduleItem[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const data = localStorage.getItem("schoolit-schedule");
-    return data ? JSON.parse(data) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveScheduleLocal(items: ScheduleItem[]) {
-  if (typeof window !== "undefined") {
-    try {
-      localStorage.setItem("schoolit-schedule", JSON.stringify(items));
-    } catch { /* ignore */ }
-  }
-}
 
 // Cloud sync helpers
 async function cloudLoadSchedule(): Promise<ScheduleItem[] | null> {
@@ -80,9 +63,10 @@ export default function SchedulePage() {
     type: "study" as ScheduleItem["type"],
   });
 
-  // Load from localStorage first, then try cloud
+  // Load from unified store first, then try cloud
   useEffect(() => {
-    const localItems = getStoredSchedule();
+    runStoreMigrations(); // Migrate schoolit-schedule → schoolit_schedule
+    const localItems = getScheduleItems();
     setItems(localItems);
 
     // If logged in, try to load from cloud
@@ -97,7 +81,7 @@ export default function SchedulePage() {
           }
           merged.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
           setItems(merged);
-          saveScheduleLocal(merged);
+          saveScheduleItems(merged);
           setSyncStatus("synced");
         } else if (localItems.length > 0) {
           // Cloud empty but local has data — push local to cloud
@@ -109,7 +93,7 @@ export default function SchedulePage() {
 
   // Debounced cloud save
   const saveToCloud = useCallback((updatedItems: ScheduleItem[]) => {
-    saveScheduleLocal(updatedItems);
+    saveScheduleItems(updatedItems);
     if (!session?.user?.email) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     setSyncStatus("syncing");

@@ -11,16 +11,21 @@ import {
   cloudDeleteConversation,
   cloudClearAll,
 } from "@/lib/cloud-storage";
+import {
+  getConversationList,
+  saveConversationMeta,
+  setConversationList,
+  deleteConversationById,
+  clearAllConversations as storeClearAll,
+  getConversationMessages,
+  saveConversationMessages,
+  removeConversationMessages,
+  type ConversationMeta,
+} from "@/lib/store";
 import type { Message } from "@/lib/types";
 
-interface Conversation {
-  id: string;
-  title: string;
-  subject: string;
-  timestamp: number;
-  messageCount: number;
-  preview: string;
-}
+// Use ConversationMeta from store as the Conversation type
+type Conversation = ConversationMeta;
 
 interface ConversationHistoryProps {
   currentMessages: Message[];
@@ -58,17 +63,10 @@ export function ConversationHistory({
     }
   }, [currentMessages]);
 
-  // Load from localStorage first, then try cloud and merge
+  // Load from unified store first, then try cloud and merge
   async function loadConversations() {
-    // 1. Load from localStorage (fast, always available)
-    let localConversations: Conversation[] = [];
-    try {
-      const stored = localStorage.getItem("schoolit_conversations");
-      if (stored) {
-        localConversations = JSON.parse(stored) as Conversation[];
-      }
-    } catch { /* ignore */ }
-
+    // 1. Load from unified store (fast, always available)
+    let localConversations: Conversation[] = getConversationList();
     setConversations(localConversations.sort((a, b) => b.timestamp - a.timestamp));
 
     // 2. Try cloud sync (async, merges with local)
@@ -93,20 +91,18 @@ export function ConversationHistory({
                 messageCount: cloud.message_count,
                 preview: cloud.preview,
               });
-              // Also save cloud messages to localStorage for offline access
+              // Also save cloud messages to local store for offline access
               if (cloud.messages && cloud.messages.length > 0) {
                 try {
                   const msgJson = JSON.stringify(cloud.messages);
-                  if (msgJson.length < 500_000) {
-                    localStorage.setItem(`schoolit_msgs_${cloud.id}`, msgJson);
-                  }
+                  saveConversationMessages(cloud.id, msgJson);
                 } catch { /* ignore */ }
               }
             }
           }
           const mergedList = Array.from(merged.values()).sort((a, b) => b.timestamp - a.timestamp);
           setConversations(mergedList);
-          try { localStorage.setItem("schoolit_conversations", JSON.stringify(mergedList)); } catch { /* storage full */ }
+          setConversationList(mergedList);
           setCloudStatus("synced");
         } else {
           setCloudStatus("synced");
@@ -139,35 +135,10 @@ export function ConversationHistory({
       preview,
     };
 
-    const stored = localStorage.getItem("schoolit_conversations");
-    let existing: Conversation[] = [];
-    try {
-      if (stored) existing = JSON.parse(stored);
-    } catch {
-      // Ignore
-    }
+    // Save metadata via unified store
+    saveConversationMeta(newConv);
 
-    // Update or add
-    const idx = existing.findIndex((c) => c.id === conversationId);
-    if (idx >= 0) {
-      existing[idx] = newConv;
-    } else {
-      existing.unshift(newConv);
-    }
-
-    // Keep max 50 conversations
-    if (existing.length > 50) {
-      // Also clean up message storage for removed conversations
-      const removedIds = existing.slice(50).map((c) => c.id);
-      for (const rid of removedIds) {
-        localStorage.removeItem(`schoolit_msgs_${rid}`);
-      }
-      existing = existing.slice(0, 50);
-    }
-
-    try { localStorage.setItem("schoolit_conversations", JSON.stringify(existing)); } catch { /* storage full */ }
-
-    // Save actual messages for this conversation
+    // Save actual messages via unified store
     try {
       const serializableMessages = currentMessages.map((m) => ({
         id: m.id,
@@ -185,10 +156,7 @@ export function ConversationHistory({
         quizSets: m.quizSets || undefined,
       }));
       const msgJson = JSON.stringify(serializableMessages);
-      // Only save if under 500KB per conversation
-      if (msgJson.length < 500_000) {
-        localStorage.setItem(`schoolit_msgs_${conversationId}`, msgJson);
-      }
+      saveConversationMessages(conversationId, msgJson);
 
       // Cloud sync — debounced to avoid excessive writes
       if (cloudEnabled && userEmail) {
@@ -208,23 +176,21 @@ export function ConversationHistory({
         }, 2000); // Debounce 2 seconds
       }
     } catch {
-      // localStorage might be full — ignore
+      // Storage might be full — ignore
     }
 
-    setConversations(existing);
+    setConversations(getConversationList());
     setActiveId(conversationId);
   }
 
   function deleteConversation(id: string, e: React.MouseEvent) {
     e.stopPropagation();
-    const updated = conversations.filter((c) => c.id !== id);
-    try { localStorage.setItem("schoolit_conversations", JSON.stringify(updated)); } catch { /* ignore */ }
-    try { localStorage.removeItem(`schoolit_msgs_${id}`); } catch { /* ignore */ }
+    deleteConversationById(id);
     // Also delete from cloud (fire-and-forget)
     if (cloudEnabled && userEmail) {
       cloudDeleteConversation(userEmail, id).catch(() => {});
     }
-    setConversations(updated);
+    setConversations(getConversationList());
     if (activeId === id) {
       setActiveId(null);
       onNewChat?.();
@@ -233,11 +199,7 @@ export function ConversationHistory({
 
   function clearAllConversations() {
     if (confirm("Delete all conversation history? This cannot be undone.")) {
-      // Clean up all stored messages
-      for (const conv of conversations) {
-        localStorage.removeItem(`schoolit_msgs_${conv.id}`);
-      }
-      localStorage.removeItem("schoolit_conversations");
+      storeClearAll();
       // Also clear from cloud (fire-and-forget)
       if (cloudEnabled && userEmail) {
         cloudClearAll(userEmail).catch(() => {});
@@ -385,9 +347,9 @@ export function ConversationHistory({
                                 onClick={() => {
                                   // Save current conversation BEFORE switching to prevent data loss
                                   saveCurrentConversation();
-                                  // Load actual messages from localStorage
+                                  // Load actual messages from unified store
                                   try {
-                                    const storedMsgs = localStorage.getItem(`schoolit_msgs_${conv.id}`);
+                                    const storedMsgs = getConversationMessages(conv.id);
                                     if (storedMsgs) {
                                       const parsed = JSON.parse(storedMsgs) as Message[];
                                       // Restore Date objects from ISO strings
