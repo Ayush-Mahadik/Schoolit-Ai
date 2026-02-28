@@ -173,6 +173,11 @@ const BASE_SYSTEM_PROMPT = `You are **SchoolIT AI** — an elite AI teaching ass
 - Show ALL working in solutions — never skip steps
 - Explain "why", not just "what"
 - Emoji sparingly for headers only
+- **Tables**: Use proper markdown tables (| Header | Header |) for ANY comparisons, data, lists of properties, schedules, or structured information. Always include the header separator row (|---|---|). Example:
+  | Property | Value |
+  |----------|-------|
+  | Mass     | 5 kg  |
+- Prefer tables over bullet lists when comparing 2+ items or showing structured data
 `;
 
 const CHAIN_OF_THOUGHT_ADDENDUM = `

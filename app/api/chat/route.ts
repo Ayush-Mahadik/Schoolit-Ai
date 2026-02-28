@@ -361,6 +361,30 @@ export async function POST(req: NextRequest) {
     ? TOOL_DEFINITIONS
     : TOOL_DEFINITIONS.filter((t) => t.function.name !== "web_search");
 
+  // === NDJSON STREAMING RESPONSE ===
+  // Streams real-time status updates + final result as newline-delimited JSON.
+  const encoder = new TextEncoder();
+  const MODEL_NAMES: Record<string, string> = {
+    "gpt-4.1": "GPT-4.1", "gpt-4o": "GPT-4o",
+    "llama-3.3-70b": "Llama 3.3 70B", "gemma2-9b": "Gemma 2 9B",
+    "gemini-2.0-flash": "Gemini 2.0 Flash", "gemini-1.5-flash": "Gemini 1.5 Flash",
+  };
+  const TOOL_LABELS: Record<string, string> = {
+    web_search: "Searching the web", generate_chart: "Generating chart",
+    generate_flowchart: "Creating flowchart", create_flashcards: "Creating flashcards",
+    generate_quiz: "Generating quiz", manage_schedule: "Managing schedule",
+    analyze_document: "Analyzing document", analyze_screenshot: "Analyzing image",
+    generate_image: "Generating image", create_manim_animation: "Creating animation",
+  };
+
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const writeEvent = async (type: string, payload: Record<string, unknown> = {}) => {
+    try { await writer.write(encoder.encode(JSON.stringify({ type, ...payload }) + '\n')); } catch {}
+  };
+
+  // Fire-and-forget: AI logic runs async, pushes events to stream
+  (async () => {
   // Tracking
   const sources: string[] = [];
   const toolCallsLog: string[] = [];
@@ -459,6 +483,9 @@ export async function POST(req: NextRequest) {
 
           console.log(`[${modelConfig.provider}] Trying ${apiModel} (timeout=${callTimeout}ms, round=${loopRound})`);
 
+          // Stream status: which model is being tried
+          await writeEvent('status', { message: `${MODEL_NAMES[tryModelId] || tryModelId} is thinking...` });
+
           // Use timeout to prevent a single model call from eating all 60s
           const response = await Promise.race([
             modelClient.chat.completions.create({
@@ -476,6 +503,7 @@ export async function POST(req: NextRequest) {
           // If we fell back to a different model, remember it
           if (tryModelId !== activeModelId) {
             console.log(`Model fallback: ${activeModelId} → ${tryModelId} [${modelConfig.provider}]`);
+            await writeEvent('status', { message: `Switched to ${MODEL_NAMES[tryModelId] || tryModelId}` });
             activeModelId = tryModelId;
           }
           return response;
@@ -537,7 +565,8 @@ export async function POST(req: NextRequest) {
         if (flowcharts.length > 0) {
           for (const fc of flowcharts) partialText += `\n\n\`\`\`mermaid\n${fc.mermaidCode}\n\`\`\``;
         }
-        return NextResponse.json({
+        await writeEvent('status', { message: 'Time limit reached, returning partial results...' });
+        await writeEvent('result', { data: {
           response: partialText || "The request took too long. Please try again with a simpler query.",
           conversation_id: crypto.randomUUID(),
           thinking: null,
@@ -554,7 +583,8 @@ export async function POST(req: NextRequest) {
           schedule_actions: scheduleActions,
           search_images: searchImages.length > 0 ? searchImages : undefined,
           error: null,
-        });
+        }});
+        return;
       }
 
       loopRound = round;
@@ -577,6 +607,11 @@ export async function POST(req: NextRequest) {
 
         // Execute ALL tool calls in PARALLEL for speed
         // (prevents timeout when model calls multiple tools like flowchart + flashcards)
+        // Stream status for each tool being called
+        for (const tc of assistantMsg.tool_calls) {
+          const tName = tc.function.name;
+          await writeEvent('status', { message: TOOL_LABELS[tName] || `Using ${tName.replace(/_/g, ' ')}...` });
+        }
         const toolPromises = assistantMsg.tool_calls.map(async (tc) => {
           const toolName = tc.function.name;
           let toolInput: Record<string, unknown> = {};
@@ -711,7 +746,8 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      return NextResponse.json({
+      await writeEvent('status', { message: 'Composing final answer...' });
+      await writeEvent('result', { data: {
         response: finalText,
         conversation_id: crypto.randomUUID(),
         thinking: thinkingContent,
@@ -729,11 +765,12 @@ export async function POST(req: NextRequest) {
         error: null,
         model: activeModelId,
         rate_limit_remaining: rateCheck.remaining,
-      });
+      }});
+      return;
     }
 
     // Max rounds exceeded
-    return NextResponse.json({
+    await writeEvent('result', { data: {
       response:
         "I performed multiple research steps but couldn't fully resolve the query. Here's what I found so far — please try rephrasing your question.",
       conversation_id: crypto.randomUUID(),
@@ -748,7 +785,7 @@ export async function POST(req: NextRequest) {
       schedule_actions: scheduleActions,
       error: null,
       model: activeModelId,
-    });
+    }});
   } catch (error: unknown) {
     console.error("Chat API error:", error);
     console.error("Error type:", typeof error);
@@ -803,7 +840,7 @@ export async function POST(req: NextRequest) {
 
     console.error(`Chat error [${statusHint || "unknown"}]: ${rawMsg}`);
 
-    return NextResponse.json({
+    await writeEvent('result', { data: {
       response: userError,
       conversation_id: crypto.randomUUID(),
       error: statusHint || "unknown_error",
@@ -815,8 +852,21 @@ export async function POST(req: NextRequest) {
       flashcard_sets: flashcardSets || [],
       quiz_sets: quizSets || [],
       model: modelId,
-    });
+    }});
   }
+  })().catch((e) => {
+    console.error("Stream async error:", e);
+  }).finally(() => {
+    writer.close().catch(() => {});
+  });
+
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'application/x-ndjson; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
  } catch (fatal: unknown) {
     // Top-level safety net — ensures we ALWAYS return JSON, never a naked 500
     console.error("FATAL chat route error:", fatal);

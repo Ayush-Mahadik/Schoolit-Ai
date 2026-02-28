@@ -68,7 +68,7 @@ export interface ChatResponse {
   rate_limit_remaining?: number;
 }
 
-export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
+export async function sendMessage(request: ChatRequest, onStatus?: (message: string) => void): Promise<ChatResponse> {
   // Retry once on transient failures
   const maxRetries = 2;
   let lastErr: Error | null = null;
@@ -95,7 +95,86 @@ export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
       throw new Error("Could not connect to the server. Please check your connection and try again.");
     }
 
-    // Try to parse JSON regardless of status code — our API always returns JSON
+    const contentType = res.headers.get("content-type") || "";
+
+    // === NDJSON STREAMING RESPONSE ===
+    if (contentType.includes("ndjson")) {
+      if (!res.body) throw new Error("No response body");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let result: ChatResponse | null = null;
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const event = JSON.parse(line);
+              if (event.type === 'status' && onStatus) {
+                onStatus(event.message);
+              } else if (event.type === 'result') {
+                result = event.data as ChatResponse;
+              }
+            } catch { /* ignore parse errors for partial lines */ }
+          }
+        }
+        // Process remaining buffer
+        if (buffer.trim()) {
+          try {
+            const event = JSON.parse(buffer);
+            if (event.type === 'result') result = event.data as ChatResponse;
+          } catch { /* ignore */ }
+        }
+      } catch (streamErr) {
+        if (attempt < maxRetries - 1) {
+          lastErr = new Error(streamErr instanceof Error ? streamErr.message : "Stream error");
+          await new Promise((r) => setTimeout(r, 1500));
+          continue;
+        }
+        throw new Error("Connection lost while receiving response. Please try again.");
+      }
+
+      if (!result) {
+        if (attempt < maxRetries - 1) {
+          lastErr = new Error("Empty response");
+          await new Promise((r) => setTimeout(r, 1500));
+          continue;
+        }
+        throw new Error("Empty response from server. Please try again.");
+      }
+
+      // Check if result has error (same logic as JSON path)
+      if (result.error && result.error !== null) {
+        const hasUsefulData = (result.flashcard_sets && result.flashcard_sets.length > 0) ||
+          (result.flowcharts && result.flowcharts.length > 0) ||
+          (result.charts && result.charts.length > 0) ||
+          (result.generated_images && result.generated_images.length > 0) ||
+          (result.quiz_sets && result.quiz_sets.length > 0);
+
+        if (!hasUsefulData) {
+          const userMsg = result.response || "Something went wrong";
+          if (attempt < maxRetries - 1 && ["timeout", "rate_limited", "network_error", "server_error"].includes(result.error)) {
+            lastErr = new Error(userMsg);
+            await new Promise((r) => setTimeout(r, 2000));
+            continue;
+          }
+          throw new Error(userMsg);
+        }
+        if (result.response?.toLowerCase().includes("something went wrong") || result.response?.toLowerCase().includes("error")) {
+          result.response = "";
+        }
+      }
+
+      return result;
+    }
+
+    // === REGULAR JSON RESPONSE (validation errors, fallback) ===
     let body: ChatResponse | null = null;
     try {
       body = await res.json();

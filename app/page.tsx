@@ -52,6 +52,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [thinkingStatus, setThinkingStatus] = useState<string[]>([]);
 
   // ── Load saved settings & personas on mount ─────────────────────────
   useEffect(() => {
@@ -130,6 +131,7 @@ export default function Home() {
       }));
 
       setIsLoading(true);
+      setThinkingStatus([]);
 
       try {
         const history = (messages[activeSubject] || [])
@@ -155,6 +157,8 @@ export default function Home() {
           context_files: [...textFiles, ...imageFiles],
           schedule_context: getScheduleContext(),
           memory_context: isMemoryOwner() ? buildMemoryContext().slice(0, 3000) : "",
+        }, (status: string) => {
+          setThinkingStatus((prev) => [...prev, status]);
         });
 
         // Process schedule actions from AI (add items via unified store)
@@ -237,6 +241,7 @@ export default function Home() {
         }));
       } finally {
         setIsLoading(false);
+        setThinkingStatus([]);
       }
     },
     [activeSubject, contextFiles, isLoading, messages, settings]
@@ -461,6 +466,7 @@ export default function Home() {
             onRegenerate={handleRegenerate}
             subject={activeSubject}
             activeModel={settings.model}
+            thinkingStatus={thinkingStatus}
           />
         </div>
       </div>
