@@ -20,7 +20,7 @@ import {
   isMemoryOwner,
 } from "@/lib/memory";
 import { Icon, Menu, Globe } from "@/components/Icons";
-import type { Message, Persona, Subject, ChatSettings, AIModel, ThinkingMode, ScheduleItem } from "@/lib/types";
+import type { Message, Persona, Subject, ChatSettings, AIModel, ThinkingMode, ScheduleItem, MockTestData, QuestionPaperData } from "@/lib/types";
 import type { FileAttachment } from "@/components/FileUploadButton";
 
 // ── Subject definitions (now with Lucide icon names) ─────────────────
@@ -238,6 +238,8 @@ export default function Home() {
           generatedImages: response.generated_images || undefined,
           flashcardSets: response.flashcard_sets || undefined,
           quizSets: response.quiz_sets || undefined,
+          mockTests: response.mock_tests as MockTestData[] || undefined,
+          questionPapers: response.question_papers as QuestionPaperData[] || undefined,
           searchImages: response.search_images || undefined,
           model: (response.model as AIModel) || settings.model,
         };

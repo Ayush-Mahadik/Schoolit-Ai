@@ -581,7 +581,138 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
     },
   },
 
-  // ── 18. Knowledge Base Search ─────────────────────────────────────
+  // ── 18. Question Paper Generator ───────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "generate_question_paper",
+      description:
+        "Generate a comprehensive CBSE-style practice question paper with proper section formatting, " +
+        "mark allocation, and model answers. Use this when a student asks for a 'sample paper', " +
+        "'practice paper', 'question paper', 'previous year paper', 'mock paper', or exam preparation material. " +
+        "Generate papers aligned with NCERT content and latest CBSE marking schemes.",
+      parameters: {
+        type: "object",
+        properties: {
+          subject: {
+            type: "string",
+            enum: ["math", "physics", "chemistry", "biology", "english", "sst", "sanskrit", "cs"],
+            description: "The subject for the question paper.",
+          },
+          chapters: {
+            type: "string",
+            description: "Comma-separated list of chapter names/numbers to cover. If empty, covers full syllabus.",
+          },
+          total_marks: {
+            type: "integer",
+            description: "Total marks for the paper. Default 80 (CBSE standard). Options: 20, 40, 50, 80.",
+          },
+          paper_type: {
+            type: "string",
+            enum: ["unit_test", "half_yearly", "pre_board", "final", "practice"],
+            description: "Type of exam paper to generate.",
+          },
+          include_answers: {
+            type: "boolean",
+            description: "Whether to include model answers and marking scheme. Default true.",
+          },
+          sections: {
+            type: "string",
+            description:
+              'YOU MUST generate this: JSON array of paper sections. Each section: ' +
+              '{"name": "Section A", "instructions": "All questions compulsory. 1 mark each.", "questions": [' +
+              '{"number": 1, "text": "Define inertia.", "marks": 1, "type": "mcq|short|long|case_study|assertion_reason", ' +
+              '"options": ["opt A", "opt B", "opt C", "opt D"], "answer": "Model answer with key points...", ' +
+              '"marking_scheme": "1 mark for correct definition"}]}. ' +
+              'Follow CBSE pattern: Section A (MCQs 1m), Section B (SA-I 2m), Section C (SA-II 3m), Section D (LA 5m), Section E (Case-based 4m).',
+          },
+        },
+        required: ["subject", "sections"],
+      },
+    },
+  },
+
+  // ── 19. Timed Mock Test Generator ─────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "generate_mock_test",
+      description:
+        "Generate a timed mock exam/test that the student can take in real-time with a countdown timer " +
+        "and automatic evaluation. Use when the student asks for a 'mock test', 'timed test', " +
+        "'practice exam', 'test me under time pressure', 'simulate exam', or wants to practice under " +
+        "exam conditions. Includes timer, auto-submit, scoring, and detailed review.",
+      parameters: {
+        type: "object",
+        properties: {
+          subject: {
+            type: "string",
+            enum: ["math", "physics", "chemistry", "biology", "english", "sst", "sanskrit", "cs", "general"],
+            description: "The subject for the mock test.",
+          },
+          topic: {
+            type: "string",
+            description: "Specific topic or chapter for the test.",
+          },
+          duration_minutes: {
+            type: "integer",
+            description: "Test duration in minutes. Default 30. Range 5-180.",
+          },
+          total_marks: {
+            type: "integer",
+            description: "Total marks for the test. Default 25.",
+          },
+          questions: {
+            type: "string",
+            description:
+              'YOU MUST generate this: JSON array of test questions. Each question: ' +
+              '{"question": "text", "type": "mcq|short_answer|true_false|fill_blank", ' +
+              '"marks": 1, "options": ["A","B","C","D"] (for MCQ/true_false), ' +
+              '"correct": 0 (index for MCQ) or "answer text" (for short/fill), ' +
+              '"explanation": "Why this is correct...", "marking_hints": "Award 1 mark for..."}. ' +
+              'Mix question types. MCQs and true/false are auto-graded. Short answer provides model answers for self-evaluation.',
+          },
+          difficulty: {
+            type: "string",
+            enum: ["easy", "medium", "hard", "mixed"],
+            description: "Difficulty level. Default medium.",
+          },
+        },
+        required: ["subject", "topic", "questions"],
+      },
+    },
+  },
+
+  // ── 20. CBSE Notifications / Announcements ──────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "cbse_notifications",
+      description:
+        "Fetch the latest CBSE announcements, exam date sheets, syllabus updates, " +
+        "curriculum changes, and important circulars. Use this when the student asks about " +
+        "'CBSE updates', 'exam dates', 'date sheet', 'syllabus changes', 'board announcements', " +
+        "'CBSE news', 'circular', 'term papers schedule', or any official CBSE information. " +
+        "Searches cbse.gov.in, cbseacademic.nic.in, and education news sources.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "What to search for — e.g. 'Class 9 exam date sheet 2026', 'syllabus changes', 'sample papers'.",
+          },
+          category: {
+            type: "string",
+            enum: ["exam_dates", "syllabus", "results", "circulars", "sample_papers", "general"],
+            description: "Category of CBSE notification to fetch.",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+
+  // ── 21. Knowledge Base Search ─────────────────────────────────────
   {
     type: "function" as const,
     function: {
@@ -626,7 +757,7 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
 export async function executeTool(
   toolName: string,
   toolInput: Record<string, unknown>
-): Promise<{ result: unknown; chartData?: unknown; flowchartData?: unknown; manimData?: unknown; imageData?: unknown; flashcardData?: unknown; quizData?: unknown; scheduleData?: unknown; sources?: string[] }> {
+): Promise<{ result: unknown; chartData?: unknown; flowchartData?: unknown; manimData?: unknown; imageData?: unknown; flashcardData?: unknown; quizData?: unknown; scheduleData?: unknown; mockTestData?: unknown; questionPaperData?: unknown; sources?: string[] }> {
   switch (toolName) {
     case "web_search":
       return await executeWebSearch(toolInput);
@@ -732,6 +863,15 @@ export async function executeTool(
 
     case "search_knowledge_base":
       return await executeKnowledgeSearch(toolInput);
+
+    case "generate_question_paper":
+      return executeQuestionPaperGeneration(toolInput);
+
+    case "generate_mock_test":
+      return executeMockTestGeneration(toolInput);
+
+    case "cbse_notifications":
+      return await executeCbseNotifications(toolInput);
 
     default:
       return { result: { error: `Unknown tool: ${toolName}` } };
@@ -2032,6 +2172,345 @@ function executeNovelAnalyzer(
         (passage ? `\n\nAnalyze this passage: "${passage}"` : ""),
     },
   };
+}
+
+// ── Question Paper Generator ──────────────────────────────────────
+
+function executeQuestionPaperGeneration(
+  input: Record<string, unknown>
+): { result: unknown; questionPaperData?: unknown } {
+  const subject = String(input.subject || "general");
+  const chapters = String(input.chapters || "Full Syllabus");
+  const totalMarks = Number(input.total_marks) || 80;
+  const paperType = String(input.paper_type || "practice");
+  const includeAnswers = input.include_answers !== false;
+  let sections: unknown[] = [];
+
+  try {
+    if (typeof input.sections === "string") {
+      let sStr = input.sections.trim();
+      sStr = sStr.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+      sStr = sStr.replace(/,\s*]/g, "]").replace(/,\s*}/g, "}");
+      sections = JSON.parse(sStr);
+    } else if (Array.isArray(input.sections)) {
+      sections = input.sections;
+    } else {
+      sections = [];
+    }
+  } catch {
+    // Try regex extraction
+    try {
+      const raw = String(input.sections || "");
+      const sectionRegex = /"name"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+      let sMatch;
+      const extracted: { name: string }[] = [];
+      while ((sMatch = sectionRegex.exec(raw)) !== null) {
+        extracted.push({ name: sMatch[1].replace(/\\"/g, '"') });
+      }
+      if (extracted.length > 0) sections = [{ name: "Parsed", questions: [] }];
+    } catch { /* give up */ }
+
+    if (sections.length === 0) {
+      return {
+        result: {
+          error: "Could not parse question paper sections. Please try again.",
+          retry_hint: "Regenerate with properly formatted JSON sections.",
+        },
+      };
+    }
+  }
+
+  if (!Array.isArray(sections) || sections.length === 0) {
+    return {
+      result: { error: "No sections were generated. Please specify subject and try again." },
+    };
+  }
+
+  const paperTypeLabels: Record<string, string> = {
+    unit_test: "Unit Test",
+    half_yearly: "Half-Yearly Examination",
+    pre_board: "Pre-Board Examination",
+    final: "Annual Examination",
+    practice: "Practice Paper",
+  };
+
+  const subjectLabels: Record<string, string> = {
+    math: "Mathematics", physics: "Science (Physics)", chemistry: "Science (Chemistry)",
+    biology: "Science (Biology)", english: "English", sst: "Social Science",
+    sanskrit: "Sanskrit", cs: "Computer Science/IT", general: "General",
+  };
+
+  // Count total questions and marks
+  let totalQuestions = 0;
+  let calculatedMarks = 0;
+  for (const sec of sections as Record<string, unknown>[]) {
+    const qs = (sec.questions as unknown[]) || [];
+    totalQuestions += qs.length;
+    for (const q of qs as Record<string, unknown>[]) {
+      calculatedMarks += Number(q.marks || 0);
+    }
+  }
+
+  return {
+    result: {
+      message:
+        `📝 **${paperTypeLabels[paperType] || "Practice Paper"}** — ${subjectLabels[subject] || subject}\n\n` +
+        `**Total Marks**: ${totalMarks} | **Sections**: ${sections.length} | **Questions**: ${totalQuestions}\n` +
+        `**Chapters**: ${chapters}\n` +
+        `**Includes Model Answers**: ${includeAnswers ? "Yes" : "No"}\n\n` +
+        `The complete question paper is rendered below with proper CBSE formatting.`,
+      subject,
+      chapters,
+      total_marks: totalMarks,
+      paper_type: paperType,
+      include_answers: includeAnswers,
+      sections,
+      total_questions: totalQuestions,
+      calculated_marks: calculatedMarks,
+      display_format: "question_paper",
+    },
+    questionPaperData: {
+      subject,
+      subjectLabel: subjectLabels[subject] || subject,
+      paperTypeLabel: paperTypeLabels[paperType] || "Practice Paper",
+      chapters,
+      totalMarks,
+      paperType,
+      includeAnswers,
+      sections: (sections as Record<string, unknown>[]).map((sec) => ({
+        name: String(sec.name || "Section"),
+        instructions: String(sec.instructions || ""),
+        questions: Array.isArray(sec.questions) ? (sec.questions as Record<string, unknown>[]).map((q) => ({
+          number: Number(q.number || 0),
+          text: String(q.text || ""),
+          marks: Number(q.marks || 1),
+          type: String(q.type || "short"),
+          options: Array.isArray(q.options) ? q.options.map(String) : undefined,
+          answer: includeAnswers ? String(q.answer || "") : undefined,
+          marking_scheme: includeAnswers ? String(q.marking_scheme || "") : undefined,
+        })) : [],
+      })),
+    },
+  };
+}
+
+// ── Mock Test Generator ───────────────────────────────────────────────
+
+function executeMockTestGeneration(
+  input: Record<string, unknown>
+): { result: unknown; mockTestData?: unknown } {
+  const subject = String(input.subject || "general");
+  const topic = String(input.topic || "");
+  const durationMinutes = Math.min(Math.max(Number(input.duration_minutes) || 30, 5), 180);
+  const totalMarks = Number(input.total_marks) || 25;
+  const difficulty = String(input.difficulty || "medium");
+  let questions: unknown[] = [];
+
+  try {
+    if (typeof input.questions === "string") {
+      let qStr = input.questions.trim();
+      qStr = qStr.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+      qStr = qStr.replace(/,\s*]/g, "]").replace(/,\s*}/g, "}");
+      questions = JSON.parse(qStr);
+    } else if (Array.isArray(input.questions)) {
+      questions = input.questions;
+    } else {
+      questions = [];
+    }
+  } catch {
+    return {
+      result: {
+        error: "Could not parse mock test questions. Please try again.",
+        retry_hint: "Regenerate with properly formatted JSON questions.",
+      },
+    };
+  }
+
+  if (!Array.isArray(questions) || questions.length === 0) {
+    return {
+      result: { error: "No questions were generated. Please specify topic and try again." },
+    };
+  }
+
+  // Validate and normalize questions
+  const normalizedQuestions = (questions as Record<string, unknown>[]).map((q, idx) => {
+    const qType = String(q.type || "mcq");
+    return {
+      id: idx,
+      question: String(q.question || ""),
+      type: qType,
+      marks: Number(q.marks || 1),
+      options: Array.isArray(q.options) ? q.options.map(String) : undefined,
+      correct: qType === "mcq" || qType === "true_false"
+        ? Number(q.correct ?? 0)
+        : String(q.correct || q.answer || ""),
+      explanation: String(q.explanation || ""),
+      marking_hints: String(q.marking_hints || ""),
+    };
+  });
+
+  const autoGradable = normalizedQuestions.filter(q => q.type === "mcq" || q.type === "true_false").length;
+  const selfEval = normalizedQuestions.length - autoGradable;
+
+  return {
+    result: {
+      message:
+        `⏱️ **Timed Mock Test** — ${topic}\n\n` +
+        `**Subject**: ${subject} | **Duration**: ${durationMinutes} minutes | **Total Marks**: ${totalMarks}\n` +
+        `**Questions**: ${normalizedQuestions.length} (${autoGradable} auto-graded, ${selfEval} self-evaluated)\n` +
+        `**Difficulty**: ${difficulty}\n\n` +
+        `The timed mock test is rendered below. The timer starts when you begin!`,
+      subject,
+      topic,
+      duration_minutes: durationMinutes,
+      total_marks: totalMarks,
+      difficulty,
+      question_count: normalizedQuestions.length,
+      auto_gradable: autoGradable,
+      display_format: "mock_test",
+    },
+    mockTestData: {
+      subject,
+      topic,
+      durationMinutes,
+      totalMarks,
+      difficulty,
+      questions: normalizedQuestions,
+    },
+  };
+}
+
+// ── CBSE Notifications Executor ───────────────────────────────────────
+
+async function executeCbseNotifications(
+  input: Record<string, unknown>
+): Promise<{ result: unknown; sources?: string[] }> {
+  const query = String(input.query || "CBSE latest updates").trim();
+  const category = String(input.category || "general");
+
+  const categoryUrls: Record<string, string[]> = {
+    exam_dates: [
+      "https://www.cbse.gov.in/cbsenew/examination.html",
+      "https://cbseacademic.nic.in/",
+    ],
+    syllabus: [
+      "https://cbseacademic.nic.in/curriculum.html",
+      "https://www.cbse.gov.in/cbsenew/cbse.html",
+    ],
+    results: [
+      "https://www.cbse.gov.in/cbsenew/cbse.html",
+    ],
+    circulars: [
+      "https://www.cbse.gov.in/cbsenew/circular.html",
+      "https://cbseacademic.nic.in/circulars.html",
+    ],
+    sample_papers: [
+      "https://cbseacademic.nic.in/SQP_CLASSX_2024-25.html",
+      "https://cbseacademic.nic.in/",
+    ],
+    general: [
+      "https://www.cbse.gov.in/cbsenew/cbse.html",
+      "https://cbseacademic.nic.in/",
+    ],
+  };
+
+  const sources: string[] = [];
+  const results: { title: string; snippet: string; url: string; date?: string }[] = [];
+
+  try {
+    // 1. Search DuckDuckGo for latest CBSE news
+    const searchQuery = `CBSE ${query} 2026 site:cbse.gov.in OR site:cbseacademic.nic.in OR site:ndtv.com/education`;
+    const searchUrl = "https://html.duckduckgo.com/html/";
+    const response = await fetch(searchUrl, {
+      method: "POST",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: `q=${encodeURIComponent(searchQuery)}`,
+      signal: AbortSignal.timeout(6000),
+    });
+
+    if (response.ok) {
+      const html = await response.text();
+      const linkRegex = /href="[^"]*uddg=([^&"]+)[^"]*"[^>]*class="result__a"[^>]*>([\s\S]*?)<\/a>/gi;
+      let match;
+      while ((match = linkRegex.exec(html)) !== null && results.length < 8) {
+        const url = decodeURIComponent(match[1]);
+        const title = match[2].replace(/<[^>]*>/g, "").trim();
+        if (url.startsWith("http")) {
+          results.push({ url, title, snippet: "" });
+          sources.push(url);
+        }
+      }
+
+      // Extract snippets
+      const snippetRegex = /class="result__snippet"[^>]*>([\s\S]*?)<\/(?:a|div|span)>/gi;
+      let snippetIdx = 0;
+      while ((match = snippetRegex.exec(html)) !== null && snippetIdx < results.length) {
+        results[snippetIdx].snippet = match[1].replace(/<[^>]*>/g, "").trim();
+        snippetIdx++;
+      }
+    }
+
+    // 2. Try scraping the primary CBSE page for this category
+    const urls = categoryUrls[category] || categoryUrls.general;
+    for (const url of urls.slice(0, 1)) {
+      try {
+        const pageRes = await fetch(url, {
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; SmartSchoolAI/2.0)" },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (pageRes.ok) {
+          const pageHtml = await pageRes.text();
+          const content = deepExtractContent(pageHtml, 4000);
+          if (content.length > 100) {
+            results.push({
+              url,
+              title: `CBSE Official — ${category.replace(/_/g, " ")}`,
+              snippet: content.slice(0, 1000),
+            });
+            sources.push(url);
+          }
+        }
+      } catch { /* best effort */ }
+    }
+
+    if (results.length === 0) {
+      return {
+        result: {
+          message: `Could not fetch CBSE notifications for "${query}". The CBSE website may be temporarily unavailable. Try a web search instead.`,
+          fallback_suggestion: "Use web_search tool with query: " + searchQuery,
+        },
+        sources: [],
+      };
+    }
+
+    return {
+      result: {
+        found: true,
+        query,
+        category,
+        total_results: results.length,
+        notifications: results,
+        instructions:
+          "Present the CBSE notifications clearly to the student. Include:\n" +
+          "1. **📢 Latest Updates** — summarize the most important announcements\n" +
+          "2. **📅 Important Dates** — highlight any exam dates, deadlines\n" +
+          "3. **📋 Action Items** — what the student should do (register, download, prepare)\n" +
+          "4. **🔗 Official Links** — provide direct links to CBSE resources\n" +
+          "If dates or events are found, proactively offer to add them to the student's schedule using manage_schedule.",
+      },
+      sources,
+    };
+  } catch (err) {
+    return {
+      result: {
+        message: `Failed to fetch CBSE notifications: ${err instanceof Error ? err.message : "network error"}. Try using web_search instead.`,
+      },
+      sources: [],
+    };
+  }
 }
 
 // ── Knowledge Base Search Executor ──────────────────────────────────

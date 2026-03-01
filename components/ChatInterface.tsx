@@ -12,6 +12,8 @@ import { ManimRenderer } from "@/components/ManimRenderer";
 import { ImageRenderer } from "@/components/ImageRenderer";
 import { FlashcardRenderer } from "@/components/FlashcardRenderer";
 import { QuizRenderer } from "@/components/QuizRenderer";
+import { MockTestRenderer } from "@/components/MockTestRenderer";
+import { QuestionPaperRenderer } from "@/components/QuestionPaperRenderer";
 import { FileUploadButton, FileChips, type FileAttachment } from "@/components/FileUploadButton";
 import { VoiceInputButton } from "@/components/VoiceInputButton";
 import { VideoPlayer } from "@/components/VideoPlayer";
@@ -393,7 +395,7 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
             </button>
           </div>
           <p className="text-[10px] text-slate-600 mt-1.5 text-center font-medium">
-            SchoolIT AI <span className="text-blue-500">·</span> {modelInfo.name} via GitHub Models <span className="text-blue-500">·</span> Responses may not always be accurate
+            SchoolIT AI <span className="text-blue-500">·By Ayush Mahadik·</span> {modelInfo.name} via GitHub Models <span className="text-blue-500">·</span> Responses may not always be accurate
           </p>
         </div>
       </div>
@@ -611,6 +613,16 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
             {/* Quiz sets from tool calls */}
             {message.quizSets?.map((quiz, i) => (
               <QuizRenderer key={`quiz-${i}`} topic={quiz.topic} questions={quiz.questions} difficulty={quiz.difficulty} />
+            ))}
+
+            {/* Mock tests from tool calls */}
+            {message.mockTests?.map((mt, i) => (
+              <MockTestRenderer key={`mock-${i}`} subject={mt.subject} topic={mt.topic} durationMinutes={mt.durationMinutes} totalMarks={mt.totalMarks} difficulty={mt.difficulty} questions={mt.questions} />
+            ))}
+
+            {/* Question papers from tool calls */}
+            {message.questionPapers?.map((qp, i) => (
+              <QuestionPaperRenderer key={`paper-${i}`} subject={qp.subject} subjectLabel={qp.subjectLabel} paperTypeLabel={qp.paperTypeLabel} chapters={qp.chapters} totalMarks={qp.totalMarks} includeAnswers={qp.includeAnswers} sections={qp.sections} />
             ))}
 
             {/* Fallback image renderer when backend returns generated_images without markdown block */}

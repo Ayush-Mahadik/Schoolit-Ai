@@ -60,6 +60,8 @@ export interface ChatResponse {
   generated_images?: { prompt: string; style: string; subject?: string; url?: string }[];
   flashcard_sets?: { topic: string; cards: { front: string; back: string }[] }[];
   quiz_sets?: { topic: string; questions: { question: string; options: string[]; correct: number; explanation: string }[]; difficulty?: string }[];
+  mock_tests?: unknown[];
+  question_papers?: unknown[];
   search_images?: { url: string; thumbnail: string; title: string; source: string }[];
   schedule_actions?: { action: string; items?: unknown[] }[];
   error: string | null;
@@ -155,7 +157,9 @@ export async function sendMessage(request: ChatRequest, onStatus?: (message: str
           (result.flowcharts && result.flowcharts.length > 0) ||
           (result.charts && result.charts.length > 0) ||
           (result.generated_images && result.generated_images.length > 0) ||
-          (result.quiz_sets && result.quiz_sets.length > 0);
+          (result.quiz_sets && result.quiz_sets.length > 0) ||
+          (result.mock_tests && result.mock_tests.length > 0) ||
+          (result.question_papers && result.question_papers.length > 0);
 
         if (!hasUsefulData) {
           const userMsg = result.response || "Something went wrong";
@@ -206,7 +210,9 @@ export async function sendMessage(request: ChatRequest, onStatus?: (message: str
         (body.flowcharts && body.flowcharts.length > 0) ||
         (body.charts && body.charts.length > 0) ||
         (body.generated_images && body.generated_images.length > 0) ||
-        (body.quiz_sets && body.quiz_sets.length > 0);
+        (body.quiz_sets && body.quiz_sets.length > 0) ||
+        (body.mock_tests && body.mock_tests.length > 0) ||
+        (body.question_papers && body.question_papers.length > 0);
 
       if (!hasUsefulData) {
         // Pure error — retry or throw

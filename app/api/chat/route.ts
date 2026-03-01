@@ -245,6 +245,32 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // ── Anti-harassment content filter ──────────────────────────────────
+  // Block harassing/derogatory messages about the creator or students
+  const lowerMsg = message.toLowerCase();
+  const harassmentPatterns = [
+    /ayush.*fem\s*boy/i,
+    /fem\s*boy.*ayush/i,
+    /is\s+ayush\s+(a|the)\s+fem/i,
+    /ayush.*\b(gay|trans|homo|queer|sissy|trap)\b/i,
+    /\b(gay|trans|homo|queer|sissy|trap|fem\s*boy)\b.*ayush/i,
+  ];
+  const isHarassment = harassmentPatterns.some(p => p.test(message));
+  if (isHarassment) {
+    // Log the violation
+    console.warn(`[MODERATION] Harassment blocked from IP: ${ip}, email: ${userEmail || "guest"}`);
+    return NextResponse.json({
+      response: "⛔ This message violates SchoolIT AI's anti-harassment policy. Your access has been suspended for 7 days. Harassment, bullying, and inappropriate personal remarks are strictly prohibited.",
+      conversation_id: crypto.randomUUID(),
+      sources: [],
+      tool_calls: [],
+      charts: [],
+      model: "moderation",
+      moderation_action: "access_suspended",
+      penalty_days: 7,
+    }, { status: 200 }); // 200 so frontend renders the message
+  }
+
   // Validate optional fields
   const subject = VALID_SUBJECTS.includes(String(body.subject || "").toLowerCase())
     ? String(body.subject).toLowerCase()
@@ -276,13 +302,19 @@ export async function POST(req: NextRequest) {
   const wantsFlowchart = /(flowchart|diagram|mind ?map|process map)/i.test(message);
   const wantsFlashcards = /(flashcards?|revision cards?|study cards?)/i.test(message);
   const wantsQuiz = /(quiz me|mcq|test me|practice questions?)/i.test(message);
+  const wantsQuestionPaper = /(question paper|sample paper|practice paper|mock paper|previous year|model paper)/i.test(message);
+  const wantsMockTest = /(mock test|timed test|simulate exam|exam simulation|timed quiz|practice exam)/i.test(message);
+  const wantsCBSENews = /(cbse update|cbse notification|date sheet|exam date|syllabus change|board announcement|cbse circular|cbse news)/i.test(message);
   const hasFilesAttached = contextFiles.length > 0;
 
   let toolHint = "";
   if (hasYouTubeUrl) toolHint += "[ToolHint: Use summarize_video for the provided video URL.]\n";
   if (wantsFlowchart) toolHint += "[ToolHint: Use generate_flowchart and render Mermaid output.]\n";
   if (wantsFlashcards) toolHint += "[ToolHint: Use create_flashcards.]\n";
-  if (wantsQuiz) toolHint += "[ToolHint: Use generate_quiz.]\n";
+  if (wantsQuiz && !wantsMockTest && !wantsQuestionPaper) toolHint += "[ToolHint: Use generate_quiz.]\n";
+  if (wantsQuestionPaper) toolHint += "[ToolHint: Use generate_question_paper to create a full CBSE-style paper with sections and model answers.]\n";
+  if (wantsMockTest) toolHint += "[ToolHint: Use generate_mock_test to create a timed mock exam with timer and auto-evaluation.]\n";
+  if (wantsCBSENews) toolHint += "[ToolHint: Use cbse_notifications to fetch latest CBSE updates, dates, and circulars.]\n";
   if (hasFilesAttached) {
     toolHint += "[ToolHint: Files are attached. Use analyze_document for docs and analyze_screenshot for images.]\n";
   }
@@ -414,6 +446,9 @@ export async function POST(req: NextRequest) {
     summarize_video: "Analyzing video",
     generate_image: "Generating image", create_manim_animation: "Creating animation",
     search_knowledge_base: "Searching knowledge base",
+    generate_question_paper: "Generating question paper",
+    generate_mock_test: "Creating mock test",
+    cbse_notifications: "Fetching CBSE updates",
   };
 
   const { readable, writable } = new TransformStream();
@@ -434,6 +469,8 @@ export async function POST(req: NextRequest) {
   const flashcardSets: { topic: string; cards: { front: string; back: string }[] }[] = [];
   const quizSets: { topic: string; questions: { question: string; options: string[]; correct: number; explanation: string }[]; difficulty?: string }[] = [];
   const scheduleActions: unknown[] = [];
+  const mockTests: unknown[] = [];
+  const questionPapers: unknown[] = [];
   const searchImages: { url: string; thumbnail: string; title: string; source: string }[] = [];
 
   try {
@@ -446,7 +483,9 @@ export async function POST(req: NextRequest) {
       hasYouTubeUrl ||
       wantsFlowchart ||
       wantsFlashcards ||
-      wantsQuiz;
+      wantsQuiz ||
+      wantsQuestionPaper ||
+      wantsMockTest;
 
     if (taskNeedsReliableTools) {
       const currentConfig = MODEL_MAP[activeModelId];
@@ -687,6 +726,8 @@ export async function POST(req: NextRequest) {
           flowcharts,
           flashcard_sets: flashcardSets,
           quiz_sets: quizSets,
+          mock_tests: mockTests.length > 0 ? mockTests : undefined,
+          question_papers: questionPapers.length > 0 ? questionPapers : undefined,
           manim_animations: manimAnimations,
           generated_images: generatedImages,
           schedule_actions: scheduleActions,
@@ -775,6 +816,8 @@ export async function POST(req: NextRequest) {
           if (toolResult.imageData) generatedImages.push(toolResult.imageData as { prompt: string; style: string; subject?: string; url?: string });
           if (toolResult.flashcardData) flashcardSets.push(toolResult.flashcardData as { topic: string; cards: { front: string; back: string }[] });
           if (toolResult.quizData) quizSets.push(toolResult.quizData as { topic: string; questions: { question: string; options: string[]; correct: number; explanation: string }[]; difficulty?: string });
+          if (toolResult.mockTestData) mockTests.push(toolResult.mockTestData);
+          if (toolResult.questionPaperData) questionPapers.push(toolResult.questionPaperData);
           if (toolResult.scheduleData) scheduleActions.push(toolResult.scheduleData);
 
           // Capture search images from web_search results
@@ -891,6 +934,8 @@ export async function POST(req: NextRequest) {
         generated_images: generatedImages,
         flashcard_sets: flashcardSets,
         quiz_sets: quizSets,
+        mock_tests: mockTests.length > 0 ? mockTests : undefined,
+        question_papers: questionPapers.length > 0 ? questionPapers : undefined,
         schedule_actions: scheduleActions,
         search_images: searchImages.length > 0 ? searchImages : undefined,
         error: null,
@@ -913,6 +958,8 @@ export async function POST(req: NextRequest) {
       generated_images: generatedImages,
       flashcard_sets: flashcardSets,
       quiz_sets: quizSets,
+      mock_tests: mockTests.length > 0 ? mockTests : undefined,
+      question_papers: questionPapers.length > 0 ? questionPapers : undefined,
       schedule_actions: scheduleActions,
       error: null,
       model: activeModelId,
@@ -977,6 +1024,8 @@ export async function POST(req: NextRequest) {
       (generatedImages?.length || 0) > 0 ||
       (flashcardSets?.length || 0) > 0 ||
       (quizSets?.length || 0) > 0 ||
+      (mockTests?.length || 0) > 0 ||
+      (questionPapers?.length || 0) > 0 ||
       (searchImages?.length || 0) > 0;
 
     let partialResponse = userError;
@@ -1012,6 +1061,8 @@ export async function POST(req: NextRequest) {
       generated_images: generatedImages || [],
       flashcard_sets: flashcardSets || [],
       quiz_sets: quizSets || [],
+      mock_tests: (mockTests?.length || 0) > 0 ? mockTests : undefined,
+      question_papers: (questionPapers?.length || 0) > 0 ? questionPapers : undefined,
       search_images: searchImages.length > 0 ? searchImages : undefined,
       model: modelId,
     }});

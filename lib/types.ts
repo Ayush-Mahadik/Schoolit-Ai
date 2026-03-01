@@ -164,6 +164,8 @@ export interface Message {
   generatedImages?: ImageGenData[];
   flashcardSets?: FlashcardSetData[];
   quizSets?: QuizSetData[];
+  mockTests?: MockTestData[];
+  questionPapers?: QuestionPaperData[];
   searchImages?: { url: string; thumbnail: string; title: string; source: string }[];
   attachments?: FileAttachmentMeta[];
   model?: AIModel;
@@ -287,6 +289,51 @@ export interface QuizSetData {
     options: string[];
     correct: number;
     explanation: string;
+  }[];
+}
+
+// ── Mock Test types ───────────────────────────────────────────────────
+
+export interface MockTestData {
+  subject: string;
+  topic: string;
+  durationMinutes: number;
+  totalMarks: number;
+  difficulty: string;
+  questions: {
+    id: number;
+    question: string;
+    type: "mcq" | "true_false" | "short_answer" | "fill_blank";
+    marks: number;
+    options?: string[];
+    correct: number | string;
+    explanation: string;
+    marking_hints: string;
+  }[];
+}
+
+// ── Question Paper types ──────────────────────────────────────────────
+
+export interface QuestionPaperData {
+  subject: string;
+  subjectLabel: string;
+  paperTypeLabel: string;
+  chapters: string;
+  totalMarks: number;
+  paperType: string;
+  includeAnswers: boolean;
+  sections: {
+    name: string;
+    instructions: string;
+    questions: {
+      number: number;
+      text: string;
+      marks: number;
+      type: string;
+      options?: string[];
+      answer?: string;
+      marking_scheme?: string;
+    }[];
   }[];
 }
 
