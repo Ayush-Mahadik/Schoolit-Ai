@@ -870,17 +870,48 @@ export async function POST(req: NextRequest) {
 
     console.error(`Chat error [${statusHint || "unknown"}]: ${rawMsg}`);
 
+    const hasUsefulData =
+      (charts?.length || 0) > 0 ||
+      (flowcharts?.length || 0) > 0 ||
+      (generatedImages?.length || 0) > 0 ||
+      (flashcardSets?.length || 0) > 0 ||
+      (quizSets?.length || 0) > 0 ||
+      (searchImages?.length || 0) > 0;
+
+    let partialResponse = userError;
+    if (hasUsefulData) {
+      partialResponse =
+        "I hit a model error while finalizing the text response, but I already prepared useful results below.";
+
+      if (charts.length > 0) {
+        for (const chart of charts) {
+          partialResponse += `\n\n\`\`\`chart\n${JSON.stringify(chart)}\n\`\`\``;
+        }
+      }
+      if (flowcharts.length > 0) {
+        for (const fc of flowcharts) {
+          partialResponse += `\n\n\`\`\`mermaid\n${fc.mermaidCode}\n\`\`\``;
+        }
+      }
+      if (generatedImages.length > 0) {
+        for (const img of generatedImages) {
+          partialResponse += `\n\n\`\`\`image\n${JSON.stringify(img)}\n\`\`\``;
+        }
+      }
+    }
+
     await writeEvent('result', { data: {
-      response: userError,
+      response: partialResponse,
       conversation_id: crypto.randomUUID(),
-      error: statusHint || "unknown_error",
-      sources: [],
+      error: hasUsefulData ? null : (statusHint || "unknown_error"),
+      sources: Array.from(new Set(sources || [])),
       tool_calls: toolCallsLog || [],
       charts: charts || [],
       flowcharts: flowcharts || [],
       generated_images: generatedImages || [],
       flashcard_sets: flashcardSets || [],
       quiz_sets: quizSets || [],
+      search_images: searchImages.length > 0 ? searchImages : undefined,
       model: modelId,
     }});
   }

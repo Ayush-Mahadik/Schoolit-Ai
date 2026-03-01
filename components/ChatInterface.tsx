@@ -107,9 +107,13 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
   const [input, setInput] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<FileAttachment[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [activeAssistantId, setActiveAssistantId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dragCounter = useRef(0);
+
+  const assistantMessages = messages.filter((m) => m.role === "assistant");
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -121,6 +125,42 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
     }
   }, [input]);
+
+  useEffect(() => {
+    const container = messagesScrollRef.current;
+    if (!container) return;
+
+    const updateActive = () => {
+      const anchors = Array.from(container.querySelectorAll<HTMLElement>("[data-assistant-anchor='true']"));
+      if (anchors.length === 0) {
+        setActiveAssistantId(null);
+        return;
+      }
+
+      const containerTop = container.getBoundingClientRect().top;
+      let bestId: string | null = null;
+      let minDist = Number.POSITIVE_INFINITY;
+
+      for (const el of anchors) {
+        const top = el.getBoundingClientRect().top;
+        const dist = Math.abs(top - (containerTop + 120));
+        if (dist < minDist) {
+          minDist = dist;
+          bestId = el.getAttribute("data-message-id");
+        }
+      }
+
+      setActiveAssistantId(bestId);
+    };
+
+    updateActive();
+    container.addEventListener("scroll", updateActive, { passive: true });
+    window.addEventListener("resize", updateActive);
+    return () => {
+      container.removeEventListener("scroll", updateActive);
+      window.removeEventListener("resize", updateActive);
+    };
+  }, [messages]);
 
   const handleFilesSelected = useCallback((files: FileAttachment[]) => {
     setAttachedFiles((prev) => [...prev, ...files].slice(0, 10));
@@ -232,7 +272,7 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
       </AnimatePresence>
 
       {/* ── Messages Area ──────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-6">
+      <div ref={messagesScrollRef} className="flex-1 overflow-y-auto px-3 sm:px-4 py-6 relative">
         {messages.length === 0 ? (
           <EmptyState subject={subject} onSuggestion={(text) => onSend(text)} />
         ) : (
@@ -245,6 +285,9 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.25 }}
                   className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                  id={msg.role === "assistant" ? `assistant-${msg.id}` : undefined}
+                  data-assistant-anchor={msg.role === "assistant" ? "true" : undefined}
+                  data-message-id={msg.role === "assistant" ? msg.id : undefined}
                 >
                   {msg.role === "user" ? (
                     <UserBubble message={msg} onEdit={onEditMessage} />
@@ -266,6 +309,28 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
             )}
 
             <div ref={messagesEndRef} />
+          </div>
+        )}
+
+        {/* Grok-style right side marker panel */}
+        {assistantMessages.length >= 3 && (
+          <div className="hidden lg:flex absolute right-1 top-1/2 -translate-y-1/2 z-20 flex-col gap-2 p-1 rounded-lg bg-black/20 border border-surface-4/40 backdrop-blur-sm">
+            {assistantMessages.map((m, i) => {
+              const isActive = activeAssistantId === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  aria-label={`Jump to response ${i + 1}`}
+                  onClick={() => {
+                    const el = document.getElementById(`assistant-${m.id}`);
+                    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }}
+                  className={`h-1 rounded-full transition-all ${isActive ? "w-7 bg-blue-400" : "w-5 bg-slate-600 hover:bg-slate-400"}`}
+                  title={`Response ${i + 1}`}
+                />
+              );
+            })}
           </div>
         )}
       </div>
@@ -385,6 +450,7 @@ function UserBubble({ message, onEdit }: { message: Message; onEdit?: (id: strin
 // ── Assistant message bubble ─────────────────────────────────────────
 function AssistantBubble({ message, onRegenerate }: { message: Message; onRegenerate?: (id: string) => void }) {
   const [copied, setCopied] = useState(false);
+  const contentHasImageBlocks = /```image\n[\s\S]*?```/i.test(message.content);
 
   // Feed content directly to ReactMarkdown — it handles all code blocks (mermaid, manim, chart, image)
   // via the code() component override. No pre-parsing needed.
@@ -521,6 +587,17 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
             {message.quizSets?.map((quiz, i) => (
               <QuizRenderer key={`quiz-${i}`} topic={quiz.topic} questions={quiz.questions} difficulty={quiz.difficulty} />
             ))}
+
+            {/* Fallback image renderer when backend returns generated_images without markdown block */}
+            {!contentHasImageBlocks && message.generatedImages?.map((img, i) => (
+              <ImageRenderer
+                key={`generated-img-${i}`}
+                prompt={img.prompt}
+                style={img.style || "diagram"}
+                subject={img.subject}
+                url={img.url}
+              />
+            ))}
           </div>
         </div>
 
@@ -572,14 +649,16 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
               <ExternalLink className="w-3 h-3" />
               Sources ({message.sources.length})
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {message.sources.map((src, i) => {
                 let hostname = src;
                 let displayName = src;
+                let snapshotUrl = "";
                 try {
                   const u = new URL(src);
                   hostname = u.hostname.replace("www.", "");
                   displayName = hostname;
+                  snapshotUrl = `https://image.thum.io/get/width/480/noanimate/${encodeURIComponent(src)}`;
                 } catch { /* ignore */ }
                 return (
                   <a
@@ -587,22 +666,33 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
                     href={src}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-surface-2 hover:bg-surface-3 border border-surface-4 hover:border-blue-500/30 transition-all group/src max-w-[280px]"
+                    className="overflow-hidden rounded-xl bg-surface-2 hover:bg-surface-3 border border-surface-4 hover:border-blue-500/30 transition-all group/src min-w-0"
                   >
-                    <img
-                      src={`https://www.google.com/s2/favicons?domain=${hostname}&sz=32`}
-                      alt=""
-                      className="w-4 h-4 rounded-sm shrink-0"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-medium text-slate-300 group-hover/src:text-blue-400 truncate transition-colors">
-                        {displayName}
+                    {snapshotUrl && (
+                      <img
+                        src={snapshotUrl}
+                        alt={displayName}
+                        className="w-full h-16 object-cover border-b border-surface-4"
+                        loading="lazy"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                      />
+                    )}
+                    <div className="flex items-center gap-2 px-3 py-2">
+                      <img
+                        src={`https://www.google.com/s2/favicons?domain=${hostname}&sz=32`}
+                        alt=""
+                        className="w-4 h-4 rounded-sm shrink-0"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-medium text-slate-300 group-hover/src:text-blue-400 truncate transition-colors">
+                          {displayName}
+                        </div>
                       </div>
+                      <span className="text-[10px] text-slate-600 bg-surface-3 px-1.5 py-0.5 rounded font-mono shrink-0">
+                        {i + 1}
+                      </span>
                     </div>
-                    <span className="text-[10px] text-slate-600 bg-surface-3 px-1.5 py-0.5 rounded font-mono shrink-0">
-                      {i + 1}
-                    </span>
                   </a>
                 );
               })}

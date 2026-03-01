@@ -19,5 +19,21 @@ CREATE INDEX IF NOT EXISTS idx_conv_user ON conversations(user_email, timestamp 
 -- Enable Row Level Security
 ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
 
--- Allow all operations (simple policy for school project)
-CREATE POLICY "allow_all" ON conversations FOR ALL USING (true) WITH CHECK (true);
+-- Safer policy: users can only read/write their own rows
+DROP POLICY IF EXISTS "allow_all" ON conversations;
+DROP POLICY IF EXISTS "user_own_conversations" ON conversations;
+
+CREATE POLICY "user_own_conversations" ON conversations
+  FOR ALL
+  USING (
+    user_email = COALESCE(
+      current_setting('request.jwt.claims', true)::json->>'email',
+      current_setting('request.headers', true)::json->>'x-user-email'
+    )
+  )
+  WITH CHECK (
+    user_email = COALESCE(
+      current_setting('request.jwt.claims', true)::json->>'email',
+      current_setting('request.headers', true)::json->>'x-user-email'
+    )
+  );
