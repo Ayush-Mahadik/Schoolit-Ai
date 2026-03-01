@@ -25,7 +25,7 @@ const MAX_HISTORY_MESSAGES = 30;
 const VALID_PERSONAS = ["formal", "creative", "socratic", "balanced", "exam_coach"];
 
 // ── Provider Configuration ────────────────────────────────────────────
-type ProviderName = "github" | "groq" | "gemini";
+type ProviderName = "github" | "groq" | "gemini" | "openrouter";
 
 interface ProviderConfig {
   name: ProviderName;
@@ -49,6 +49,11 @@ const PROVIDERS: Record<ProviderName, ProviderConfig> = {
     baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
     getApiKey: () => process.env.GEMINI_API_KEY?.trim(),
   },
+  openrouter: {
+    name: "openrouter",
+    baseURL: "https://openrouter.ai/api/v1",
+    getApiKey: () => process.env.OPENROUTER_API_KEY?.trim(),
+  },
 };
 
 // Model → provider + actual API model name
@@ -66,10 +71,11 @@ const MODEL_MAP: Record<string, ModelConfig> = {
   "gemma2-9b":        { provider: "groq",   apiModel: "gemma2-9b-it",               supportsTools: true,  supportsVision: false },
   "gemini-2.0-flash": { provider: "gemini", apiModel: "gemini-2.0-flash",           supportsTools: true,  supportsVision: true  },
   "gemini-1.5-flash": { provider: "gemini", apiModel: "gemini-1.5-flash",           supportsTools: true,  supportsVision: true  },
+  "openrouter-auto":  { provider: "openrouter", apiModel: "openrouter/auto",        supportsTools: true,  supportsVision: true  },
 };
 
 // Ordered fallback preference: GitHub → Groq → Gemini
-const ALL_MODEL_IDS = ["gpt-4.1", "gpt-4o", "llama-3.3-70b", "gemma2-9b", "gemini-2.0-flash", "gemini-1.5-flash"];
+const ALL_MODEL_IDS = ["gpt-4.1", "gpt-4o", "llama-3.3-70b", "gemma2-9b", "gemini-2.0-flash", "gemini-1.5-flash", "openrouter-auto"];
 
 // Models that require max_completion_tokens instead of max_tokens
 const USES_MAX_COMPLETION_TOKENS = new Set<string>();
@@ -92,6 +98,7 @@ const MODEL_COMPLETION_CAPS: Record<string, number> = {
   "gpt-4.1": 8192,
   "gemini-2.0-flash": 8192,
   "gemini-1.5-flash": 8192,
+  "openrouter-auto": 8192,
 };
 
 // ── In-Memory Rate Limiter ────────────────────────────────────────────
@@ -139,6 +146,13 @@ function getClientForProvider(provider: ProviderName): OpenAI | null {
   const client = new OpenAI({
     baseURL: config.baseURL,
     apiKey,
+    defaultHeaders:
+      provider === "openrouter"
+        ? {
+            "HTTP-Referer": process.env.NEXTAUTH_URL || "https://schoolit-ai.vercel.app",
+            "X-Title": "SchoolIT AI",
+          }
+        : undefined,
   });
   clientCache.set(provider, client);
   return client;
@@ -307,7 +321,7 @@ export async function POST(req: NextRequest) {
     if (!anyAvailable) {
       return NextResponse.json({
         response:
-          "The AI service is not configured. Please set at least one API key (GITHUB_TOKEN, GROQ_API_KEY, or GEMINI_API_KEY) in environment variables.",
+          "The AI service is not configured. Please set at least one API key (GITHUB_TOKEN, GROQ_API_KEY, GEMINI_API_KEY, or OPENROUTER_API_KEY) in environment variables.",
         conversation_id: crypto.randomUUID(),
         error: "No AI providers configured",
         sources: [],
@@ -375,9 +389,11 @@ export async function POST(req: NextRequest) {
   }
 
   // Build tool list
-  const tools = useWebSearch
+  const requestedTools = useWebSearch
     ? TOOL_DEFINITIONS
     : TOOL_DEFINITIONS.filter((t) => t.function.name !== "web_search");
+  const isSimplePrompt = message.trim().split(/\s+/).length <= 3 && contextFiles.length === 0;
+  const tools = isSimplePrompt ? [] : requestedTools;
 
   // === NDJSON STREAMING RESPONSE ===
   // Streams real-time status updates + final result as newline-delimited JSON.
@@ -386,6 +402,7 @@ export async function POST(req: NextRequest) {
     "gpt-4.1": "GPT-4.1", "gpt-4o": "GPT-4o",
     "llama-3.3-70b": "Llama 3.3 70B", "gemma2-9b": "Gemma 2 9B",
     "gemini-2.0-flash": "Gemini 2.0 Flash", "gemini-1.5-flash": "Gemini 1.5 Flash",
+    "openrouter-auto": "OpenRouter Auto",
   };
   const TOOL_LABELS: Record<string, string> = {
     web_search: "Searching the web", generate_chart: "Generating chart",
@@ -441,7 +458,7 @@ export async function POST(req: NextRequest) {
         : otherModels;
 
       if (modelsToTry.length === 0) {
-        throw new Error("No AI providers are configured. Set GITHUB_TOKEN, GROQ_API_KEY, or GEMINI_API_KEY.");
+        throw new Error("No AI providers are configured. Set GITHUB_TOKEN, GROQ_API_KEY, GEMINI_API_KEY, or OPENROUTER_API_KEY.");
       }
 
       let lastError: unknown = null;
@@ -506,19 +523,49 @@ export async function POST(req: NextRequest) {
           // Stream status: which model is being tried
           await writeEvent('status', { message: `${MODEL_NAMES[tryModelId] || tryModelId} is thinking...` });
 
-          // Use timeout to prevent a single model call from eating all 60s
-          const response = await Promise.race([
-            modelClient.chat.completions.create({
-              model: apiModel,
-              ...tokenParam,
-              messages: filteredMsgs,
-              tools: useTools ? tools : undefined,
-              tool_choice: useTools ? "auto" : undefined,
-            }),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error(`Model ${apiModel} timed out after ${callTimeout / 1000}s`)), callTimeout)
-            ),
-          ]);
+          const stripToolMsgs = (inputMsgs: OpenAI.Chat.ChatCompletionMessageParam[]) =>
+            inputMsgs
+              .filter((m) => m.role !== "tool")
+              .map((m) => {
+                if (m.role === "assistant" && "tool_calls" in m) {
+                  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                  const { tool_calls: _tc, ...rest } = m as unknown as Record<string, unknown>;
+                  return rest as unknown as OpenAI.Chat.ChatCompletionMessageParam;
+                }
+                return m;
+              });
+
+          const invoke = async (inputMsgs: OpenAI.Chat.ChatCompletionMessageParam[], allowTools: boolean) =>
+            await Promise.race([
+              modelClient.chat.completions.create({
+                model: apiModel,
+                ...tokenParam,
+                messages: inputMsgs,
+                tools: allowTools ? tools : undefined,
+                tool_choice: allowTools ? "auto" : undefined,
+              }),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error(`Model ${apiModel} timed out after ${callTimeout / 1000}s`)), callTimeout)
+              ),
+            ]);
+
+          // First attempt (with tools if enabled)
+          let response: OpenAI.Chat.ChatCompletion;
+          try {
+            response = await invoke(filteredMsgs, useTools);
+          } catch (firstErr: unknown) {
+            const status = (firstErr as { status?: number })?.status;
+            const errMsg = firstErr instanceof Error ? firstErr.message.toLowerCase() : "";
+            const looksLikeBadRequest = status === 400 || errMsg.includes("bad request") || errMsg.includes("invalid");
+
+            // Retry same model without tools for compatibility/smaller payload
+            if (useTools && looksLikeBadRequest) {
+              await writeEvent("status", { message: `${MODEL_NAMES[tryModelId] || tryModelId}: retrying in lightweight mode...` });
+              response = await invoke(stripToolMsgs(filteredMsgs), false);
+            } else {
+              throw firstErr;
+            }
+          }
 
           // If we fell back to a different model, remember it
           if (tryModelId !== activeModelId) {
