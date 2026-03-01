@@ -279,8 +279,14 @@ export async function POST(req: NextRequest) {
       .slice(0, 5)
       .map((f: Record<string, unknown>) => {
         const name = sanitizeString(String(f.name || "file"), 200);
-        const content = sanitizeString(String(f.content || ""), 15_000);
-        return `### File: ${name}\n${content}`;
+        const type = String(f.type || "unknown");
+        const rawContent = String(f.content || "");
+        const isBinaryMarker = rawContent.includes("[BINARY_FILE]") || /^(application\/pdf|application\/zip|application\/octet-stream|application\/msword|application\/vnd\.)/i.test(type);
+        if (isBinaryMarker) {
+          return `### File: ${name}\nType: ${type}\nBinary file attached. Use analyze_document tool for metadata-aware help.`;
+        }
+        const content = sanitizeString(rawContent, 15_000);
+        return `### File: ${name}\nType: ${type}\n${content}`;
       });
     fileContext = parts.join("\n\n");
   }
@@ -385,7 +391,9 @@ export async function POST(req: NextRequest) {
     web_search: "Searching the web", generate_chart: "Generating chart",
     generate_flowchart: "Creating flowchart", create_flashcards: "Creating flashcards",
     generate_quiz: "Generating quiz", manage_schedule: "Managing schedule",
+    manage_calendar: "Updating calendar",
     analyze_document: "Analyzing document", analyze_screenshot: "Analyzing image",
+    summarize_video: "Analyzing video",
     generate_image: "Generating image", create_manim_animation: "Creating animation",
   };
 

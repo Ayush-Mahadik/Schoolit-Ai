@@ -52,6 +52,22 @@ const ACCEPTED_EXTENSIONS = [
   ".zip", ".gz", ".tar",
 ];
 
+const TEXT_EXTENSIONS = new Set([
+  ".txt", ".md", ".csv", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
+  ".py", ".js", ".ts", ".jsx", ".tsx", ".html", ".css", ".scss", ".less",
+  ".java", ".c", ".cpp", ".h", ".hpp", ".cs", ".go", ".rs", ".rb", ".php", ".swift", ".kt", ".scala", ".r", ".m", ".lua", ".sh", ".bash", ".ps1", ".bat", ".cmd", ".sql", ".graphql", ".proto",
+  ".env", ".log", ".jsonl", ".ndjson",
+]);
+
+function isTextLikeFile(file: File): boolean {
+  const lower = file.name.toLowerCase();
+  const dot = lower.lastIndexOf(".");
+  const ext = dot >= 0 ? lower.slice(dot) : "";
+  if (file.type.startsWith("text/")) return true;
+  if (["application/json", "application/xml", "application/javascript", "application/typescript"].includes(file.type)) return true;
+  return TEXT_EXTENSIONS.has(ext);
+}
+
 export function FileUploadButton({ onFilesSelected, disabled }: FileUploadButtonProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -76,7 +92,7 @@ export function FileUploadButton({ onFilesSelected, disabled }: FileUploadButton
         };
         reader.onerror = () => resolve(null);
         reader.readAsDataURL(file);
-      } else {
+      } else if (isTextLikeFile(file)) {
         // Read text files as text
         reader.onload = () => {
           resolve({
@@ -88,6 +104,14 @@ export function FileUploadButton({ onFilesSelected, disabled }: FileUploadButton
         };
         reader.onerror = () => resolve(null);
         reader.readAsText(file);
+      } else {
+        // Binary docs/archives: don't decode to text (prevents gibberish and model crashes)
+        resolve({
+          name: file.name,
+          content: `[BINARY_FILE]\nname=${file.name}\ntype=${file.type || "application/octet-stream"}\nsize=${file.size}\nThis file is binary. Use analyze_document or summarize intent from filename/metadata.`,
+          type: file.type || "application/octet-stream",
+          size: file.size,
+        });
       }
     });
   }, []);
@@ -129,7 +153,7 @@ export function FileUploadButton({ onFilesSelected, disabled }: FileUploadButton
         onClick={() => inputRef.current?.click()}
         disabled={disabled}
         className="p-2 rounded-lg text-slate-500 hover:text-white hover:bg-surface-3 disabled:opacity-40 transition-colors shrink-0"
-        title="Attach files (images, text, CSV, code) for context"
+        title="Attach files (browser file picker permission will be requested when you choose files)"
       >
         <Paperclip className="w-4 h-4" />
       </button>

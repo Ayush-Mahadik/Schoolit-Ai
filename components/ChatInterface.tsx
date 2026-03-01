@@ -74,6 +74,21 @@ function parseMarkdownTable(code: string): { headers: string[]; rows: string[][]
   return { headers, rows };
 }
 
+function isTextLikeAttachment(file: File): boolean {
+  const lower = file.name.toLowerCase();
+  const dot = lower.lastIndexOf(".");
+  const ext = dot >= 0 ? lower.slice(dot) : "";
+  const textExt = new Set([
+    ".txt", ".md", ".csv", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
+    ".py", ".js", ".ts", ".jsx", ".tsx", ".html", ".css", ".scss", ".less",
+    ".java", ".c", ".cpp", ".h", ".hpp", ".cs", ".go", ".rs", ".rb", ".php", ".swift", ".kt", ".scala", ".r", ".m", ".lua", ".sh", ".bash", ".ps1", ".bat", ".cmd", ".sql", ".graphql", ".proto",
+    ".env", ".log", ".jsonl", ".ndjson",
+  ]);
+  if (file.type.startsWith("text/")) return true;
+  if (["application/json", "application/xml", "application/javascript", "application/typescript"].includes(file.type)) return true;
+  return textExt.has(ext);
+}
+
 function RenderedTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
   return (
     <div className="overflow-x-auto my-3 rounded-lg border border-surface-3/60">
@@ -183,11 +198,18 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
               resolve({ name: file.name, content: reader.result as string, type: file.type, size: file.size });
             reader.onerror = () => resolve(null);
             reader.readAsDataURL(file);
-          } else {
+          } else if (isTextLikeAttachment(file)) {
             reader.onload = () =>
               resolve({ name: file.name, content: reader.result as string, type: file.type || "text/plain", size: file.size });
             reader.onerror = () => resolve(null);
             reader.readAsText(file);
+          } else {
+            resolve({
+              name: file.name,
+              content: `[BINARY_FILE]\nname=${file.name}\ntype=${file.type || "application/octet-stream"}\nsize=${file.size}\nThis file is binary. Use analyze_document for metadata-level reasoning.`,
+              type: file.type || "application/octet-stream",
+              size: file.size,
+            });
           }
         });
         if (att) results.push(att);
@@ -313,8 +335,8 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
         )}
 
         {/* Grok-style right side marker panel */}
-        {assistantMessages.length >= 3 && (
-          <div className="hidden lg:flex absolute right-1 top-1/2 -translate-y-1/2 z-20 flex-col gap-2 p-1 rounded-lg bg-black/20 border border-surface-4/40 backdrop-blur-sm">
+        {assistantMessages.length >= 1 && (
+          <div className="hidden md:flex absolute right-3 top-1/2 -translate-y-1/2 z-20 flex-col gap-2 p-1.5 rounded-xl bg-black/25 border border-surface-4/50 backdrop-blur-sm shadow-lg">
             {assistantMessages.map((m, i) => {
               const isActive = activeAssistantId === m.id;
               return (
@@ -326,7 +348,7 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
                     const el = document.getElementById(`assistant-${m.id}`);
                     el?.scrollIntoView({ behavior: "smooth", block: "center" });
                   }}
-                  className={`h-1 rounded-full transition-all ${isActive ? "w-7 bg-blue-400" : "w-5 bg-slate-600 hover:bg-slate-400"}`}
+                  className={`h-1.5 rounded-full transition-all ${isActive ? "w-8 bg-blue-400" : "w-6 bg-slate-600 hover:bg-slate-400"}`}
                   title={`Response ${i + 1}`}
                 />
               );
@@ -905,12 +927,23 @@ function EmptyState({ subject, onSuggestion }: { subject: string; onSuggestion: 
   // Randomize: pick 4 suggestions from the pool
   const [randomSuggestions, setRandomSuggestions] = useState<string[]>([]);
 
-  useEffect(() => {
-    const pool = allSuggestions[subject] || allSuggestions.general;
-    const shuffled = [...pool].sort(() => Math.random() - 0.5);
-    setRandomSuggestions(shuffled.slice(0, 4));
+  const reshuffleSuggestions = useCallback(() => {
+    const pool = [...(allSuggestions[subject] || allSuggestions.general)];
+    // Fisher-Yates shuffle
+    for (let i = pool.length - 1; i > 0; i--) {
+      const r = typeof crypto !== "undefined" && "getRandomValues" in crypto
+        ? crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32
+        : Math.random();
+      const j = Math.floor(r * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    setRandomSuggestions(pool.slice(0, 4));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subject]);
+
+  useEffect(() => {
+    reshuffleSuggestions();
+  }, [subject, reshuffleSuggestions]);
 
   return (
     <div className="flex flex-col items-center justify-center h-full max-w-xl mx-auto px-4">
@@ -931,6 +964,13 @@ function EmptyState({ subject, onSuggestion }: { subject: string; onSuggestion: 
             Ask anything — I search the web, create charts, analyze screenshots,
             solve problems step-by-step, and more. Try 🎤 voice input!
           </p>
+          <button
+            type="button"
+            onClick={reshuffleSuggestions}
+            className="mt-2 text-[11px] px-2 py-1 rounded-md bg-surface-2 hover:bg-surface-3 border border-surface-4 text-slate-400 hover:text-white transition-colors"
+          >
+            Shuffle suggestions
+          </button>
         </div>
 
         <div className="grid gap-2 w-full max-w-md mx-auto">

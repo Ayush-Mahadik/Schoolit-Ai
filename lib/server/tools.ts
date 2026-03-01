@@ -610,15 +610,49 @@ export async function executeTool(
       };
 
     case "manage_calendar":
-      return {
-        result: {
-          message:
-            "Calendar integration requires Google Calendar OAuth setup. " +
-            "The student can configure this in Settings → Calendar. " +
-            "For now, I can help you plan a study schedule — just tell me your subjects and available times!",
-          action: toolInput.action,
-        },
-      };
+      {
+        const action = String(toolInput.action || "list");
+        if (action === "create") {
+          const title = String(toolInput.title || "Study Session");
+          const start = String(toolInput.start_time || new Date().toISOString());
+          const end = String(toolInput.end_time || start);
+          const item = {
+            id: `cal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            title,
+            subject: "general",
+            startTime: start,
+            endTime: end,
+            type: "other" as const,
+            completed: false,
+          };
+          return {
+            result: {
+              message:
+                "Google Calendar sync is running in local planner mode. " +
+                "I created this event in your SchoolIT schedule so you can track it immediately.",
+              action,
+              created_event: {
+                title,
+                start_time: start,
+                end_time: end,
+              },
+            },
+            scheduleData: {
+              action: "add",
+              items: [item],
+            },
+          };
+        }
+
+        return {
+          result: {
+            message:
+              "Calendar tool is active in local planner mode. " +
+              "Ask me to create events and I will add them to your schedule timeline.",
+            action,
+          },
+        };
+      }
 
     case "generate_manim":
       return executeManimGeneration(toolInput);

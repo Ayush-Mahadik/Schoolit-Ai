@@ -104,6 +104,22 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
     }
   }, [stopSarvamRecording, stopBrowserRecognition]);
 
+  const ensureMicPermission = useCallback(async (): Promise<boolean> => {
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) return false;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+      return true;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "NotAllowedError") {
+        setErrorMsg("Mic blocked. Allow microphone in site permissions and retry.");
+      } else {
+        setErrorMsg("Could not access microphone.");
+      }
+      return false;
+    }
+  }, []);
+
   // ── Sarvam AI recording ────────────────────────────────────────────
   const startSarvamRecording = useCallback(async () => {
     setErrorMsg("");
@@ -353,14 +369,24 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
 
   // ── Main click handler ─────────────────────────────────────────────
   const handleClick = useCallback(() => {
-    if (isListening) {
-      stopListening();
-    } else if (backend === "sarvam") {
-      startSarvamRecording();
-    } else if (backend === "browser") {
-      startBrowserRecognition();
-    }
-  }, [isListening, backend, stopListening, startSarvamRecording, startBrowserRecognition]);
+    const run = async () => {
+      if (isListening) {
+        stopListening();
+        return;
+      }
+
+      const allowed = await ensureMicPermission();
+      if (!allowed) return;
+
+      if (backend === "sarvam") {
+        startSarvamRecording();
+      } else if (backend === "browser") {
+        startBrowserRecognition();
+      }
+    };
+
+    run();
+  }, [isListening, backend, stopListening, startSarvamRecording, startBrowserRecognition, ensureMicPermission]);
 
   // Cleanup on unmount
   useEffect(() => {

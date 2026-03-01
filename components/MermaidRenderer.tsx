@@ -83,22 +83,23 @@ export function MermaidRenderer({ code, title }: MermaidRendererProps) {
         }
 
         if (!parseOk) {
-          // Try simplified fallback: convert to basic flowchart
-          const fallback = simplifyToFlowchart(validCode);
-          if (fallback) {
+          // Try simplified fallbacks
+          const fallbackCandidates = [
+            simplifyToFlowchart(validCode),
+            buildSequentialFlowchart(validCode),
+          ].filter(Boolean) as string[];
+
+          for (const fallback of fallbackCandidates) {
             try {
               await mermaid.parse(fallback);
-              const { svg: renderedSvg } = await mermaid.render(
-                `mermaid_${uniqueId}`,
-                fallback
-              );
+              const { svg: renderedSvg } = await mermaid.render(`mermaid_${uniqueId}`, fallback);
               if (!cancelled && renderedSvg && !renderedSvg.includes("Syntax error")) {
                 setSvg(renderedSvg);
                 setError("");
                 return;
               }
             } catch {
-              // Fallback also failed
+              // try next fallback
             }
           }
 
@@ -287,6 +288,12 @@ function sanitizeMermaidCode(code: string): string {
   // 8. Remove excessive blank lines
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
 
+  // 8b. Remove prose lines that often break parser
+  cleaned = cleaned
+    .split("\n")
+    .filter((line) => !/^\s*(Explanation|Notes?|Description)\s*:/i.test(line))
+    .join("\n");
+
   // 9. Fix subgraph without name
   cleaned = cleaned.replace(/^(subgraph)\s*$/gm, "subgraph Default");
 
@@ -345,6 +352,33 @@ function simplifyToFlowchart(code: string): string | null {
       .join("\n");
 
     return `graph TD\n${nodeDefs}\n${connections.join("\n")}`;
+  } catch {
+    return null;
+  }
+}
+
+function buildSequentialFlowchart(code: string): string | null {
+  try {
+    const lines = code
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0)
+      .filter((l) => !/^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|journey|mindmap|timeline)/i.test(l));
+
+    const labels = lines
+      .map((line) => line
+        .replace(/^[\-\*\d\.\)\s]+/, "")
+        .replace(/\[|\]|\{|\}|\(|\)/g, "")
+        .trim())
+      .filter((l) => l.length > 0)
+      .slice(0, 10);
+
+    if (labels.length < 2) return null;
+
+    const nodes = labels.map((label, i) => `    N${i}["${label.replace(/"/g, "'")}"]`).join("\n");
+    const edges = labels.slice(1).map((_, i) => `    N${i} --> N${i + 1}`).join("\n");
+
+    return `graph TD\n${nodes}\n${edges}`;
   } catch {
     return null;
   }
