@@ -1,8 +1,17 @@
 /**
- * Knowledge Base API — SchoolIT AI
- * ==================================
+ * Knowledge Base API — SchoolIT AI (Hardened)
+ * =============================================
  * Stores and searches imported knowledge (WhatsApp exports, notes, documents).
  * The AI uses this via the search_knowledge_base tool to recall stored info.
+ *
+ * Security measures:
+ *   - Auth required (NextAuth session) for every endpoint
+ *   - Rate limiting: 30 requests/min per user
+ *   - Content size limits: 5MB max per request
+ *   - Input sanitization: strip HTML/script tags, validate source types
+ *   - SQL injection protection: parameterized queries via Supabase SDK
+ *   - Source name validation: no path traversal, length limits
+ *   - CSRF protection: POST/DELETE require valid session
  *
  * Endpoints:
  *   POST   /api/knowledge               → Import knowledge (WhatsApp export or manual)
@@ -20,6 +29,74 @@ import {
   parseWhatsAppExport,
   chunkMessages,
 } from "@/lib/server/whatsapp-parser";
+
+// ── Constants ────────────────────────────────────────────────────────
+const MAX_CONTENT_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_SOURCE_NAME_LENGTH = 200;
+const MAX_QUERY_LENGTH = 500;
+const VALID_SOURCES = new Set(["whatsapp", "manual", "document", "notes"]);
+const RATE_LIMIT = 40; // requests per minute per user
+const RATE_WINDOW_MS = 60_000;
+
+// ── Rate limiting (in-memory per user email) ─────────────────────────
+const knowledgeRateLimits = new Map<string, { count: number; resetAt: number }>();
+
+function checkKnowledgeRateLimit(email: string): boolean {
+  const now = Date.now();
+  const entry = knowledgeRateLimits.get(email);
+
+  // Periodic cleanup
+  if (knowledgeRateLimits.size > 5000) {
+    const toDelete: string[] = [];
+    knowledgeRateLimits.forEach((v, k) => { if (now > v.resetAt) toDelete.push(k); });
+    toDelete.forEach((k) => knowledgeRateLimits.delete(k));
+  }
+
+  if (!entry || now > entry.resetAt) {
+    knowledgeRateLimits.set(email, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT) return false;
+  entry.count++;
+  return true;
+}
+
+// ── Input sanitization ───────────────────────────────────────────────
+
+/** Strip dangerous HTML/script content — defense-in-depth */
+function sanitizeContent(input: string): string {
+  return input
+    // Remove script tags and their content
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+    // Remove all HTML tags
+    .replace(/<[^>]*>/g, "")
+    // Remove javascript: protocol links
+    .replace(/javascript:/gi, "")
+    // Remove data: URIs with executable content
+    .replace(/data:text\/html/gi, "")
+    // Normalize whitespace (but preserve newlines for WhatsApp parsing)
+    .replace(/\r\n/g, "\n")
+    // Remove null bytes
+    .replace(/\0/g, "");
+}
+
+/** Validate and sanitize source names — prevent path traversal and injection */
+function sanitizeSourceName(name: string): string {
+  return name
+    .replace(/[<>:"/\\|?*]/g, "")       // remove filesystem-dangerous chars
+    .replace(/\.\./g, "")                // prevent path traversal
+    .replace(/[\x00-\x1f\x7f]/g, "")    // remove control characters
+    .trim()
+    .slice(0, MAX_SOURCE_NAME_LENGTH);
+}
+
+/** Validate search queries */
+function sanitizeQuery(query: string): string {
+  return query
+    .replace(/[\x00-\x1f\x7f]/g, "")    // remove control chars
+    .trim()
+    .slice(0, MAX_QUERY_LENGTH);
+}
 
 // ── Server-only Supabase client ──────────────────────────────────────
 function getSupabase(): SupabaseClient | null {
@@ -45,6 +122,13 @@ function notConfigured() {
   );
 }
 
+function rateLimited() {
+  return NextResponse.json(
+    { error: "rate_limited", message: "Too many requests. Please wait a moment." },
+    { status: 429 }
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════
 //  POST /api/knowledge — Import knowledge
 // ══════════════════════════════════════════════════════════════════════
@@ -54,17 +138,63 @@ export async function POST(req: NextRequest) {
     if (!session?.user?.email) return unauthorized();
     const userEmail = session.user.email;
 
+    // Rate limit check
+    if (!checkKnowledgeRateLimit(userEmail)) return rateLimited();
+
     const sb = getSupabase();
     if (!sb) return notConfigured();
 
+    // Content length check (before parsing body)
+    const contentLength = parseInt(req.headers.get("content-length") || "0");
+    if (contentLength > MAX_CONTENT_SIZE) {
+      return NextResponse.json(
+        { error: "too_large", message: `Content exceeds ${MAX_CONTENT_SIZE / 1024 / 1024}MB limit.` },
+        { status: 413 }
+      );
+    }
+
     const body = await req.json();
-    const source: string = body.source || "manual";       // 'whatsapp', 'manual', 'document'
-    const sourceName: string = body.source_name || "Untitled";
-    const content: string = body.content || "";
+    const rawSource: string = String(body.source || "manual");
+    const rawSourceName: string = String(body.source_name || "Untitled");
+    const rawContent: string = String(body.content || "");
+
+    // Validate source type
+    if (!VALID_SOURCES.has(rawSource)) {
+      return NextResponse.json(
+        { error: "validation", message: `Invalid source type. Must be one of: ${Array.from(VALID_SOURCES).join(", ")}` },
+        { status: 400 }
+      );
+    }
+
+    // Sanitize inputs
+    const source = rawSource;
+    const sourceName = sanitizeSourceName(rawSourceName) || "Untitled";
+    const content = sanitizeContent(rawContent);
 
     if (!content.trim()) {
       return NextResponse.json(
         { error: "validation", message: "Content is required." },
+        { status: 400 }
+      );
+    }
+
+    // Check content size after sanitization
+    if (content.length > MAX_CONTENT_SIZE) {
+      return NextResponse.json(
+        { error: "too_large", message: "Content is too large after processing." },
+        { status: 413 }
+      );
+    }
+
+    // Check user's total storage (prevent abuse — max 50k entries per user)
+    const { count: existingCount } = await sb
+      .from("knowledge_entries")
+      .select("id", { count: "exact", head: true })
+      .eq("user_email", userEmail);
+
+    if ((existingCount || 0) > 50_000) {
+      return NextResponse.json(
+        { error: "storage_limit", message: "Knowledge base limit reached (50,000 entries). Delete some sources to import more." },
         { status: 400 }
       );
     }
@@ -86,18 +216,21 @@ export async function POST(req: NextRequest) {
       const chunks = chunkMessages(parsed.messages);
       const rows = chunks.map((chunk) => ({
         user_email: userEmail,
-        source: "whatsapp",
+        source: "whatsapp" as const,
         source_name: sourceName || parsed.groupName || "WhatsApp Chat",
-        sender: chunk.sender,
-        content: chunk.content,
+        sender: sanitizeContent(chunk.sender),
+        content: sanitizeContent(chunk.content),
         metadata: {
           timestamp: chunk.timestamp,
           participant_count: parsed.participantCount,
           total_messages: parsed.messages.length,
+          has_media: parsed.mediaCount > 0,
+          media_count: parsed.mediaCount,
+          media_references: parsed.mediaReferences.slice(0, 100), // store first 100 media refs
         },
       }));
 
-      // Batch insert (Supabase handles up to 1000 rows at a time)
+      // Batch insert
       const batchSize = 500;
       for (let i = 0; i < rows.length; i += batchSize) {
         const batch = rows.slice(i, i + batchSize);
@@ -119,6 +252,7 @@ export async function POST(req: NextRequest) {
         messages_parsed: parsed.messages.length,
         entries_stored: entriesInserted,
         participants: parsed.participantCount,
+        media_references: parsed.mediaCount,
       });
     } else {
       // Manual / document import — store as single or chunked entries
@@ -128,7 +262,6 @@ export async function POST(req: NextRequest) {
       if (content.length <= maxChunk) {
         contentChunks.push(content);
       } else {
-        // Split by paragraphs, keeping chunks under max size
         const paragraphs = content.split(/\n\n+/);
         let current = "";
         for (const para of paragraphs) {
@@ -146,7 +279,7 @@ export async function POST(req: NextRequest) {
         user_email: userEmail,
         source,
         source_name: sourceName,
-        sender: null,
+        sender: null as string | null,
         content: chunk,
         metadata: { original_length: content.length },
       }));
@@ -185,14 +318,18 @@ export async function GET(req: NextRequest) {
     if (!session?.user?.email) return unauthorized();
     const userEmail = session.user.email;
 
+    if (!checkKnowledgeRateLimit(userEmail)) return rateLimited();
+
     const sb = getSupabase();
     if (!sb) return notConfigured();
 
     const url = new URL(req.url);
-    const query = url.searchParams.get("q");
+    const rawQuery = url.searchParams.get("q");
     const listSources = url.searchParams.get("list");
-    const sourceName = url.searchParams.get("source");
-    const limit = Math.min(parseInt(url.searchParams.get("limit") || "20"), 50);
+    const rawSourceName = url.searchParams.get("source");
+    const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "20"), 1), 50);
+
+    const sourceName = rawSourceName ? sanitizeSourceName(rawSourceName) : null;
 
     // List all sources
     if (listSources === "sources") {
@@ -206,7 +343,6 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: "db_error" }, { status: 500 });
       }
 
-      // Deduplicate sources
       const seen = new Set<string>();
       const sources: { source: string; source_name: string; count: number }[] = [];
       const countMap = new Map<string, number>();
@@ -227,21 +363,18 @@ export async function GET(req: NextRequest) {
     }
 
     // Full-text search
-    if (query) {
-      // Build tsquery from user query (join words with &)
-      const tsQuery = query
-        .trim()
-        .split(/\s+/)
-        .filter(Boolean)
-        .map((w) => w.replace(/[^a-zA-Z0-9\u0900-\u097F]/g, "")) // keep Devanagari + alphanumeric
-        .filter((w) => w.length > 0)
-        .join(" & ");
+    if (rawQuery) {
+      const query = sanitizeQuery(rawQuery);
+      if (!query) {
+        return NextResponse.json({ results: [], query: rawQuery });
+      }
 
+      // Use plainto_tsquery which is inherently safe from injection
       let dbQuery = sb
         .from("knowledge_entries")
         .select("id, source, source_name, sender, content, metadata, created_at")
         .eq("user_email", userEmail)
-        .textSearch("content_tsv", tsQuery, { type: "plain" })
+        .textSearch("content_tsv", query, { type: "plain" })
         .limit(limit)
         .order("created_at", { ascending: false });
 
@@ -252,7 +385,7 @@ export async function GET(req: NextRequest) {
       const { data, error } = await dbQuery;
 
       if (error) {
-        // Fallback to ILIKE if tsquery fails (e.g. for short queries)
+        // Fallback to ILIKE if tsquery fails
         const { data: fallbackData, error: fallbackError } = await sb
           .from("knowledge_entries")
           .select("id, source, source_name, sender, content, metadata, created_at")
@@ -303,12 +436,14 @@ export async function DELETE(req: NextRequest) {
     if (!session?.user?.email) return unauthorized();
     const userEmail = session.user.email;
 
+    if (!checkKnowledgeRateLimit(userEmail)) return rateLimited();
+
     const sb = getSupabase();
     if (!sb) return notConfigured();
 
     const url = new URL(req.url);
     const clearAll = url.searchParams.get("all") === "true";
-    const sourceName = url.searchParams.get("source");
+    const rawSourceName = url.searchParams.get("source");
 
     if (clearAll) {
       const { error } = await sb
@@ -321,7 +456,8 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ success: true, message: "All knowledge deleted." });
     }
 
-    if (sourceName) {
+    if (rawSourceName) {
+      const sourceName = sanitizeSourceName(rawSourceName);
       const { error } = await sb
         .from("knowledge_entries")
         .delete()

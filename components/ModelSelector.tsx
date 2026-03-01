@@ -105,6 +105,11 @@ export function ModelSelector({ activeModel, onSelect }: ModelSelectorProps) {
                           <SpeedBadge speed={model.speed} />
                           <ProviderBadge provider={model.provider} />
                         </div>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          {model.supportsVision && <CapBadge label="Vision" color="text-sky-400 bg-sky-500/10" />}
+                          {model.supportsTools && <CapBadge label="Tools" color="text-amber-400 bg-amber-500/10" />}
+                          {model.hasThinking && <CapBadge label="Thinking" color="text-violet-400 bg-violet-500/10" />}
+                        </div>
                         <p className="text-[10px] text-slate-500 leading-snug truncate">
                           {model.description}
                         </p>
@@ -143,6 +148,14 @@ function ProviderBadge({ provider }: { provider: AIProvider }) {
   return (
     <span className={`text-[7px] px-1 py-0.5 rounded font-medium ${c.color}`}>
       {c.label}
+    </span>
+  );
+}
+
+function CapBadge({ label, color }: { label: string; color: string }) {
+  return (
+    <span className={`text-[7px] px-1 py-0.5 rounded font-medium ${color}`}>
+      {label}
     </span>
   );
 }

@@ -74,12 +74,12 @@ export const MODEL_OPTIONS: ModelOption[] = [
   {
     id: "gemini-2.0-flash",
     name: "Gemini 2.0 Flash",
-    description: "Google — vision + tools, high quality",
+    description: "Google — vision, tools, thinking, high quality",
     icon: "star",
     speed: "fast",
     supportsTools: true,
     supportsVision: true,
-    hasThinking: false,
+    hasThinking: true,
     provider: "gemini",
   },
   {
