@@ -79,20 +79,36 @@ const HAS_REASONING_CONTENT = new Set<string>([]);
 
 // Token limits per thinking mode — generous to avoid truncation
 const THINKING_MODE_TOKENS: Record<string, number> = {
-  fast: 16384,
+  fast: 8192,
   balanced: 16384,
   deep: 16384,
 };
 
 // Per-model completion caps (controls output token burn)
 const MODEL_COMPLETION_CAPS: Record<string, number> = {
-  "llama-3.3-70b": 4096,
+  "llama-3.3-70b": 8192,
   "gemma2-9b": 4096,
   "gpt-4o": 8192,
   "gpt-4.1": 8192,
   "gemini-2.0-flash": 8192,
   "gemini-1.5-flash": 8192,
 };
+
+// ── Provider-level rate-limit tracker ─────────────────────────────────
+// Tracks when a provider last hit 429, so we can proactively skip it.
+const providerCooldown = new Map<ProviderName, number>();
+const COOLDOWN_MS = 30_000; // Skip provider for 30s after a 429
+
+function isProviderCoolingDown(provider: ProviderName): boolean {
+  const until = providerCooldown.get(provider);
+  if (!until) return false;
+  if (Date.now() > until) { providerCooldown.delete(provider); return false; }
+  return true;
+}
+
+function markProviderRateLimited(provider: ProviderName) {
+  providerCooldown.set(provider, Date.now() + COOLDOWN_MS);
+}
 
 // ── In-Memory Rate Limiter ────────────────────────────────────────────
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -288,21 +304,24 @@ export async function POST(req: NextRequest) {
   const thinkingModeMax = THINKING_MODE_TOKENS[thinkingMode] || 4096;
 
   // ── Smart Auto-Routing by Thinking Mode ──────────────────────────────
-  // Instead of user-selected models, the system picks the best model(s)
-  // based on thinking mode and falls back silently across all providers.
+  // Each mode uses a curated set of models across providers.
+  // All selected models support tools. Spread across providers to avoid 429s.
   //
-  // Fast:     Groq (fastest inference) → Gemini Flash → GitHub
-  // Balanced: GPT-4.1 (best quality) → GPT-4o → Llama → Gemini
-  // Deep:     GPT-4.1 (primary) + review pass by a second model
+  // Fast (2 models):     GitHub GPT-4o (fast+tools) + Groq Llama (blazing)
+  // Balanced (3 models): GPT-4.1 (best reasoning) + Gemini 2.0 Flash (tools+vision) + Llama (fast backup)
+  // Deep (4 models):     GPT-4.1 (primary) + GPT-4o (review) + Gemini 2.0 Flash (cross-check) + Llama (backup)
   const THINKING_MODE_MODEL_PRIORITY: Record<string, string[]> = {
-    fast:     ["llama-3.3-70b", "gemma2-9b", "gemini-1.5-flash", "gemini-2.0-flash", "gpt-4o", "gpt-4.1"],
-    balanced: ["gpt-4.1", "gpt-4o", "llama-3.3-70b", "gemini-2.0-flash", "gemma2-9b", "gemini-1.5-flash"],
+    fast:     ["gpt-4o", "llama-3.3-70b", "gemini-2.0-flash", "gpt-4.1", "gemini-1.5-flash", "gemma2-9b"],
+    balanced: ["gpt-4.1", "gemini-2.0-flash", "llama-3.3-70b", "gpt-4o", "gemini-1.5-flash", "gemma2-9b"],
     deep:     ["gpt-4.1", "gpt-4o", "gemini-2.0-flash", "llama-3.3-70b", "gemini-1.5-flash", "gemma2-9b"],
   };
 
-  // Pick the first available model from the priority list
+  // Pick the first available model, skipping providers on cooldown
   const priorityList = THINKING_MODE_MODEL_PRIORITY[thinkingMode] || THINKING_MODE_MODEL_PRIORITY.balanced;
-  const modelId = priorityList.find(m => getClientForModel(m) !== null) || "gpt-4.1";
+  const modelId = priorityList.find(m => {
+    const cfg = MODEL_MAP[m];
+    return cfg && getClientForModel(m) !== null && !isProviderCoolingDown(cfg.provider);
+  }) || priorityList.find(m => getClientForModel(m) !== null) || "gpt-4.1";
   const maxTokens = Math.min(thinkingModeMax, MODEL_COMPLETION_CAPS[modelId] || thinkingModeMax);
   const wantsVisual = /(\bimage\b|\bdiagram\b|\billustration\b|\bvisuali[sz]e\b|\bdraw\b|\bshow\b.*\bstructure\b|\bshow\b.*\bprocess\b)/i.test(message);
 
@@ -427,7 +446,7 @@ export async function POST(req: NextRequest) {
     messages.push({ role: "user", content: contentParts });
   } else if (imageFiles.length > 0 && !modelSupportsVision) {
     // Model doesn't support vision — add image context as text description
-    const imageNote = `\n\n[The user attached ${imageFiles.length} image(s): ${imageFiles.map((f: Record<string, unknown>) => String(f.name || "image")).join(", ")}. This model doesn't support direct image analysis. Please let the user know you can see they attached images but recommend switching to GPT-4.1, GPT-4o, or Gemini for image/screenshot analysis.]`;
+    const imageNote = `\n\n[The user attached ${imageFiles.length} image(s): ${imageFiles.map((f: Record<string, unknown>) => String(f.name || "image")).join(", ")}. This model doesn't support direct image analysis. The system will automatically route to a vision-capable model. Please use the analyze_screenshot tool for image analysis.]`;
     messages.push({ role: "user", content: effectiveMessage + imageNote });
   } else if (oversizedCount > 0) {
     messages.push({ role: "user", content: effectiveMessage + `\n\n[The uploaded image(s) were too large to process. Please resize to under 1.5MB per image and try again.]` });
@@ -512,11 +531,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Newer models require max_completion_tokens, older ones use max_tokens
-    const tokenParam = USES_MAX_COMPLETION_TOKENS.has(modelId)
-      ? { max_completion_tokens: maxTokens }
-      : { max_tokens: maxTokens };
-
     // Track which round we're on for smarter timeout management
     let loopRound = 0;
 
@@ -524,7 +538,7 @@ export async function POST(req: NextRequest) {
     const wallClockStart = Date.now();
 
     // Helper: attempt an API call with automatic multi-provider fallback
-    // Uses thinking-mode priority list for model ordering
+    // Uses thinking-mode priority list, skips rate-limited providers
     const callWithFallback = async (msgs: OpenAI.Chat.ChatCompletionMessageParam[]) => {
       // Build model list from thinking mode priority, then fill in remaining
       const priorityModels = (THINKING_MODE_MODEL_PRIORITY[thinkingMode] || THINKING_MODE_MODEL_PRIORITY.balanced)
@@ -537,6 +551,13 @@ export async function POST(req: NextRequest) {
       const imageAttached = imageFiles.length > 0;
 
       let modelsToTry = [...modelsFromPriority, ...otherModels];
+
+      // Sort: move rate-limited providers to the end (don't remove — they're last resort)
+      modelsToTry = modelsToTry.sort((a, b) => {
+        const aCool = isProviderCoolingDown(MODEL_MAP[a]?.provider) ? 1 : 0;
+        const bCool = isProviderCoolingDown(MODEL_MAP[b]?.provider) ? 1 : 0;
+        return aCool - bCool;
+      });
 
       // If user attached images, prioritize vision-capable models first
       if (imageAttached) {
@@ -626,11 +647,16 @@ export async function POST(req: NextRequest) {
                 return m;
               });
 
+          const modelMaxTokens = Math.min(thinkingModeMax, MODEL_COMPLETION_CAPS[tryModelId] || thinkingModeMax);
+          const dynamicTokenParam = USES_MAX_COMPLETION_TOKENS.has(tryModelId)
+            ? { max_completion_tokens: modelMaxTokens }
+            : { max_tokens: modelMaxTokens };
+
           const invoke = async (inputMsgs: OpenAI.Chat.ChatCompletionMessageParam[], allowTools: boolean) =>
             await Promise.race([
               modelClient.chat.completions.create({
                 model: apiModel,
-                ...tokenParam,
+                ...dynamicTokenParam,
                 messages: inputMsgs,
                 tools: allowTools ? tools : undefined,
                 tool_choice: allowTools ? "auto" : undefined,
@@ -698,10 +724,13 @@ export async function POST(req: NextRequest) {
           }
           if (isModelMissing && isLastModel) throw err;
 
-          // Rate limited: ALWAYS try next model (each provider has separate quota)
-          if (isRateLimited && !isLastModel) {
-            await new Promise((r) => setTimeout(r, 100));
-            continue;
+          // Rate limited: mark provider for cooldown and try next model
+          if (isRateLimited) {
+            markProviderRateLimited(modelConfig.provider);
+            if (!isLastModel) {
+              await new Promise((r) => setTimeout(r, 100));
+              continue;
+            }
           }
 
           // Non-rate-limit errors: try up to 5 fallbacks before giving up
@@ -948,13 +977,13 @@ export async function POST(req: NextRequest) {
         const timeLeft = 54_000 - (Date.now() - wallClockStart);
         // Only attempt review if we have at least 12s left
         if (timeLeft > 12_000) {
-          // Pick a review model from a different provider than the primary
+          // Pick a review model from a different provider than the primary, not on cooldown
           const primaryProvider = MODEL_MAP[activeModelId]?.provider;
           const reviewCandidates = priorityList.filter(m => {
             const cfg = MODEL_MAP[m];
-            return cfg && cfg.provider !== primaryProvider && getClientForModel(m) !== null;
+            return cfg && cfg.provider !== primaryProvider && cfg.supportsTools && getClientForModel(m) !== null && !isProviderCoolingDown(cfg.provider);
           });
-          // Fallback: any model that's different from primary
+          // Fallback: any model that's different from primary (even if on cooldown)
           const allCandidates = reviewCandidates.length > 0
             ? reviewCandidates
             : ALL_MODEL_IDS.filter(m => m !== activeModelId && getClientForModel(m) !== null);
@@ -965,7 +994,7 @@ export async function POST(req: NextRequest) {
 
             if (reviewSetup) {
               try {
-                await writeEvent('status', { message: `Cross-checking with ${MODEL_NAMES[reviewModelId] || reviewModelId}...` });
+                await writeEvent('status', { message: 'Cross-checking accuracy with a second AI...' });
 
                 const reviewTimeout = Math.min(timeLeft - 3_000, 20_000);
                 const reviewMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
@@ -1085,7 +1114,7 @@ export async function POST(req: NextRequest) {
     let statusHint = "";
 
     if (statusCode === 429 || msg.includes("rate") || msg.includes("429")) {
-      userError = "All AI providers are rate-limited right now. GitHub Models allows 50/day, Groq and Gemini have per-minute limits. Please try again in a minute.";
+      userError = "All AI providers are temporarily rate-limited. SchoolIT AI spreads requests across multiple providers — please wait 30 seconds and try again.";
       statusHint = "rate_limited";
     } else if (statusCode === 401 || msg.includes("auth") || msg.includes("401") || msg.includes("api_key") || msg.includes("unauthorized") || msg.includes("invalid")) {
       userError = "API authentication failed. The server token may need to be refreshed — please contact the admin.";

@@ -91,7 +91,7 @@ export async function sendMessage(request: ChatRequest, onStatus?: (message: str
         continue;
       }
       if (msg.includes("timed out") || msg.includes("abort")) {
-        throw new Error("The request timed out. Try a shorter question or switch to a faster model.");
+        throw new Error("The request timed out. Try a shorter question or switch to Fast mode.");
       }
       throw new Error("Could not connect to the server. Please check your connection and try again.");
     }
