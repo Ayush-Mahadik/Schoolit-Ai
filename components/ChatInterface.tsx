@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { ChartRenderer } from "@/components/ChartRenderer";
@@ -40,6 +41,66 @@ function preprocessLatex(text: string): string {
   text = text.replace(/([^\n])\$\$/g, '$1\n$$');
   text = text.replace(/\$\$([^\n])/g, '$$\n$1');
   return text;
+}
+
+function isMermaidLike(code: string): boolean {
+  const normalized = code.trim();
+  return /^(graph\s+(TD|LR|RL|BT)|flowchart\s+(TD|LR|RL|BT)|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|mindmap|gantt|journey|pie\s+title|timeline)\b/i.test(normalized);
+}
+
+function parseMarkdownTable(code: string): { headers: string[]; rows: string[][] } | null {
+  const lines = code
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) return null;
+  if (!lines[0].includes("|") || !lines[1].includes("|")) return null;
+
+  const splitRow = (line: string) =>
+    line
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((c) => c.trim());
+
+  const headers = splitRow(lines[0]);
+  const separator = splitRow(lines[1]);
+
+  const isSeparator = separator.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s/g, "")));
+  if (!isSeparator || headers.length === 0) return null;
+
+  const rows = lines.slice(2).map(splitRow).filter((r) => r.length > 0);
+  return { headers, rows };
+}
+
+function RenderedTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
+  return (
+    <div className="overflow-x-auto my-3 rounded-lg border border-surface-3/60">
+      <table className="w-full border-collapse">
+        <thead className="bg-surface-2">
+          <tr>
+            {headers.map((h, i) => (
+              <th key={i} className="border border-surface-3/60 px-3 py-2 text-xs font-semibold text-slate-200 text-left">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, ri) => (
+            <tr key={ri} className="odd:bg-surface-1/40">
+              {headers.map((_, ci) => (
+                <td key={ci} className="border border-surface-3/60 px-3 py-2 text-sm text-slate-300 align-top">
+                  {row[ci] || ""}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRegenerate, subject, activeModel, thinkingStatus }: ChatInterfaceProps) {
@@ -384,13 +445,18 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
         <div className="rounded-2xl rounded-tl-sm px-4 py-3">
           <div className="prose-chat text-sm">
             <ReactMarkdown
-              remarkPlugins={[remarkMath]}
+              remarkPlugins={[remarkGfm, remarkMath]}
               rehypePlugins={[rehypeKatex]}
               components={{
                 code({ className, children, ...props }) {
                   const codeStr = String(children).trim();
+                  const isInline = !String(children).includes("\n") && !(className || "").startsWith("language-");
                   // Mermaid diagrams — rendered inline where the code block appears
                   if (/language-mermaid/i.test(className || "")) {
+                    return <MermaidRenderer code={codeStr} />;
+                  }
+                  // Mermaid-like code blocks without explicit language tag
+                  if (!isInline && isMermaidLike(codeStr)) {
                     return <MermaidRenderer code={codeStr} />;
                   }
                   // Manim animations
@@ -416,6 +482,13 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
                         return <ImageRenderer prompt={imgData.prompt} style={imgData.style || "diagram"} subject={imgData.subject} url={imgData.url} />;
                       }
                     } catch { /* fall through to code block */ }
+                  }
+                  // Render markdown-table-looking code blocks as actual tables
+                  if (!isInline) {
+                    const parsedTable = parseMarkdownTable(codeStr);
+                    if (parsedTable) {
+                      return <RenderedTable headers={parsedTable.headers} rows={parsedTable.rows} />;
+                    }
                   }
                   return <code className={className} {...props}>{children}</code>;
                 },

@@ -84,6 +84,16 @@ const THINKING_MODE_TOKENS: Record<string, number> = {
   deep: 16384,
 };
 
+// Per-model completion caps (controls output token burn)
+const MODEL_COMPLETION_CAPS: Record<string, number> = {
+  "llama-3.3-70b": 4096,
+  "gemma2-9b": 3072,
+  "gpt-4o": 8192,
+  "gpt-4.1": 8192,
+  "gemini-2.0-flash": 8192,
+  "gemini-1.5-flash": 8192,
+};
+
 // ── In-Memory Rate Limiter ────────────────────────────────────────────
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_NORMAL = 25; // Authenticated users: 25/min
@@ -249,11 +259,13 @@ export async function POST(req: NextRequest) {
     ? String(body.thinking_mode)
     : "balanced";
   const chainOfThought = thinkingMode === "deep" || body.chain_of_thought === true;
-  const maxTokens = THINKING_MODE_TOKENS[thinkingMode] || 4096;
+  const thinkingModeMax = THINKING_MODE_TOKENS[thinkingMode] || 4096;
 
   // Model selection
   const requestedModel = String(body.model || "gpt-4.1");
   const modelId = MODEL_MAP[requestedModel] ? requestedModel : "gpt-4.1";
+  const maxTokens = Math.min(thinkingModeMax, MODEL_COMPLETION_CAPS[modelId] || thinkingModeMax);
+  const wantsVisual = /(\bimage\b|\bdiagram\b|\billustration\b|\bvisuali[sz]e\b|\bdraw\b|\bshow\b.*\bstructure\b|\bshow\b.*\bprocess\b)/i.test(message);
 
   const history = Array.isArray(body.history) ? body.history : [];
   const contextFiles = Array.isArray(body.context_files) ? body.context_files : [];
@@ -736,6 +748,24 @@ export async function POST(req: NextRequest) {
       if (manimAnimations.length > 0) {
         for (const anim of manimAnimations) {
           finalText += `\n\n\`\`\`manim\n${anim.code}\n\`\`\``;
+        }
+      }
+
+      // If user asked for a visual but the model didn't call generate_image,
+      // create one automatically so the UI always has something renderable.
+      if (wantsVisual && generatedImages.length === 0) {
+        try {
+          const fallbackVisual = await executeTool("generate_image", {
+            prompt: message.slice(0, 300),
+            style: "diagram",
+            subject,
+          });
+          if (fallbackVisual.imageData) {
+            generatedImages.push(fallbackVisual.imageData as { prompt: string; style: string; subject?: string; url?: string });
+            toolCallsLog.push("generate_image(auto)");
+          }
+        } catch {
+          // best-effort only
         }
       }
 

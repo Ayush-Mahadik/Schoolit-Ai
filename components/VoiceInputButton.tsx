@@ -38,6 +38,7 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
   const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startBrowserRecognitionRef = useRef<(() => void) | null>(null);
 
   // Keep callback ref fresh
   useEffect(() => { onTranscriptRef.current = onTranscript; }, [onTranscript]);
@@ -114,16 +115,24 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
       });
       streamRef.current = stream;
 
-      // Use webm/opus if available, otherwise wav
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      // Prefer webm/opus; if browser rejects explicit mimeType, fall back safely
+      const preferredMimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : MediaRecorder.isTypeSupported("audio/webm")
         ? "audio/webm"
-        : "audio/mp4";
+        : "";
 
       audioChunksRef.current = [];
-      const recorder = new MediaRecorder(stream, { mimeType });
+      let recorder: MediaRecorder;
+      try {
+        recorder = preferredMimeType
+          ? new MediaRecorder(stream, { mimeType: preferredMimeType })
+          : new MediaRecorder(stream);
+      } catch {
+        recorder = new MediaRecorder(stream);
+      }
       mediaRecorderRef.current = recorder;
+      const actualMimeType = recorder.mimeType || preferredMimeType || "audio/webm";
 
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
@@ -131,7 +140,7 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
 
       recorder.onstop = async () => {
         // Assemble audio blob and send to Sarvam
-        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        const audioBlob = new Blob(audioChunksRef.current, { type: actualMimeType });
         audioChunksRef.current = [];
 
         if (audioBlob.size < 100) {
@@ -145,7 +154,12 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
 
         try {
           const formData = new FormData();
-          formData.append("file", audioBlob, `recording.${mimeType.includes("webm") ? "webm" : "mp4"}`);
+          const extension = actualMimeType.includes("webm")
+            ? "webm"
+            : actualMimeType.includes("mp4")
+            ? "mp4"
+            : "wav";
+          formData.append("file", audioBlob, `recording.${extension}`);
           formData.append("model", "saaras:v3");
           formData.append("language", "unknown"); // auto-detect
 
@@ -162,11 +176,21 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
             setIsListening(false);
             isListeningRef.current = false;
             // Auto-start browser recognition
+            setTimeout(() => {
+              startBrowserRecognitionRef.current?.();
+            }, 60);
             return;
           }
 
           if (!res.ok) {
             const data = await res.json().catch(() => ({}));
+            if (res.status >= 500) {
+              setBackend("browser");
+              setTimeout(() => {
+                startBrowserRecognitionRef.current?.();
+              }, 60);
+              return;
+            }
             throw new Error(data.message || `STT failed (${res.status})`);
           }
 
@@ -322,6 +346,10 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
       }
     }
   }, [stopListening]);
+
+  useEffect(() => {
+    startBrowserRecognitionRef.current = startBrowserRecognition;
+  }, [startBrowserRecognition]);
 
   // ── Main click handler ─────────────────────────────────────────────
   const handleClick = useCallback(() => {

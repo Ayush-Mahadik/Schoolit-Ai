@@ -134,9 +134,32 @@ export default function Home() {
       setThinkingStatus([]);
 
       try {
-        const history = (messages[activeSubject] || [])
-          .slice(-15)
-          .map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }));
+        const subjectMessages = messages[activeSubject] || [];
+        const isTokenSensitiveModel = settings.model === "llama-3.3-70b" || settings.model === "gemma2-9b";
+        const recentWindow = isTokenSensitiveModel ? 8 : 12;
+        const perMessageLimit = isTokenSensitiveModel ? 700 : 1400;
+
+        // Keep only recent dialogue as structured history
+        const history = subjectMessages
+          .slice(-recentWindow)
+          .map((m) => ({ role: m.role, content: m.content.replace(/\s+/g, " ").slice(0, perMessageLimit) }));
+
+        // Compress older dialogue into recall notes (long memory without huge token burn)
+        const olderMessages = subjectMessages.slice(0, -recentWindow).slice(-30);
+        const sessionRecall = olderMessages
+          .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content.replace(/\s+/g, " ").slice(0, 180)}`)
+          .join("\n");
+
+        const persistentMemory = isMemoryOwner() ? buildMemoryContext() : "";
+        const memory_context = [
+          sessionRecall
+            ? `## Recent Conversation Recall (compressed)\nUse these notes to remember earlier context:\n${sessionRecall}`
+            : "",
+          persistentMemory,
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+          .slice(0, isTokenSensitiveModel ? 2200 : 4200);
 
         const textFiles = currentFiles
           .filter((f) => !f.type.startsWith("image/"))
@@ -156,7 +179,7 @@ export default function Home() {
           history,
           context_files: [...textFiles, ...imageFiles],
           schedule_context: getScheduleContext(),
-          memory_context: isMemoryOwner() ? buildMemoryContext().slice(0, 3000) : "",
+          memory_context,
         }, (status: string) => {
           setThinkingStatus((prev) => [...prev, status]);
         });

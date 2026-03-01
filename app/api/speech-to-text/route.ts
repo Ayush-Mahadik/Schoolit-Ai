@@ -61,7 +61,9 @@ export async function POST(req: NextRequest) {
 
     // Forward to Sarvam AI
     const sarvamForm = new FormData();
-    sarvamForm.append("file", audioFile, "audio.wav");
+    const originalName = (audioFile as File).name || "audio.webm";
+    const safeName = /\.(webm|wav|mp3|m4a|mp4|ogg)$/i.test(originalName) ? originalName : "audio.webm";
+    sarvamForm.append("file", audioFile, safeName);
     sarvamForm.append("model", model);
     sarvamForm.append("language_code", language === "unknown" ? "unknown" : language);
     sarvamForm.append("with_timestamps", "false");
