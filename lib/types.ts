@@ -189,7 +189,6 @@ export interface ChatSettings {
   persona: string;
   useWebSearch: boolean;
   chainOfThought: boolean;
-  model: AIModel;
   thinkingMode: ThinkingMode;
 }
 

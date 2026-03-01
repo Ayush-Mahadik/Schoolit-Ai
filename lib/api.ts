@@ -5,7 +5,7 @@
  * Supports model selection, thinking modes, and file attachments.
  */
 
-import type { AIModel, ThinkingMode } from "@/lib/types";
+import type { ThinkingMode } from "@/lib/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -39,7 +39,6 @@ export interface ChatRequest {
   conversation_id?: string;
   use_web_search: boolean;
   chain_of_thought: boolean;
-  model: AIModel;
   thinking_mode: ThinkingMode;
   history?: { role: string; content: string }[];
   context_files?: { name: string; content: string; type: string }[];

@@ -19,7 +19,7 @@
  *   schoolit_profile            → CachedProfile (name, email, isAdmin)
  */
 
-import type { AIModel, ChatSettings, ScheduleItem } from "@/lib/types";
+import type { ChatSettings, ScheduleItem } from "@/lib/types";
 
 const PREFIX = "schoolit_";
 
@@ -109,7 +109,6 @@ export function getUserSettings(): ChatSettings {
     persona: "balanced",
     useWebSearch: true,
     chainOfThought: false,
-    model: "gpt-4o",
     thinkingMode: "balanced",
   });
 }

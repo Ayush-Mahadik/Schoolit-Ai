@@ -5,7 +5,6 @@ import { useSession } from "next-auth/react";
 import { AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatInterface } from "@/components/ChatInterface";
-import { ModelSelector } from "@/components/ModelSelector";
 import { ThinkingModeToggle } from "@/components/ThinkingModeToggle";
 import { ConversationHistory } from "@/components/ConversationHistory";
 import { sendMessage, fetchPersonas } from "@/lib/api";
@@ -20,7 +19,7 @@ import {
   isMemoryOwner,
 } from "@/lib/memory";
 import { Icon, Menu, Globe } from "@/components/Icons";
-import type { Message, Persona, Subject, ChatSettings, AIModel, ThinkingMode, ScheduleItem, MockTestData, QuestionPaperData } from "@/lib/types";
+import type { Message, Persona, Subject, ChatSettings, ThinkingMode, ScheduleItem, MockTestData, QuestionPaperData } from "@/lib/types";
 import type { FileAttachment } from "@/components/FileUploadButton";
 
 // ── Subject definitions (now with Lucide icon names) ─────────────────
@@ -45,7 +44,6 @@ export default function Home() {
     persona: "balanced",
     useWebSearch: true,
     chainOfThought: false,
-    model: "gpt-4o" as AIModel,
     thinkingMode: "balanced",
   });
   const [contextFiles, setContextFiles] = useState<Record<string, FileAttachment[]>>({});
@@ -63,7 +61,6 @@ export default function Home() {
     if (saved) {
       setSettings((prev) => ({
         ...prev,
-        model: saved.model || prev.model,
         thinkingMode: saved.thinkingMode || prev.thinkingMode,
         persona: saved.persona || prev.persona,
       }));
@@ -135,11 +132,9 @@ export default function Home() {
 
       try {
         const subjectMessages = messages[activeSubject] || [];
-        const isTokenSensitiveModel =
-          settings.model === "llama-3.3-70b" ||
-          settings.model === "gemma2-9b";
-        const recentWindow = isTokenSensitiveModel ? 8 : 12;
-        const perMessageLimit = isTokenSensitiveModel ? 700 : 1400;
+        // Auto-routing picks models per thinking mode; use generous defaults
+        const recentWindow = 12;
+        const perMessageLimit = 1400;
 
         // Keep only recent dialogue as structured history
         const history = subjectMessages
@@ -161,7 +156,7 @@ export default function Home() {
         ]
           .filter(Boolean)
           .join("\n\n")
-          .slice(0, isTokenSensitiveModel ? 2200 : 4200);
+          .slice(0, 4200);
 
         const textFiles = currentFiles
           .filter((f) => !f.type.startsWith("image/"))
@@ -176,7 +171,6 @@ export default function Home() {
           persona: settings.persona,
           use_web_search: settings.useWebSearch,
           chain_of_thought: settings.thinkingMode === "deep",
-          model: settings.model,
           thinking_mode: settings.thinkingMode,
           history,
           context_files: [...textFiles, ...imageFiles],
@@ -208,7 +202,7 @@ export default function Home() {
             messages: convoMessages,
             summary: summarizeConversation(convoMessages),
             createdAt: new Date().toISOString(),
-            model: response.model || settings.model,
+            model: response.model || "auto",
           };
           saveConversation(convoRecord);
 
@@ -241,7 +235,6 @@ export default function Home() {
           mockTests: response.mock_tests as MockTestData[] || undefined,
           questionPapers: response.question_papers as QuestionPaperData[] || undefined,
           searchImages: response.search_images || undefined,
-          model: (response.model as AIModel) || settings.model,
         };
 
         setMessages((prev) => ({
@@ -401,12 +394,6 @@ export default function Home() {
                 setSettings((prev) => ({ ...prev, thinkingMode: mode, chainOfThought: mode === "deep" }))
               }
             />
-            <ModelSelector
-              activeModel={settings.model}
-              onSelect={(model: AIModel) =>
-                setSettings((prev) => ({ ...prev, model }))
-              }
-            />
             <button
               onClick={() => setSettings((prev) => ({ ...prev, useWebSearch: !prev.useWebSearch }))}
               className={`p-2 rounded-lg transition-colors ${
@@ -433,12 +420,6 @@ export default function Home() {
                 setMessages((prev) => ({ ...prev, [activeSubject]: [] }));
                 setContextFiles((prev) => ({ ...prev, [activeSubject]: [] }));
               }}
-            />
-            <ModelSelector
-              activeModel={settings.model}
-              onSelect={(model: AIModel) =>
-                setSettings((prev) => ({ ...prev, model }))
-              }
             />
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -500,7 +481,6 @@ export default function Home() {
             onEditMessage={handleEditMessage}
             onRegenerate={handleRegenerate}
             subject={activeSubject}
-            activeModel={settings.model}
             thinkingStatus={thinkingStatus}
           />
         </div>

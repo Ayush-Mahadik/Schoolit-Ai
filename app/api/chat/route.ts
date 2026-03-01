@@ -287,9 +287,22 @@ export async function POST(req: NextRequest) {
   const chainOfThought = thinkingMode === "deep" || body.chain_of_thought === true;
   const thinkingModeMax = THINKING_MODE_TOKENS[thinkingMode] || 4096;
 
-  // Model selection
-  const requestedModel = String(body.model || "gpt-4.1");
-  const modelId = MODEL_MAP[requestedModel] ? requestedModel : "gpt-4.1";
+  // ── Smart Auto-Routing by Thinking Mode ──────────────────────────────
+  // Instead of user-selected models, the system picks the best model(s)
+  // based on thinking mode and falls back silently across all providers.
+  //
+  // Fast:     Groq (fastest inference) → Gemini Flash → GitHub
+  // Balanced: GPT-4.1 (best quality) → GPT-4o → Llama → Gemini
+  // Deep:     GPT-4.1 (primary) + review pass by a second model
+  const THINKING_MODE_MODEL_PRIORITY: Record<string, string[]> = {
+    fast:     ["llama-3.3-70b", "gemma2-9b", "gemini-1.5-flash", "gemini-2.0-flash", "gpt-4o", "gpt-4.1"],
+    balanced: ["gpt-4.1", "gpt-4o", "llama-3.3-70b", "gemini-2.0-flash", "gemma2-9b", "gemini-1.5-flash"],
+    deep:     ["gpt-4.1", "gpt-4o", "gemini-2.0-flash", "llama-3.3-70b", "gemini-1.5-flash", "gemma2-9b"],
+  };
+
+  // Pick the first available model from the priority list
+  const priorityList = THINKING_MODE_MODEL_PRIORITY[thinkingMode] || THINKING_MODE_MODEL_PRIORITY.balanced;
+  const modelId = priorityList.find(m => getClientForModel(m) !== null) || "gpt-4.1";
   const maxTokens = Math.min(thinkingModeMax, MODEL_COMPLETION_CAPS[modelId] || thinkingModeMax);
   const wantsVisual = /(\bimage\b|\bdiagram\b|\billustration\b|\bvisuali[sz]e\b|\bdraw\b|\bshow\b.*\bstructure\b|\bshow\b.*\bprocess\b)/i.test(message);
 
@@ -511,15 +524,19 @@ export async function POST(req: NextRequest) {
     const wallClockStart = Date.now();
 
     // Helper: attempt an API call with automatic multi-provider fallback
-    // Priority: user's chosen model → same-provider alt → other providers
+    // Uses thinking-mode priority list for model ordering
     const callWithFallback = async (msgs: OpenAI.Chat.ChatCompletionMessageParam[]) => {
-      // Build model list: primary first, then all others (skip unavailable)
-      const otherModels = ALL_MODEL_IDS.filter(m => m !== activeModelId && getClientForModel(m) !== null);
+      // Build model list from thinking mode priority, then fill in remaining
+      const priorityModels = (THINKING_MODE_MODEL_PRIORITY[thinkingMode] || THINKING_MODE_MODEL_PRIORITY.balanced)
+        .filter(m => getClientForModel(m) !== null);
+      // If activeModelId was swapped (e.g., for tool-heavy tasks), ensure it's first
+      const modelsFromPriority = activeModelId !== priorityModels[0]
+        ? [activeModelId, ...priorityModels.filter(m => m !== activeModelId)]
+        : priorityModels;
+      const otherModels = ALL_MODEL_IDS.filter(m => !modelsFromPriority.includes(m) && getClientForModel(m) !== null);
       const imageAttached = imageFiles.length > 0;
 
-      let modelsToTry = getClientForModel(activeModelId)
-        ? [activeModelId, ...otherModels]
-        : otherModels;
+      let modelsToTry = [...modelsFromPriority, ...otherModels];
 
       // If user attached images, prioritize vision-capable models first
       if (imageAttached) {
@@ -593,8 +610,9 @@ export async function POST(req: NextRequest) {
 
           console.log(`[${modelConfig.provider}] Trying ${apiModel} (timeout=${callTimeout}ms, round=${loopRound})`);
 
-          // Stream status: which model is being tried
-          await writeEvent('status', { message: `${MODEL_NAMES[tryModelId] || tryModelId} is thinking...` });
+          // Stream status: show friendly thinking message (hide model internals from user)
+          const thinkingLabel = i === 0 ? "SchoolIT AI is thinking..." : "Trying another approach...";
+          await writeEvent('status', { message: thinkingLabel });
 
           const stripToolMsgs = (inputMsgs: OpenAI.Chat.ChatCompletionMessageParam[]) =>
             inputMsgs
@@ -633,17 +651,16 @@ export async function POST(req: NextRequest) {
 
             // Retry same model without tools for compatibility/smaller payload
             if (useTools && looksLikeBadRequest) {
-              await writeEvent("status", { message: `${MODEL_NAMES[tryModelId] || tryModelId}: retrying in lightweight mode...` });
+              await writeEvent("status", { message: "Retrying in lightweight mode..." });
               response = await invoke(stripToolMsgs(filteredMsgs), false);
             } else {
               throw firstErr;
             }
           }
 
-          // If we fell back to a different model, remember it
+          // If we fell back to a different model, remember it (silent to user)
           if (tryModelId !== activeModelId) {
             console.log(`Model fallback: ${activeModelId} → ${tryModelId} [${modelConfig.provider}]`);
-            await writeEvent('status', { message: `Switched to ${MODEL_NAMES[tryModelId] || tryModelId}` });
             activeModelId = tryModelId;
           }
           return response;
@@ -921,6 +938,92 @@ export async function POST(req: NextRequest) {
       }
 
       await writeEvent('status', { message: 'Composing final answer...' });
+
+      // ── Deep Mode: Multi-Model Review Pass ────────────────────────
+      // In deep mode, after the primary model finishes, send the response
+      // to a DIFFERENT model for accuracy review and refinement.
+      // This combines the strengths of multiple models.
+      let reviewModelUsed: string | null = null;
+      if (thinkingMode === "deep" && finalText.length > 100) {
+        const timeLeft = 54_000 - (Date.now() - wallClockStart);
+        // Only attempt review if we have at least 12s left
+        if (timeLeft > 12_000) {
+          // Pick a review model from a different provider than the primary
+          const primaryProvider = MODEL_MAP[activeModelId]?.provider;
+          const reviewCandidates = priorityList.filter(m => {
+            const cfg = MODEL_MAP[m];
+            return cfg && cfg.provider !== primaryProvider && getClientForModel(m) !== null;
+          });
+          // Fallback: any model that's different from primary
+          const allCandidates = reviewCandidates.length > 0
+            ? reviewCandidates
+            : ALL_MODEL_IDS.filter(m => m !== activeModelId && getClientForModel(m) !== null);
+
+          if (allCandidates.length > 0) {
+            const reviewModelId = allCandidates[0];
+            const reviewSetup = getClientForModel(reviewModelId);
+
+            if (reviewSetup) {
+              try {
+                await writeEvent('status', { message: `Cross-checking with ${MODEL_NAMES[reviewModelId] || reviewModelId}...` });
+
+                const reviewTimeout = Math.min(timeLeft - 3_000, 20_000);
+                const reviewMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+                  {
+                    role: "system",
+                    content: `You are a senior academic reviewer for CBSE students. You've been given a student's question and another AI's response. Your job:
+
+1. CHECK for factual errors, wrong formulas, incorrect calculations, or misleading statements.
+2. CHECK for missing important steps, concepts, or edge cases.
+3. IMPROVE clarity, add any missing LaTeX formatting (use $inline$ and $$display$$), and enhance explanations.
+4. KEEP the same structure and tone — don't rewrite from scratch unless the original is seriously flawed.
+5. If the original response is already excellent, return it with only minor polish.
+6. PRESERVE all markdown formatting, code blocks, mermaid blocks, chart blocks, and image blocks exactly as they are.
+7. Do NOT add meta-commentary like "The original response was good". Just output the final improved answer directly.`
+                  },
+                  {
+                    role: "user",
+                    content: `Student's question: ${message}\n\n---\n\nAI Response to review:\n${finalText.slice(0, 12000)}`
+                  }
+                ];
+
+                const reviewResponse = await Promise.race([
+                  reviewSetup.client.chat.completions.create({
+                    model: reviewSetup.apiModel,
+                    max_tokens: Math.min(maxTokens, MODEL_COMPLETION_CAPS[reviewModelId] || 8192),
+                    messages: reviewMessages,
+                  }),
+                  new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error("Review timed out")), reviewTimeout)
+                  ),
+                ]);
+
+                const reviewText = reviewResponse.choices[0]?.message?.content?.trim();
+                if (reviewText && reviewText.length > 80) {
+                  // Strip any meta-commentary the reviewer might add
+                  const cleaned = reviewText
+                    .replace(/^(The original response|Here is the reviewed|I've reviewed|After reviewing)[\s\S]*?\n\n/i, "")
+                    .trim();
+
+                  if (cleaned.length > finalText.length * 0.3) {
+                    finalText = cleaned;
+                    reviewModelUsed = reviewModelId;
+                    console.log(`Deep mode review: ${activeModelId} → reviewed by ${reviewModelId}`);
+                  }
+                }
+              } catch (reviewErr) {
+                // Review is best-effort — if it fails, use the original response
+                console.warn("Deep mode review failed (using original):", reviewErr instanceof Error ? reviewErr.message : reviewErr);
+              }
+            }
+          }
+        }
+      }
+
+      const modelsUsed = reviewModelUsed
+        ? `${MODEL_NAMES[activeModelId] || activeModelId} + ${MODEL_NAMES[reviewModelUsed] || reviewModelUsed}`
+        : MODEL_NAMES[activeModelId] || activeModelId;
+
       await writeEvent('result', { data: {
         response: finalText,
         conversation_id: crypto.randomUUID(),
@@ -939,7 +1042,7 @@ export async function POST(req: NextRequest) {
         schedule_actions: scheduleActions,
         search_images: searchImages.length > 0 ? searchImages : undefined,
         error: null,
-        model: activeModelId,
+        model: modelsUsed,
         rate_limit_remaining: rateCheck.remaining,
       }});
       return;
@@ -997,10 +1100,10 @@ export async function POST(req: NextRequest) {
       userError = "Could not reach the AI service. This is usually a temporary issue — please try again.";
       statusHint = "network_error";
     } else if (msg.includes("timeout") || msg.includes("timed out") || msg.includes("deadline")) {
-      userError = "The request took too long. Try asking a shorter question or switch to a faster model like GPT-4o.";
+      userError = "The request took too long. Try asking a shorter question or switching to Fast mode.";
       statusHint = "timeout";
     } else if (statusCode === 404 || msg.includes("not found") || msg.includes("does not exist") || msg.includes("404")) {
-      userError = `The model "${modelId}" isn't available right now. Please try switching to GPT-4o.`;
+      userError = "The AI model isn't available right now. The system will auto-retry with alternatives — please try again.";
       statusHint = "model_not_found";
     } else if (msg.includes("content_filter") || msg.includes("content policy") || msg.includes("safety")) {
       userError = "Your message was flagged by the content safety filter. Please rephrase your question.";

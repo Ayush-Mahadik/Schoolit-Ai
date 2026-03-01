@@ -18,8 +18,7 @@ import { FileUploadButton, FileChips, type FileAttachment } from "@/components/F
 import { VoiceInputButton } from "@/components/VoiceInputButton";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { Icon, Send, Upload, Bot, Wrench, ExternalLink, Brain, Paperclip, Search, BarChart3, PenLine, Loader, Clock, Check, Sparkles } from "@/components/Icons";
-import type { Message, AIModel } from "@/lib/types";
-import { MODEL_OPTIONS } from "@/lib/types";
+import type { Message } from "@/lib/types";
 
 interface ChatInterfaceProps {
   messages: Message[];
@@ -28,7 +27,6 @@ interface ChatInterfaceProps {
   onEditMessage?: (messageId: string, newContent: string) => void;
   onRegenerate?: (messageId: string) => void;
   subject: string;
-  activeModel?: AIModel;
   thinkingStatus?: string[];
 }
 
@@ -120,7 +118,7 @@ function RenderedTable({ headers, rows }: { headers: string[]; rows: string[][] 
   );
 }
 
-export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRegenerate, subject, activeModel, thinkingStatus }: ChatInterfaceProps) {
+export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRegenerate, subject, thinkingStatus }: ChatInterfaceProps) {
   const [input, setInput] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<FileAttachment[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -267,7 +265,7 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
     }
   };
 
-  const modelInfo = MODEL_OPTIONS.find((m) => m.id === activeModel) || MODEL_OPTIONS[0];
+  const modelInfo = { name: "SchoolIT AI", icon: "brain" };
 
   return (
     <div
@@ -395,7 +393,7 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
             </button>
           </div>
           <p className="text-[10px] text-slate-600 mt-1.5 text-center font-medium">
-            SchoolIT AI <span className="text-blue-500">·By Ayush Mahadik·</span> {modelInfo.name} via GitHub Models <span className="text-blue-500">·</span> Responses may not always be accurate
+            SchoolIT AI <span className="text-blue-500">·By Ayush Mahadik·</span> Multi-Model Intelligence <span className="text-blue-500">·</span> Responses may not always be accurate
           </p>
         </div>
       </div>
