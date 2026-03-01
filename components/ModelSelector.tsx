@@ -9,6 +9,7 @@ const PROVIDER_LABELS: Record<AIProvider, { label: string; color: string }> = {
   github: { label: "GitHub", color: "bg-slate-500/15 text-slate-400" },
   groq: { label: "Groq", color: "bg-orange-500/15 text-orange-400" },
   gemini: { label: "Google", color: "bg-emerald-500/15 text-emerald-400" },
+  openrouter: { label: "OpenRouter", color: "bg-cyan-500/15 text-cyan-400" },
 };
 
 interface ModelSelectorProps {
@@ -44,7 +45,7 @@ export function ModelSelector({ activeModel, onSelect }: ModelSelectorProps) {
   }, [open]);
 
   // Group models by provider
-  const providerOrder: AIProvider[] = ["github", "groq", "gemini"];
+  const providerOrder: AIProvider[] = ["github", "groq", "gemini", "openrouter"];
   const groupedModels = providerOrder
     .map((p) => ({
       provider: p,

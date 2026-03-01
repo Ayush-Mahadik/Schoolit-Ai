@@ -68,7 +68,7 @@ const MODEL_MAP: Record<string, ModelConfig> = {
   "gpt-4.1":          { provider: "github", apiModel: "gpt-4.1",                    supportsTools: true,  supportsVision: true  },
   "gpt-4o":           { provider: "github", apiModel: "gpt-4o",                     supportsTools: true,  supportsVision: true  },
   "llama-3.3-70b":    { provider: "groq",   apiModel: "llama-3.3-70b-versatile",    supportsTools: true,  supportsVision: false },
-  "gemma2-9b":        { provider: "groq",   apiModel: "gemma2-9b-it",               supportsTools: true,  supportsVision: false },
+  "gemma2-9b":        { provider: "openrouter", apiModel: "google/gemma-2-9b-it:free", supportsTools: true,  supportsVision: true },
   "gemini-2.0-flash": { provider: "gemini", apiModel: "gemini-2.0-flash",           supportsTools: true,  supportsVision: true  },
   "gemini-1.5-flash": { provider: "gemini", apiModel: "gemini-1.5-flash",           supportsTools: true,  supportsVision: true  },
   "openrouter-auto":  { provider: "openrouter", apiModel: "openrouter/auto",        supportsTools: true,  supportsVision: true  },
@@ -286,6 +286,22 @@ export async function POST(req: NextRequest) {
   const scheduleContext = typeof body.schedule_context === "string" ? body.schedule_context : "";
   const memoryContext = typeof body.memory_context === "string" ? body.memory_context : "";
 
+  const hasYouTubeUrl = /(https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)[^\s]+)/i.test(message);
+  const wantsFlowchart = /(flowchart|diagram|mind ?map|process map)/i.test(message);
+  const wantsFlashcards = /(flashcards?|revision cards?|study cards?)/i.test(message);
+  const wantsQuiz = /(quiz me|mcq|test me|practice questions?)/i.test(message);
+  const hasFilesAttached = contextFiles.length > 0;
+
+  let toolHint = "";
+  if (hasYouTubeUrl) toolHint += "[ToolHint: Use summarize_video for the provided video URL.]\n";
+  if (wantsFlowchart) toolHint += "[ToolHint: Use generate_flowchart and render Mermaid output.]\n";
+  if (wantsFlashcards) toolHint += "[ToolHint: Use create_flashcards.]\n";
+  if (wantsQuiz) toolHint += "[ToolHint: Use generate_quiz.]\n";
+  if (hasFilesAttached) {
+    toolHint += "[ToolHint: Files are attached. Use analyze_document for docs and analyze_screenshot for images.]\n";
+  }
+  const effectiveMessage = toolHint ? `${message}\n\n${toolHint.trim()}` : message;
+
   // Build file context string
   let fileContext: string | undefined;
   if (contextFiles.length > 0) {
@@ -369,7 +385,7 @@ export async function POST(req: NextRequest) {
   if (safeImages.length > 0 && modelSupportsVision) {
     const sizeNote = oversizedCount > 0 ? `\n\n(${oversizedCount} image(s) skipped — too large. Please resize to under 1.5MB.)` : "";
     const contentParts: OpenAI.Chat.ChatCompletionContentPart[] = [
-      { type: "text", text: message + sizeNote },
+      { type: "text", text: effectiveMessage + sizeNote },
     ];
     for (const img of safeImages.slice(0, 3)) {
       contentParts.push({
@@ -381,11 +397,11 @@ export async function POST(req: NextRequest) {
   } else if (imageFiles.length > 0 && !modelSupportsVision) {
     // Model doesn't support vision — add image context as text description
     const imageNote = `\n\n[The user attached ${imageFiles.length} image(s): ${imageFiles.map((f: Record<string, unknown>) => String(f.name || "image")).join(", ")}. This model doesn't support direct image analysis. Please let the user know you can see they attached images but recommend switching to GPT-4.1, GPT-4o, or Gemini for image/screenshot analysis.]`;
-    messages.push({ role: "user", content: message + imageNote });
+    messages.push({ role: "user", content: effectiveMessage + imageNote });
   } else if (oversizedCount > 0) {
-    messages.push({ role: "user", content: message + `\n\n[The uploaded image(s) were too large to process. Please resize to under 1.5MB per image and try again.]` });
+    messages.push({ role: "user", content: effectiveMessage + `\n\n[The uploaded image(s) were too large to process. Please resize to under 1.5MB per image and try again.]` });
   } else {
-    messages.push({ role: "user", content: message });
+    messages.push({ role: "user", content: effectiveMessage });
   }
 
   // Build tool list
@@ -453,9 +469,20 @@ export async function POST(req: NextRequest) {
     const callWithFallback = async (msgs: OpenAI.Chat.ChatCompletionMessageParam[]) => {
       // Build model list: primary first, then all others (skip unavailable)
       const otherModels = ALL_MODEL_IDS.filter(m => m !== activeModelId && getClientForModel(m) !== null);
-      const modelsToTry = getClientForModel(activeModelId)
+      const imageAttached = imageFiles.length > 0;
+
+      let modelsToTry = getClientForModel(activeModelId)
         ? [activeModelId, ...otherModels]
         : otherModels;
+
+      // If user attached images, prioritize vision-capable models first
+      if (imageAttached) {
+        modelsToTry = modelsToTry.sort((a, b) => {
+          const av = MODEL_MAP[a]?.supportsVision ? 1 : 0;
+          const bv = MODEL_MAP[b]?.supportsVision ? 1 : 0;
+          return bv - av;
+        });
+      }
 
       if (modelsToTry.length === 0) {
         throw new Error("No AI providers are configured. Set GITHUB_TOKEN, GROQ_API_KEY, GEMINI_API_KEY, or OPENROUTER_API_KEY.");
@@ -581,6 +608,7 @@ export async function POST(req: NextRequest) {
           const isFatal = errMsg.includes("api_key") || errMsg.includes("unauthorized") || status === 401;
           const isPayloadTooLarge = status === 413 || errMsg.includes("too large");
           const isRateLimited = status === 429 || errMsg.includes("rate limit");
+          const isModelMissing = status === 404 || errMsg.includes("not found") || errMsg.includes("does not exist");
 
           console.warn(`[${modelConfig.provider}] ${apiModel} failed (status=${status}, rateLimited=${isRateLimited}, msg="${(err instanceof Error ? err.message : "").slice(0, 150)}"), isLast=${isLastModel}`);
           lastError = err;
@@ -600,14 +628,21 @@ export async function POST(req: NextRequest) {
           }
           if (isPayloadTooLarge && isLastModel) throw err;
 
+          // Model missing: always try next model
+          if (isModelMissing && !isLastModel) {
+            await new Promise((r) => setTimeout(r, 50));
+            continue;
+          }
+          if (isModelMissing && isLastModel) throw err;
+
           // Rate limited: ALWAYS try next model (each provider has separate quota)
           if (isRateLimited && !isLastModel) {
             await new Promise((r) => setTimeout(r, 100));
             continue;
           }
 
-          // Non-rate-limit errors: try up to 3 fallbacks (we now have 6 models across 3 providers)
-          if (!isRateLimited && modelsAttempted >= 3) throw err;
+          // Non-rate-limit errors: try up to 5 fallbacks before giving up
+          if (!isRateLimited && !isModelMissing && modelsAttempted >= 5) throw err;
           if (isLastModel) throw err;
 
           // Brief pause before trying next model

@@ -269,7 +269,7 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
 
   return (
     <div
-      className="flex-1 flex flex-col min-h-0 relative"
+      className="flex-1 flex flex-col min-h-0 relative overflow-x-hidden"
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
@@ -294,7 +294,7 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
       </AnimatePresence>
 
       {/* ── Messages Area ──────────────────────────────────────────── */}
-      <div ref={messagesScrollRef} className="flex-1 overflow-y-auto px-3 sm:px-4 py-6 relative">
+      <div ref={messagesScrollRef} className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-6 relative">
         {messages.length === 0 ? (
           <EmptyState subject={subject} onSuggestion={(text) => onSend(text)} />
         ) : (

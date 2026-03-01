@@ -44,7 +44,7 @@ export default function Home() {
   const [settings, setSettings] = useState<ChatSettings>({
     persona: "balanced",
     useWebSearch: true,
-    chainOfThought: true,
+    chainOfThought: false,
     model: "gpt-4o" as AIModel,
     thinkingMode: "balanced",
   });
@@ -173,7 +173,7 @@ export default function Home() {
           subject: activeSubject,
           persona: settings.persona,
           use_web_search: settings.useWebSearch,
-          chain_of_thought: settings.chainOfThought,
+          chain_of_thought: settings.thinkingMode === "deep",
           model: settings.model,
           thinking_mode: settings.thinkingMode,
           history,
@@ -394,7 +394,7 @@ export default function Home() {
             <ThinkingModeToggle
               activeMode={settings.thinkingMode}
               onSelect={(mode: ThinkingMode) =>
-                setSettings((prev) => ({ ...prev, thinkingMode: mode }))
+                setSettings((prev) => ({ ...prev, thinkingMode: mode, chainOfThought: mode === "deep" }))
               }
             />
             <ModelSelector
@@ -453,7 +453,7 @@ export default function Home() {
               <ThinkingModeToggle
                 activeMode={settings.thinkingMode}
                 onSelect={(mode: ThinkingMode) => {
-                  setSettings((prev) => ({ ...prev, thinkingMode: mode }));
+                  setSettings((prev) => ({ ...prev, thinkingMode: mode, chainOfThought: mode === "deep" }));
                 }}
               />
               <button

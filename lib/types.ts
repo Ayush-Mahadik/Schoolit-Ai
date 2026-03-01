@@ -12,7 +12,7 @@ export type AIModel =
   | "gemini-2.0-flash"
   | "gemini-1.5-flash";
 
-export type AIProvider = "github" | "groq" | "gemini";
+export type AIProvider = "github" | "groq" | "gemini" | "openrouter";
 
 export interface ModelOption {
   id: AIModel;
@@ -63,13 +63,13 @@ export const MODEL_OPTIONS: ModelOption[] = [
   {
     id: "gemma2-9b",
     name: "Gemma 2 9B",
-    description: "Google's open model — lightweight & efficient",
+    description: "Google Gemma via OpenRouter — lightweight fallback",
     icon: "sparkles",
     speed: "fast",
     supportsTools: true,
-    supportsVision: false,
+    supportsVision: true,
     hasThinking: false,
-    provider: "groq",
+    provider: "openrouter",
   },
   {
     id: "gemini-2.0-flash",
