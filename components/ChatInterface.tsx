@@ -334,9 +334,12 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
           </div>
         )}
 
-        {/* Grok-style right side marker panel */}
-        {assistantMessages.length >= 1 && (
-          <div className="hidden md:flex absolute right-3 top-1/2 -translate-y-1/2 z-20 flex-col gap-2 p-1.5 rounded-xl bg-black/25 border border-surface-4/50 backdrop-blur-sm shadow-lg">
+      </div>
+
+      {/* Grok-style right side marker panel (outside scroll area so it stays visible) */}
+      {assistantMessages.length >= 1 && (
+        <div className="hidden md:flex absolute right-2 top-16 bottom-24 z-20 items-center pointer-events-none">
+          <div className="pointer-events-auto flex flex-col gap-2 p-1.5 rounded-xl bg-black/25 border border-surface-4/50 backdrop-blur-sm shadow-lg">
             {assistantMessages.map((m, i) => {
               const isActive = activeAssistantId === m.id;
               return (
@@ -354,8 +357,8 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
               );
             })}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ── Input Area ─────────────────────────────────────────────── */}
       <div className="border-t border-surface-3 bg-surface-0 px-3 sm:px-4 py-3">
