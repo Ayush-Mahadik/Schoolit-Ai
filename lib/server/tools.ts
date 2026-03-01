@@ -580,6 +580,43 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
       },
     },
   },
+
+  // ── 18. Knowledge Base Search ─────────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "search_knowledge_base",
+      description:
+        "Search the user's stored knowledge base for relevant information. " +
+        "This includes imported WhatsApp group chats, uploaded documents, study notes, and any " +
+        "previously stored content. Use this tool when the user asks about something that may " +
+        "have been discussed in their groups, mentions a past conversation, or asks you to recall " +
+        "information from imported data. Also use when the user references 'the group', 'our chat', " +
+        "'what was said about…', or asks about study material they uploaded.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "Search query — keywords or topic to find in stored knowledge. " +
+              "Example: 'math homework chapter 5', 'what John said about the exam'.",
+          },
+          source_name: {
+            type: "string",
+            description:
+              "Optional: filter to a specific source/group name. " +
+              "Leave empty to search all stored knowledge.",
+          },
+          max_results: {
+            type: "integer",
+            description: "Maximum results to return (1-30). Default 15.",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -692,6 +729,9 @@ export async function executeTool(
 
     case "analyze_novel":
       return executeNovelAnalyzer(toolInput);
+
+    case "search_knowledge_base":
+      return await executeKnowledgeSearch(toolInput);
 
     default:
       return { result: { error: `Unknown tool: ${toolName}` } };
@@ -1992,4 +2032,136 @@ function executeNovelAnalyzer(
         (passage ? `\n\nAnalyze this passage: "${passage}"` : ""),
     },
   };
+}
+
+// ── Knowledge Base Search Executor ──────────────────────────────────
+
+async function executeKnowledgeSearch(
+  input: Record<string, unknown>
+): Promise<{ result: unknown }> {
+  const query = String(input.query || "");
+  const sourceName = input.source_name ? String(input.source_name) : undefined;
+  const maxResults = Math.min(Number(input.max_results) || 15, 30);
+
+  if (!query.trim()) {
+    return { result: { error: "A search query is required." } };
+  }
+
+  try {
+    // Use server-side Supabase directly (we're already on the server)
+    const { createClient } = await import("@supabase/supabase-js");
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!url || !key) {
+      return {
+        result: {
+          error: "Knowledge base not configured.",
+          message: "The knowledge base storage hasn't been set up yet. Ask your admin to configure Supabase.",
+        },
+      };
+    }
+
+    const sb = createClient(url, key, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    // Note: user_email will be injected by the chat route before calling this
+    const userEmail = String(input._user_email || "");
+    if (!userEmail) {
+      return { result: { error: "User context missing for knowledge search." } };
+    }
+
+    // Try full-text search first
+    const tsQuery = query
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((w) => w.replace(/[^a-zA-Z0-9]/g, ""))
+      .filter((w) => w.length > 1)
+      .join(" & ");
+
+    let results: Array<{
+      source: string;
+      source_name: string;
+      sender: string | null;
+      content: string;
+      created_at: string;
+    }> = [];
+
+    if (tsQuery) {
+      let dbQuery = sb
+        .from("knowledge_entries")
+        .select("source, source_name, sender, content, created_at")
+        .eq("user_email", userEmail)
+        .textSearch("content_tsv", tsQuery, { type: "plain" })
+        .limit(maxResults)
+        .order("created_at", { ascending: false });
+
+      if (sourceName) {
+        dbQuery = dbQuery.eq("source_name", sourceName);
+      }
+
+      const { data, error } = await dbQuery;
+      if (!error && data) results = data;
+    }
+
+    // Fallback to ILIKE for short/unusual queries
+    if (results.length === 0) {
+      let dbQuery = sb
+        .from("knowledge_entries")
+        .select("source, source_name, sender, content, created_at")
+        .eq("user_email", userEmail)
+        .ilike("content", `%${query}%`)
+        .limit(maxResults)
+        .order("created_at", { ascending: false });
+
+      if (sourceName) {
+        dbQuery = dbQuery.eq("source_name", sourceName);
+      }
+
+      const { data } = await dbQuery;
+      if (data) results = data;
+    }
+
+    if (results.length === 0) {
+      return {
+        result: {
+          found: false,
+          message: `No stored knowledge found matching "${query}". The user may not have imported any data yet, or the search terms don't match stored content.`,
+          suggestion: "You can let the user know that they can import WhatsApp chats or documents via the Knowledge Base settings.",
+        },
+      };
+    }
+
+    // Format results for the AI
+    const formatted = results.map((r) => ({
+      source_type: r.source,
+      source_name: r.source_name,
+      sender: r.sender || undefined,
+      content: r.content.length > 1000 ? r.content.slice(0, 1000) + "…" : r.content,
+      date: r.created_at,
+    }));
+
+    return {
+      result: {
+        found: true,
+        total_results: results.length,
+        query,
+        entries: formatted,
+        instruction:
+          "Use the retrieved knowledge entries to answer the user's question. " +
+          "Cite specific senders and dates when referencing WhatsApp messages. " +
+          "Be helpful and accurate based on the stored data.",
+      },
+    };
+  } catch (err) {
+    console.error("Knowledge search error:", err);
+    return {
+      result: {
+        error: "Failed to search the knowledge base.",
+        message: String(err),
+      },
+    };
+  }
 }

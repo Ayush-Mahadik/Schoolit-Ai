@@ -137,9 +137,7 @@ export default function Home() {
         const subjectMessages = messages[activeSubject] || [];
         const isTokenSensitiveModel =
           settings.model === "llama-3.3-70b" ||
-          settings.model === "gemma2-9b" ||
-          settings.model === "kimi-k2" ||
-          settings.model === "openrouter-auto";
+          settings.model === "gemma2-9b";
         const recentWindow = isTokenSensitiveModel ? 8 : 12;
         const perMessageLimit = isTokenSensitiveModel ? 700 : 1400;
 
@@ -478,6 +476,14 @@ export default function Home() {
               >
                 <Icon name="calendar" className="w-3.5 h-3.5" />
                 Schedule
+              </a>
+              <a
+                href="/knowledge"
+                onClick={() => setMobileMenuOpen(false)}
+                className="px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 bg-surface-3 text-slate-400"
+              >
+                <Icon name="book-open" className="w-3.5 h-3.5" />
+                Knowledge
               </a>
             </div>
           )}

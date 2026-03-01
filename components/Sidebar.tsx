@@ -70,6 +70,13 @@ export function Sidebar({
           <Calendar className="w-4 h-4" />
           Schedule
         </Link>
+        <Link
+          href="/knowledge"
+          className="w-full py-2 px-3 hover:bg-surface-3 text-slate-400 text-sm rounded-lg transition-colors flex items-center gap-2.5"
+        >
+          <Icon name="book-open" className="w-4 h-4" />
+          Knowledge Base
+        </Link>
         {isAdmin && (
           <button
             onClick={() => downloadAdminData()}

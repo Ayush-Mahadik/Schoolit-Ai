@@ -7,14 +7,12 @@
 export type AIModel =
   | "gpt-4.1"
   | "gpt-4o"
-  | "kimi-k2"
-  | "openrouter-auto"
   | "llama-3.3-70b"
   | "gemma2-9b"
   | "gemini-2.0-flash"
   | "gemini-1.5-flash";
 
-export type AIProvider = "github" | "groq" | "gemini" | "openrouter";
+export type AIProvider = "github" | "groq" | "gemini";
 
 export interface ModelOption {
   id: AIModel;
@@ -52,43 +50,21 @@ export const MODEL_OPTIONS: ModelOption[] = [
     provider: "github",
   },
   {
-    id: "kimi-k2",
-    name: "Kimi K2",
-    description: "OpenRouter Moonshot K2 — strong tools + vision + reasoning",
-    icon: "sparkles",
+    id: "llama-3.3-70b",
+    name: "Llama 3.3 70B",
+    description: "Groq — lightning fast, strong tool use",
+    icon: "flame",
     speed: "fast",
     supportsTools: true,
-    supportsVision: true,
-    hasThinking: true,
-    provider: "openrouter",
+    supportsVision: false,
+    hasThinking: false,
+    provider: "groq",
   },
   {
     id: "gemma2-9b",
     name: "Gemma 2 9B",
-    description: "OpenRouter Gemma — fast and reliable for file analysis",
-    icon: "flame",
-    speed: "fast",
-    supportsTools: true,
-    supportsVision: true,
-    hasThinking: false,
-    provider: "openrouter",
-  },
-  {
-    id: "openrouter-auto",
-    name: "OpenRouter Auto",
-    description: "Smart routing for reliability across tools, vision and long tasks",
-    icon: "shield",
-    speed: "medium",
-    supportsTools: true,
-    supportsVision: true,
-    hasThinking: true,
-    provider: "openrouter",
-  },
-  {
-    id: "llama-3.3-70b",
-    name: "Llama 3.3 70B",
-    description: "Groq speed fallback — text-first workflows",
-    icon: "zap",
+    description: "Groq — fast lightweight model for quick tasks",
+    icon: "sparkles",
     speed: "fast",
     supportsTools: true,
     supportsVision: false,
@@ -98,10 +74,10 @@ export const MODEL_OPTIONS: ModelOption[] = [
   {
     id: "gemini-2.0-flash",
     name: "Gemini 2.0 Flash",
-    description: "Google fallback — used when other providers are unavailable",
+    description: "Google — vision + tools, high quality",
     icon: "star",
     speed: "fast",
-    supportsTools: false,
+    supportsTools: true,
     supportsVision: true,
     hasThinking: false,
     provider: "gemini",
@@ -109,10 +85,10 @@ export const MODEL_OPTIONS: ModelOption[] = [
   {
     id: "gemini-1.5-flash",
     name: "Gemini 1.5 Flash",
-    description: "Google fallback — text and vision backup",
+    description: "Google — 1M context, reliable backup",
     icon: "shield",
     speed: "fast",
-    supportsTools: false,
+    supportsTools: true,
     supportsVision: true,
     hasThinking: false,
     provider: "gemini",

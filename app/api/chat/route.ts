@@ -25,7 +25,7 @@ const MAX_HISTORY_MESSAGES = 30;
 const VALID_PERSONAS = ["formal", "creative", "socratic", "balanced", "exam_coach"];
 
 // ── Provider Configuration ────────────────────────────────────────────
-type ProviderName = "github" | "groq" | "gemini" | "openrouter";
+type ProviderName = "github" | "groq" | "gemini";
 
 interface ProviderConfig {
   name: ProviderName;
@@ -49,11 +49,6 @@ const PROVIDERS: Record<ProviderName, ProviderConfig> = {
     baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
     getApiKey: () => process.env.GEMINI_API_KEY?.trim(),
   },
-  openrouter: {
-    name: "openrouter",
-    baseURL: "https://openrouter.ai/api/v1",
-    getApiKey: () => process.env.OPENROUTER_API_KEY?.trim(),
-  },
 };
 
 // Model → provider + actual API model name
@@ -67,16 +62,14 @@ interface ModelConfig {
 const MODEL_MAP: Record<string, ModelConfig> = {
   "gpt-4.1":          { provider: "github", apiModel: "gpt-4.1",                    supportsTools: true,  supportsVision: true  },
   "gpt-4o":           { provider: "github", apiModel: "gpt-4o",                     supportsTools: true,  supportsVision: true  },
-  "kimi-k2":          { provider: "openrouter", apiModel: "moonshotai/kimi-k2",    supportsTools: true,  supportsVision: true  },
   "llama-3.3-70b":    { provider: "groq",   apiModel: "llama-3.3-70b-versatile",    supportsTools: true,  supportsVision: false },
-  "gemma2-9b":        { provider: "openrouter", apiModel: "google/gemma-2-9b-it:free", supportsTools: true,  supportsVision: true },
-  "gemini-2.0-flash": { provider: "gemini", apiModel: "gemini-2.0-flash",           supportsTools: false, supportsVision: true  },
-  "gemini-1.5-flash": { provider: "gemini", apiModel: "gemini-1.5-flash",           supportsTools: false, supportsVision: true  },
-  "openrouter-auto":  { provider: "openrouter", apiModel: "openrouter/auto",        supportsTools: true,  supportsVision: true  },
+  "gemma2-9b":        { provider: "groq",   apiModel: "gemma2-9b-it",              supportsTools: true,  supportsVision: false },
+  "gemini-2.0-flash": { provider: "gemini", apiModel: "gemini-2.0-flash",           supportsTools: true,  supportsVision: true  },
+  "gemini-1.5-flash": { provider: "gemini", apiModel: "gemini-1.5-flash",           supportsTools: true,  supportsVision: true  },
 };
 
-// Ordered fallback preference: GitHub/OpenRouter first, then Groq, then Gemini
-const ALL_MODEL_IDS = ["gpt-4o", "gpt-4.1", "kimi-k2", "gemma2-9b", "openrouter-auto", "llama-3.3-70b", "gemini-2.0-flash", "gemini-1.5-flash"];
+// Ordered fallback preference: GitHub → Groq → Gemini (ALL FREE)
+const ALL_MODEL_IDS = ["gpt-4o", "gpt-4.1", "llama-3.3-70b", "gemma2-9b", "gemini-2.0-flash", "gemini-1.5-flash"];
 
 // Models that require max_completion_tokens instead of max_tokens
 const USES_MAX_COMPLETION_TOKENS = new Set<string>();
@@ -93,14 +86,12 @@ const THINKING_MODE_TOKENS: Record<string, number> = {
 
 // Per-model completion caps (controls output token burn)
 const MODEL_COMPLETION_CAPS: Record<string, number> = {
-  "kimi-k2": 8192,
   "llama-3.3-70b": 4096,
-  "gemma2-9b": 3072,
+  "gemma2-9b": 4096,
   "gpt-4o": 8192,
   "gpt-4.1": 8192,
   "gemini-2.0-flash": 8192,
   "gemini-1.5-flash": 8192,
-  "openrouter-auto": 8192,
 };
 
 // ── In-Memory Rate Limiter ────────────────────────────────────────────
@@ -148,13 +139,6 @@ function getClientForProvider(provider: ProviderName): OpenAI | null {
   const client = new OpenAI({
     baseURL: config.baseURL,
     apiKey,
-    defaultHeaders:
-      provider === "openrouter"
-        ? {
-            "HTTP-Referer": process.env.NEXTAUTH_URL || "https://schoolit-ai.vercel.app",
-            "X-Title": "SchoolIT AI",
-          }
-        : undefined,
   });
   clientCache.set(provider, client);
   return client;
@@ -418,10 +402,8 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
   const MODEL_NAMES: Record<string, string> = {
     "gpt-4.1": "GPT-4.1", "gpt-4o": "GPT-4o",
-    "kimi-k2": "Kimi K2",
     "llama-3.3-70b": "Llama 3.3 70B", "gemma2-9b": "Gemma 2 9B",
     "gemini-2.0-flash": "Gemini 2.0 Flash", "gemini-1.5-flash": "Gemini 1.5 Flash",
-    "openrouter-auto": "OpenRouter Auto",
   };
   const TOOL_LABELS: Record<string, string> = {
     web_search: "Searching the web", generate_chart: "Generating chart",
@@ -431,6 +413,7 @@ export async function POST(req: NextRequest) {
     analyze_document: "Analyzing document", analyze_screenshot: "Analyzing image",
     summarize_video: "Analyzing video",
     generate_image: "Generating image", create_manim_animation: "Creating animation",
+    search_knowledge_base: "Searching knowledge base",
   };
 
   const { readable, writable } = new TransformStream();
@@ -468,9 +451,8 @@ export async function POST(req: NextRequest) {
     if (taskNeedsReliableTools) {
       const currentConfig = MODEL_MAP[activeModelId];
       const needsToolCapable = !currentConfig?.supportsTools;
-      const isGeminiSelected = currentConfig?.provider === "gemini";
-      if (needsToolCapable || isGeminiSelected) {
-        const preferredToolModels = ["gemma2-9b", "kimi-k2", "openrouter-auto", "gpt-4o", "gpt-4.1", "llama-3.3-70b"];
+      if (needsToolCapable) {
+        const preferredToolModels = ["gpt-4o", "gpt-4.1", "llama-3.3-70b", "gemma2-9b", "gemini-2.0-flash"];
         const replacement = preferredToolModels.find((m) => getClientForModel(m) !== null);
         if (replacement) {
           activeModelId = replacement;
@@ -756,6 +738,10 @@ export async function POST(req: NextRequest) {
           }
           if (toolName === "analyze_screenshot" && fileContext && !toolInput.description) {
             toolInput.description = `Uploaded file content:\n${fileContext.slice(0, 5000)}`;
+          }
+          // Inject user email for knowledge base search
+          if (toolName === "search_knowledge_base") {
+            toolInput._user_email = userEmail;
           }
 
           try {
