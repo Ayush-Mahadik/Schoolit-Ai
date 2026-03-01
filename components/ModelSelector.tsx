@@ -45,7 +45,7 @@ export function ModelSelector({ activeModel, onSelect }: ModelSelectorProps) {
   }, [open]);
 
   // Group models by provider
-  const providerOrder: AIProvider[] = ["github", "groq", "gemini", "openrouter"];
+  const providerOrder: AIProvider[] = ["github", "openrouter", "groq", "gemini"];
   const groupedModels = providerOrder
     .map((p) => ({
       provider: p,

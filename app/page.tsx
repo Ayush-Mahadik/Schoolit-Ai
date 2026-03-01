@@ -135,7 +135,11 @@ export default function Home() {
 
       try {
         const subjectMessages = messages[activeSubject] || [];
-        const isTokenSensitiveModel = settings.model === "llama-3.3-70b" || settings.model === "gemma2-9b";
+        const isTokenSensitiveModel =
+          settings.model === "llama-3.3-70b" ||
+          settings.model === "gemma2-9b" ||
+          settings.model === "kimi-k2" ||
+          settings.model === "openrouter-auto";
         const recentWindow = isTokenSensitiveModel ? 8 : 12;
         const perMessageLimit = isTokenSensitiveModel ? 700 : 1400;
 
