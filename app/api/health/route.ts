@@ -1,17 +1,14 @@
 /**
- * Health Check API Route
+ * Health Check API Route — PROLAI
  */
 
 import { NextResponse } from "next/server";
+import { SITE_VERSION } from "@/lib/config";
 
 export async function GET() {
   return NextResponse.json({
     status: "healthy",
-    version: "2.1.0",
-    services: {
-      ai: !!process.env.GITHUB_TOKEN,
-      charts: true,
-      web_search: true,
-    },
+    version: SITE_VERSION,
+    timestamp: Date.now(),
   });
 }

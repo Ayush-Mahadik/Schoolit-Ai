@@ -1,74 +1,74 @@
 /**
- * Unified Data Store — PROLAI
- * ============================
- * SINGLE SOURCE OF TRUTH for all localStorage operations.
+ * Unified Data Store — PROLAI v3.0
+ * ==================================
+ * SINGLE SOURCE OF TRUTH for all client-side data operations.
  *
- * All keys use the consistent prefix "prolai_" with underscores.
- * This module handles: settings, conversations (metadata + messages),
- * schedule items, and user profile cache.
+ * Storage strategy:
+ *   - AES-256-GCM encrypted via lib/secure-storage.ts (Web Crypto)
+ *   - Automatic migration from unencrypted prolai_ and schoolit_ keys
+ *   - All data encrypted at rest — no plain-text JSON in localStorage
  *
- * Cloud sync goes through /api/conversations (server-side route).
- * This module is the only place that reads/writes localStorage for
- * user data — no other file should call localStorage directly.
- *
- * KEY MAP:
- *   prolai_settings           → ChatSettings (model, persona, etc.)
- *   prolai_conversations      → Conversation[] metadata list
- *   prolai_msgs_{id}          → Serialized Message[] for a conversation
- *   prolai_schedule           → ScheduleItem[] list
- *   prolai_profile            → CachedProfile (name, email, isAdmin)
+ * KEY MAP (encrypted with pe_ prefix internally):
+ *   settings           → ChatSettings (model, persona, etc.)
+ *   conversations      → Conversation[] metadata list
+ *   msgs_{id}          → Serialized Message[] for a conversation
+ *   schedule           → ScheduleItem[] list
+ *   profile            → CachedProfile (name, email, isAdmin)
  */
 
 import type { ChatSettings, ScheduleItem } from "@/lib/types";
+import {
+  secureGet,
+  secureSet,
+  secureRemove,
+  secureGetRaw,
+  secureSetRaw,
+  secureClearAll,
+  isSecureStorageAvailable,
+} from "@/lib/secure-storage";
 
-const PREFIX = "prolai_";
+// ── Synchronous fallback for SSR / initial render ─────────────────────
+// On first render we need sync data. We cache the last-loaded values
+// in memory and hydrate async after mount.
 
-// ── Core Helpers ──────────────────────────────────────────────────────
+const _cache = new Map<string, unknown>();
 
-function getItem<T>(key: string, fallback: T): T {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const raw = localStorage.getItem(PREFIX + key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
+function getCached<T>(key: string, fallback: T): T {
+  if (_cache.has(key)) return _cache.get(key) as T;
+  return fallback;
 }
 
-function setItem(key: string, value: unknown) {
+/**
+ * Hydrate encrypted storage into memory cache.
+ * Call this ONCE in the root layout/page useEffect.
+ */
+export async function hydrateStore(): Promise<void> {
   if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(PREFIX + key, JSON.stringify(value));
-  } catch {
-    // Storage full or blocked — silently ignore
-  }
-}
 
-function removeItem(key: string) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.removeItem(PREFIX + key);
-  } catch { /* ignore */ }
-}
+  // Run legacy migrations first (sync)
+  runStoreMigrations();
 
-function getRaw(key: string): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return localStorage.getItem(PREFIX + key);
-  } catch {
-    return null;
-  }
-}
+  // Load all data into memory cache
+  const [settings, conversations, schedule, profile] = await Promise.all([
+    secureGet<ChatSettings>("settings", {
+      persona: "balanced",
+      useWebSearch: true,
+      chainOfThought: false,
+      thinkingMode: "balanced",
+    }),
+    secureGet<ConversationMeta[]>("conversations", []),
+    secureGet<ScheduleItem[]>("schedule", []),
+    secureGet<CachedProfile | null>("profile", null),
+  ]);
 
-function setRaw(key: string, value: string) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(PREFIX + key, value);
-  } catch { /* ignore */ }
+  _cache.set("settings", settings);
+  _cache.set("conversations", conversations);
+  _cache.set("schedule", schedule);
+  _cache.set("profile", profile);
 }
 
 // ══════════════════════════════════════════════════════════════════════
-//  Migration — run once on first load to normalize old key formats
+//  Legacy Migration — run once to move unencrypted keys to encrypted
 // ══════════════════════════════════════════════════════════════════════
 
 let _migrated = false;
@@ -78,11 +78,12 @@ export function runStoreMigrations() {
   _migrated = true;
 
   try {
-    // Migrate "schoolit_*" prefix → "prolai_*" prefix (rebrand migration)
+    // Migrate "schoolit_*" prefix → "prolai_*" prefix first (these will then
+    // be picked up by secure-storage's automatic migration to pe_ prefix)
     const oldPrefix = "schoolit_";
     const keysToMigrate = Object.keys(localStorage).filter((k) => k.startsWith(oldPrefix));
     for (const oldKey of keysToMigrate) {
-      const newKey = PREFIX + oldKey.slice(oldPrefix.length);
+      const newKey = "prolai_" + oldKey.slice(oldPrefix.length);
       if (!localStorage.getItem(newKey)) {
         const value = localStorage.getItem(oldKey);
         if (value) localStorage.setItem(newKey, value);
@@ -92,20 +93,19 @@ export function runStoreMigrations() {
 
     // Migrate "schoolit-schedule" (hyphen) → "prolai_schedule" (underscore)
     const oldSchedule = localStorage.getItem("schoolit-schedule");
-    if (oldSchedule && !localStorage.getItem(PREFIX + "schedule")) {
-      localStorage.setItem(PREFIX + "schedule", oldSchedule);
+    if (oldSchedule && !localStorage.getItem("prolai_schedule")) {
+      localStorage.setItem("prolai_schedule", oldSchedule);
       localStorage.removeItem("schoolit-schedule");
     } else if (oldSchedule) {
-      // Both exist — merge (old into new, dedup by id)
       try {
         const oldItems = JSON.parse(oldSchedule) as ScheduleItem[];
-        const newItems = JSON.parse(localStorage.getItem(PREFIX + "schedule") || "[]") as ScheduleItem[];
+        const newItems = JSON.parse(localStorage.getItem("prolai_schedule") || "[]") as ScheduleItem[];
         const merged = new Map<string, ScheduleItem>();
         for (const item of newItems) merged.set(item.id, item);
         for (const item of oldItems) {
           if (!merged.has(item.id)) merged.set(item.id, item);
         }
-        localStorage.setItem(PREFIX + "schedule", JSON.stringify(Array.from(merged.values())));
+        localStorage.setItem("prolai_schedule", JSON.stringify(Array.from(merged.values())));
         localStorage.removeItem("schoolit-schedule");
       } catch { /* ignore merge errors */ }
     }
@@ -117,7 +117,7 @@ export function runStoreMigrations() {
 // ══════════════════════════════════════════════════════════════════════
 
 export function getUserSettings(): ChatSettings {
-  return getItem<ChatSettings>("settings", {
+  return getCached<ChatSettings>("settings", {
     persona: "balanced",
     useWebSearch: true,
     chainOfThought: false,
@@ -126,7 +126,8 @@ export function getUserSettings(): ChatSettings {
 }
 
 export function saveUserSettings(settings: ChatSettings) {
-  setItem("settings", settings);
+  _cache.set("settings", settings);
+  secureSet("settings", settings);
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -146,7 +147,7 @@ const MAX_CONVERSATIONS = 50;
 
 /** Get the list of conversation metadata */
 export function getConversationList(): ConversationMeta[] {
-  return getItem<ConversationMeta[]>("conversations", []);
+  return getCached<ConversationMeta[]>("conversations", []);
 }
 
 /** Save or update conversation metadata in the list */
@@ -163,50 +164,55 @@ export function saveConversationMeta(conv: ConversationMeta) {
   if (list.length > MAX_CONVERSATIONS) {
     const removed = list.slice(MAX_CONVERSATIONS);
     for (const r of removed) {
-      removeItem(`msgs_${r.id}`);
+      secureRemove(`msgs_${r.id}`);
     }
   }
 
-  setItem("conversations", list.slice(0, MAX_CONVERSATIONS));
+  const trimmed = list.slice(0, MAX_CONVERSATIONS);
+  _cache.set("conversations", trimmed);
+  secureSet("conversations", trimmed);
 }
 
 /** Overwrite the entire conversation list (used after merge/sort) */
 export function setConversationList(list: ConversationMeta[]) {
-  setItem("conversations", list.slice(0, MAX_CONVERSATIONS));
+  const trimmed = list.slice(0, MAX_CONVERSATIONS);
+  _cache.set("conversations", trimmed);
+  secureSet("conversations", trimmed);
 }
 
 /** Delete a conversation (metadata + messages) */
 export function deleteConversationById(id: string) {
   const list = getConversationList().filter((c) => c.id !== id);
-  setItem("conversations", list);
-  removeItem(`msgs_${id}`);
+  _cache.set("conversations", list);
+  secureSet("conversations", list);
+  secureRemove(`msgs_${id}`);
 }
 
 /** Delete ALL conversations */
 export function clearAllConversations() {
   const list = getConversationList();
   for (const c of list) {
-    removeItem(`msgs_${c.id}`);
+    secureRemove(`msgs_${c.id}`);
   }
-  removeItem("conversations");
+  _cache.set("conversations", []);
+  secureRemove("conversations");
 }
 
-/** Get stored messages for a specific conversation */
-export function getConversationMessages(id: string): string | null {
-  return getRaw(`msgs_${id}`);
+/** Get stored messages for a specific conversation (async — encrypted) */
+export async function getConversationMessages(id: string): Promise<string | null> {
+  return secureGetRaw(`msgs_${id}`);
 }
 
-/** Save messages for a specific conversation (raw JSON string) */
-export function saveConversationMessages(id: string, messagesJson: string) {
-  // Only save if under 500KB per conversation
+/** Save messages for a specific conversation (async — encrypted) */
+export async function saveConversationMessages(id: string, messagesJson: string) {
   if (messagesJson.length < 500_000) {
-    setRaw(`msgs_${id}`, messagesJson);
+    await secureSetRaw(`msgs_${id}`, messagesJson);
   }
 }
 
 /** Remove messages for a specific conversation */
 export function removeConversationMessages(id: string) {
-  removeItem(`msgs_${id}`);
+  secureRemove(`msgs_${id}`);
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -214,11 +220,12 @@ export function removeConversationMessages(id: string) {
 // ══════════════════════════════════════════════════════════════════════
 
 export function getScheduleItems(): ScheduleItem[] {
-  return getItem<ScheduleItem[]>("schedule", []);
+  return getCached<ScheduleItem[]>("schedule", []);
 }
 
 export function saveScheduleItems(items: ScheduleItem[]) {
-  setItem("schedule", items);
+  _cache.set("schedule", items);
+  secureSet("schedule", items);
 }
 
 export function addScheduleItems(newItems: ScheduleItem[]) {
@@ -226,7 +233,8 @@ export function addScheduleItems(newItems: ScheduleItem[]) {
   const updated = [...existing, ...newItems].sort(
     (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
   );
-  setItem("schedule", updated);
+  _cache.set("schedule", updated);
+  secureSet("schedule", updated);
 }
 
 /** Read schedule context string for AI prompt injection */
@@ -262,11 +270,12 @@ export interface CachedProfile {
 }
 
 export function getCachedProfile(): CachedProfile | null {
-  return getItem<CachedProfile | null>("profile", null);
+  return getCached<CachedProfile | null>("profile", null);
 }
 
 export function saveCachedProfile(profile: CachedProfile) {
-  setItem("profile", profile);
+  _cache.set("profile", profile);
+  secureSet("profile", profile);
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -274,12 +283,6 @@ export function saveCachedProfile(profile: CachedProfile) {
 // ══════════════════════════════════════════════════════════════════════
 
 export function clearAllUserData() {
-  if (typeof window === "undefined") return;
-  const keys = Object.keys(localStorage).filter(
-    (k) => k.startsWith(PREFIX) || k.startsWith("schoolit_") || k.startsWith("schoolit-")
-  );
-  keys.forEach((k) => localStorage.removeItem(k));
-  sessionStorage.removeItem("prolai-messages");
-  sessionStorage.removeItem("schoolit-messages");
+  _cache.clear();
+  secureClearAll();
 }
-

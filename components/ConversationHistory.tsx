@@ -463,12 +463,12 @@ export function ConversationHistory({
                             {items.map((conv) => (
                               <button
                                 key={conv.id}
-                                onClick={() => {
+                                onClick={async () => {
                                   // Save current conversation BEFORE switching to prevent data loss
                                   saveCurrentConversation();
-                                  // Load actual messages from unified store
+                                  // Load actual messages from unified store (encrypted)
                                   try {
-                                    const storedMsgs = getConversationMessages(conv.id);
+                                    const storedMsgs = await getConversationMessages(conv.id);
                                     if (storedMsgs) {
                                       const parsed = JSON.parse(storedMsgs) as Message[];
                                       // Restore Date objects from ISO strings

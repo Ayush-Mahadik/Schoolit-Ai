@@ -8,7 +8,7 @@ import { ChatInterface } from "@/components/ChatInterface";
 import { ThinkingModeToggle } from "@/components/ThinkingModeToggle";
 import { ConversationHistory } from "@/components/ConversationHistory";
 import { sendMessage, fetchPersonas } from "@/lib/api";
-import { getUserSettings, saveUserSettings, getScheduleContext, addScheduleItems, runStoreMigrations } from "@/lib/store";
+import { getUserSettings, saveUserSettings, getScheduleContext, addScheduleItems, runStoreMigrations, hydrateStore } from "@/lib/store";
 import {
   buildMemoryContext,
   saveConversation,
@@ -17,6 +17,7 @@ import {
   addMemoryFact,
   setMemoryUser,
   isMemoryOwner,
+  hydrateMemory,
 } from "@/lib/memory";
 import { Icon, Menu, Globe } from "@/components/Icons";
 import type { Message, Persona, Subject, ChatSettings, ThinkingMode, ScheduleItem, MockTestData, QuestionPaperData } from "@/lib/types";
@@ -73,17 +74,19 @@ export default function Home() {
 
   // ── Load saved settings & personas on mount ─────────────────────────
   useEffect(() => {
-    // Run storage migrations (e.g., schoolit-schedule → prolai_schedule)
-    runStoreMigrations();
+    // Hydrate encrypted storage into memory cache, then load settings
+    Promise.all([hydrateStore(), hydrateMemory()]).then(() => {
+      const saved = getUserSettings();
+      if (saved) {
+        setSettings((prev) => ({
+          ...prev,
+          thinkingMode: saved.thinkingMode || prev.thinkingMode,
+          persona: saved.persona || prev.persona,
+        }));
+      }
+    }).catch(console.error);
+
     fetchPersonas().then(setPersonas).catch(console.error);
-    const saved = getUserSettings();
-    if (saved) {
-      setSettings((prev) => ({
-        ...prev,
-        thinkingMode: saved.thinkingMode || prev.thinkingMode,
-        persona: saved.persona || prev.persona,
-      }));
-    }
     // Open sidebar by default on desktop
     if (window.innerWidth >= 1024) setSidebarOpen(true);
   }, []);
@@ -376,10 +379,10 @@ export default function Home() {
     <div className="flex h-[100dvh] overflow-hidden bg-surface-0">
       {/* ── Auth Wall Modal ──────────────────────────────────────── */}
       {showAuthWall && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-surface-1 border border-surface-3 rounded-2xl p-6 sm:p-8 max-w-md w-full text-center shadow-2xl">
-            <div className="w-16 h-16 rounded-2xl bg-brand-600/20 flex items-center justify-center mx-auto mb-4">
-              <Icon name="lock" className="w-8 h-8 text-brand-400" />
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-surface-1 border border-surface-3/60 rounded-2xl p-6 sm:p-8 max-w-md w-full text-center shadow-2xl shadow-black/40">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border border-blue-500/15 flex items-center justify-center mx-auto mb-4">
+              <Icon name="lock" className="w-8 h-8 text-blue-400" />
             </div>
             <h2 className="text-xl font-bold text-white mb-2">Sign in to continue</h2>
             <p className="text-slate-400 text-sm mb-6 leading-relaxed">
@@ -431,7 +434,7 @@ export default function Home() {
       {/* ── Main Content ─────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* ── Header ─────────────────────────────────────────────── */}
-        <header className="flex items-center justify-between px-3 sm:px-5 h-14 border-b border-surface-3 bg-surface-0 shrink-0 relative">
+        <header className="flex items-center justify-between px-3 sm:px-5 h-14 border-b border-surface-3/60 bg-surface-0/95 backdrop-blur-xl shrink-0 relative">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -442,7 +445,7 @@ export default function Home() {
             </button>
 
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 rounded-lg bg-blue-500 flex items-center justify-center shrink-0">
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shrink-0 shadow-lg shadow-blue-500/15">
                 <Icon name="graduation-cap" className="w-4 h-4 text-white" />
               </div>
               <div className="min-w-0">

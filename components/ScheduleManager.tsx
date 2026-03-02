@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Icon, Calendar, X, Plus, Trash2, Check, Clock, BookOpen } from "@/components/Icons";
 import type { ScheduleItem } from "@/lib/types";
+import { getScheduleItems, saveScheduleItems } from "@/lib/store";
 
 interface ScheduleManagerProps {
   onClose: () => void;
@@ -25,29 +26,13 @@ const TYPE_ICON_NAMES: Record<string, string> = {
   other: "clock",
 };
 
+// Use unified store — single source of truth for schedule data
 function getStoredSchedule(): ScheduleItem[] {
-  if (typeof window === "undefined") return [];
-  try {
-    let data = localStorage.getItem("prolai-schedule");
-    if (!data) {
-      // Backward compat: migrate old key
-      const oldData = localStorage.getItem("schoolit-schedule");
-      if (oldData) {
-        localStorage.setItem("prolai-schedule", oldData);
-        localStorage.removeItem("schoolit-schedule");
-        data = oldData;
-      }
-    }
-    return data ? JSON.parse(data) : [];
-  } catch {
-    return [];
-  }
+  return getScheduleItems();
 }
 
 function saveSchedule(items: ScheduleItem[]) {
-  if (typeof window !== "undefined") {
-    localStorage.setItem("prolai-schedule", JSON.stringify(items));
-  }
+  saveScheduleItems(items);
 }
 
 export function ScheduleManager({ onClose }: ScheduleManagerProps) {

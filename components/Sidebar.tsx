@@ -35,17 +35,17 @@ export function Sidebar({
       animate={{ x: 0 }}
       exit={{ x: -260 }}
       transition={{ type: "spring", damping: 25, stiffness: 200 }}
-      className="w-[260px] h-full bg-surface-1 border-r border-surface-3 flex flex-col shrink-0 z-40 fixed lg:relative"
+      className="w-[260px] h-full bg-surface-1/95 backdrop-blur-xl border-r border-surface-3/60 flex flex-col shrink-0 z-40 fixed lg:relative"
     >
       {/* ── Header ────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 h-14 border-b border-surface-3">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-blue-500 flex items-center justify-center">
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
             <GraduationCap className="w-4 h-4 text-white" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-white leading-tight">PROLAI</h2>
-            <p className="text-[10px] text-blue-400/60 font-medium">v2.0</p>
+            <h2 className="text-sm font-bold text-white leading-tight tracking-wide">PROLAI</h2>
+            <p className="text-[10px] text-blue-400/50 font-medium">v3.0</p>
           </div>
         </div>
         <button
@@ -59,7 +59,7 @@ export function Sidebar({
 
       {/* ── New Chat + Schedule ────────────────────────────────────── */}
       <div className="p-3 space-y-1.5">
-        <button className="w-full py-2 px-3 bg-surface-3 hover:bg-surface-4 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2.5">
+        <button className="w-full py-2 px-3 bg-gradient-to-r from-blue-600/15 to-indigo-600/10 hover:from-blue-600/25 hover:to-indigo-600/15 text-white text-sm font-medium rounded-lg transition-all duration-200 flex items-center gap-2.5 border border-blue-500/10 hover:border-blue-500/20">
           <Plus className="w-4 h-4 text-slate-400" />
           New Conversation
         </button>

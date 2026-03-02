@@ -15,11 +15,11 @@
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: #1c2940 transparent;
+  scrollbar-color: #1a2538 transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 4px;
+  width: 5px;
 }
 
 *::-webkit-scrollbar-track {
@@ -27,18 +27,19 @@
 }
 
 *::-webkit-scrollbar-thumb {
-  background: #1c2940;
+  background: linear-gradient(to bottom, #1a2538, #0f1a2e);
   border-radius: 100px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: #253550;
+  background: linear-gradient(to bottom, #253550, #1a2c44);
 }
 
 body {
   @apply bg-surface-0 text-slate-200 font-sans;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  letter-spacing: 0.01em;
 }
 
 /* Prevent iOS bounce scroll */
@@ -502,4 +503,70 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom);
   }
+}
+
+/* ── Professional gradient backgrounds ──────────────────────────────── */
+.bg-mesh-gradient {
+  background-image:
+    radial-gradient(at 20% 80%, rgba(59, 130, 246, 0.04) 0%, transparent 50%),
+    radial-gradient(at 80% 20%, rgba(99, 102, 241, 0.03) 0%, transparent 50%),
+    radial-gradient(at 50% 50%, rgba(139, 92, 246, 0.02) 0%, transparent 70%);
+}
+
+/* ── Glass morphism helpers ─────────────────────────────────────────── */
+.glass-panel {
+  @apply bg-surface-1/80 backdrop-blur-xl border border-surface-3/40;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+}
+
+.glass-card {
+  @apply bg-surface-2/60 backdrop-blur-sm border border-surface-3/40 rounded-xl;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.02) inset, 0 4px 24px rgba(0, 0, 0, 0.15);
+}
+
+/* ── Subtle hover glow ──────────────────────────────────────────────── */
+.hover-glow {
+  @apply transition-all duration-300;
+}
+
+.hover-glow:hover {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.06), 0 0 60px rgba(59, 130, 246, 0.02);
+}
+
+/* ── Smooth text rendering for headings ─────────────────────────────── */
+h1, h2, h3, h4, h5, h6 {
+  text-rendering: optimizeLegibility;
+}
+
+/* ── Input focus ring — professional blue glow ──────────────────────── */
+.input-glow:focus-within {
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3), 0 0 15px rgba(59, 130, 246, 0.08);
+}
+
+/* ── Fade edge for overflowing content ──────────────────────────────── */
+.fade-edge-bottom::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(to top, var(--bg-primary), transparent);
+  pointer-events: none;
+}
+
+/* ── Tool badge animation ───────────────────────────────────────────── */
+@keyframes tool-shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.tool-badge-shimmer {
+  background: linear-gradient(90deg,
+    transparent 25%,
+    rgba(59, 130, 246, 0.06) 50%,
+    transparent 75%
+  );
+  background-size: 200% 100%;
+  animation: tool-shimmer 3s ease-in-out infinite;
 }

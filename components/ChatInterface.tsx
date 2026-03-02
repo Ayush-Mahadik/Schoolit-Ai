@@ -296,7 +296,7 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
       </AnimatePresence>
 
       {/* ── Messages Area ──────────────────────────────────────────── */}
-      <div ref={messagesScrollRef} className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-6 relative">
+      <div ref={messagesScrollRef} className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-6 relative bg-mesh-gradient">
         {messages.length === 0 ? (
           <EmptyState subject={subject} onSuggestion={(text) => onSend(text)} />
         ) : (
@@ -368,11 +368,11 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
       )}
 
       {/* ── Input Area ─────────────────────────────────────────────── */}
-      <div className="border-t border-surface-3 bg-surface-0 px-3 sm:px-4 py-3">
+      <div className="border-t border-surface-3/60 bg-gradient-to-t from-surface-0 via-surface-0 to-surface-0/95 px-3 sm:px-4 py-3 backdrop-blur-xl">
         <div className="max-w-3xl mx-auto">
           <FileChips files={attachedFiles} onRemove={handleRemoveFile} />
 
-          <div className="flex items-end gap-2 bg-surface-2 rounded-2xl border border-surface-3 focus-within:border-surface-4 transition-colors px-3 py-2">
+          <div className="flex items-end gap-2 bg-surface-2/80 rounded-2xl border border-surface-3/60 focus-within:border-blue-500/30 focus-within:shadow-[0_0_15px_rgba(59,130,246,0.08)] transition-all duration-300 px-3 py-2">
             <FileUploadButton
               onFilesSelected={handleFilesSelected}
               disabled={isLoading}
@@ -394,13 +394,13 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
             <button
               onClick={handleSubmit}
               disabled={!input.trim() || isLoading}
-              className="p-2 rounded-xl bg-blue-500 hover:bg-blue-400 disabled:opacity-20 disabled:hover:bg-blue-500 text-white transition-colors shrink-0 font-bold"
+              className="p-2 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-400 hover:to-indigo-400 disabled:opacity-20 disabled:from-slate-600 disabled:to-slate-600 text-white transition-all duration-200 shrink-0 font-bold shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 disabled:shadow-none"
             >
               <Send className="w-4 h-4" />
             </button>
           </div>
-          <p className="text-[10px] text-slate-600 mt-1.5 text-center font-medium">
-            {SITE_NAME} <span className="text-blue-500">·By Ayush Mahadik·</span> Multi-Model Intelligence <span className="text-blue-500">·</span> Responses may not always be accurate
+          <p className="text-[10px] text-slate-600 mt-1.5 text-center font-medium tracking-wide">
+            {SITE_NAME} <span className="text-blue-500/60">•</span> Multi-Model Intelligence <span className="text-blue-500/60">•</span> <span className="text-slate-700">Responses may be inaccurate</span>
           </p>
         </div>
       </div>
@@ -503,8 +503,8 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
 
   return (
     <div className="flex items-start gap-2.5 max-w-[90%] sm:max-w-[85%] group">
-      <div className="w-7 h-7 rounded-full bg-surface-3 flex items-center justify-center shrink-0 mt-0.5">
-        <Bot className="w-3.5 h-3.5 text-brand-400" />
+      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500/15 to-indigo-500/15 border border-blue-500/10 flex items-center justify-center shrink-0 mt-0.5">
+        <Bot className="w-3.5 h-3.5 text-blue-400" />
       </div>
       <div className="space-y-2 min-w-0 flex-1">
         {/* Tool call badges */}
@@ -821,12 +821,12 @@ function ThinkingIndicator({ modelInfo, statusMessages = [] }: { modelInfo: { na
 
   return (
     <div className="flex items-start gap-2.5 max-w-[85%]">
-      <div className="w-7 h-7 rounded-full bg-surface-3 flex items-center justify-center shrink-0 mt-0.5">
-        <Bot className="w-3.5 h-3.5 text-brand-400" />
+      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500/15 to-indigo-500/15 border border-blue-500/10 flex items-center justify-center shrink-0 mt-0.5">
+        <Bot className="w-3.5 h-3.5 text-blue-400" />
       </div>
       <div className="space-y-2.5 min-w-0">
         {/* Main thinking header */}
-        <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-surface-2/80 border border-surface-4/50 backdrop-blur-sm">
+        <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-surface-2/60 border border-surface-4/30 backdrop-blur-sm shadow-lg shadow-blue-500/[0.03]">
           <div className="relative flex items-center justify-center w-5 h-5">
             <span className="absolute inset-0 rounded-full bg-blue-500/20 animate-ping" />
             <Sparkles className="w-4 h-4 text-blue-400 relative z-10" />
@@ -1079,23 +1079,26 @@ function EmptyState({ subject, onSuggestion }: { subject: string; onSuggestion: 
         transition={{ duration: 0.5 }}
         className="text-center space-y-6 w-full"
       >
-        <div className="w-12 h-12 mx-auto rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-          <Icon name="graduation-cap" className="w-6 h-6 text-blue-400" />
+        <div className="relative w-14 h-14 mx-auto">
+          <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-blue-500/20 to-indigo-500/20 blur-xl" />
+          <div className="relative w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500/15 to-indigo-500/15 border border-blue-500/20 flex items-center justify-center backdrop-blur-sm">
+            <Icon name="graduation-cap" className="w-7 h-7 text-blue-400" />
+          </div>
         </div>
         <div>
-          <h2 className="text-xl font-bold text-white mb-1">
+          <h2 className="text-xl font-bold text-white mb-1.5 tracking-tight">
             What can I help with?
           </h2>
-          <p className="text-sm text-slate-500 max-w-sm mx-auto">
-            Ask anything — I search the web, create charts, analyze screenshots,
-            solve problems step-by-step, and more. Try 🎤 voice input!
+          <p className="text-sm text-slate-500 max-w-sm mx-auto leading-relaxed">
+            Search the web, create charts, analyze images,
+            solve problems step-by-step, and more.
           </p>
           <button
             type="button"
             onClick={reshuffleSuggestions}
-            className="mt-2 text-[11px] px-2 py-1 rounded-md bg-surface-2 hover:bg-surface-3 border border-surface-4 text-slate-400 hover:text-white transition-colors"
+            className="mt-3 text-[11px] px-3 py-1.5 rounded-lg bg-surface-2/60 hover:bg-surface-3 border border-surface-4/60 text-slate-400 hover:text-white transition-all duration-200 hover:border-blue-500/20"
           >
-            Shuffle suggestions
+            ↻ Shuffle suggestions
           </button>
         </div>
 
@@ -1104,7 +1107,7 @@ function EmptyState({ subject, onSuggestion }: { subject: string; onSuggestion: 
             <button
               key={i}
               onClick={() => onSuggestion(suggestion)}
-              className="text-left px-4 py-3 bg-surface-2 hover:bg-surface-3 border border-surface-3 hover:border-blue-500/30 rounded-xl text-sm text-slate-400 hover:text-white transition-all duration-150 font-medium"
+              className="text-left px-4 py-3 bg-surface-2/60 hover:bg-surface-3/80 border border-surface-3/60 hover:border-blue-500/25 rounded-xl text-sm text-slate-400 hover:text-slate-200 transition-all duration-200 font-medium hover:shadow-[0_0_20px_rgba(59,130,246,0.06)]"
             >
               {suggestion}
             </button>

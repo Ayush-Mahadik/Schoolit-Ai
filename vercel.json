@@ -8,7 +8,7 @@
     {
       "source": "/(.*)",
       "has": [{ "type": "host", "value": "schoolit-ai.vercel.app" }],
-      "destination": "https://prolai.in/$1",
+      "destination": "https://prolai.me/$1",
       "permanent": true
     }
   ],

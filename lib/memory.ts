@@ -1,13 +1,13 @@
 /**
- * Admin Memory System — PROLAI
+ * Admin Memory System — PROLAI v3.0
  * ====================================
  * Persists conversation history, key facts, and user data
  * for admin accounts ONLY (configured via ADMIN_EMAILS env var).
- * Data is stored in browser localStorage with email-scoped keys.
+ * Data is AES-256-GCM encrypted at rest via secure-storage.
  * Memory is ONLY accessible to verified admin users.
  * Data is exported/imported as JSON "text file" format.
  *
- * STORAGE: Browser localStorage (per-browser, per-device).
+ * STORAGE: Encrypted browser storage (per-browser, per-device).
  * To persist across devices, use Export → Import.
  *
  * SECURITY: No admin emails are hardcoded in source code.
@@ -15,11 +15,16 @@
  * the ADMIN_EMAILS environment variable server-side.
  */
 
+import { secureGet, secureSet } from "@/lib/secure-storage";
+
 const MEMORY_PREFIX = "prolai_memory_";
 const OLD_MEMORY_PREFIX = "schoolit_memory_";
 const MAX_CONVERSATIONS = 100;
 const MAX_MEMORY_FACTS = 200;
 const MAX_SUMMARY_LENGTH = 500;
+
+// ── In-memory cache — sync reads, async writes ────────────────────────
+const _memCache = new Map<string, unknown>();
 
 // ── Migrate old "schoolit_memory_" keys → "prolai_memory_" ────────────
 if (typeof window !== "undefined") {
@@ -90,33 +95,50 @@ export interface AdminData {
   exportedAt: string;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────
+// ── Helpers — cache-first reads, encrypted async writes ───────────────
 
 function getItem<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   if (!isMemoryOwner()) return fallback; // Only admin can read memory
-  try {
-    const raw = localStorage.getItem(MEMORY_PREFIX + key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
+  const cacheKey = MEMORY_PREFIX + key;
+  if (_memCache.has(cacheKey)) return _memCache.get(cacheKey) as T;
+  return fallback;
 }
 
 function setItem(key: string, value: unknown) {
   if (typeof window === "undefined") return;
   if (!isMemoryOwner()) return; // Only admin can write memory
-  try {
-    localStorage.setItem(MEMORY_PREFIX + key, JSON.stringify(value));
-  } catch {
-    // Storage full — prune old conversations
+  const cacheKey = MEMORY_PREFIX + key;
+  _memCache.set(cacheKey, value);
+  // Fire-and-forget encrypted write
+  secureSet(cacheKey, value).catch(() => {
+    // If encrypted write fails, try pruning and retry
     pruneOldConversations();
-    try {
-      localStorage.setItem(MEMORY_PREFIX + key, JSON.stringify(value));
-    } catch {
-      // Still full — give up silently
-    }
-  }
+    secureSet(cacheKey, value).catch(() => {});
+  });
+}
+
+/**
+ * Hydrate memory data from encrypted storage into cache.
+ * Call this ONCE on mount alongside hydrateStore().
+ */
+export async function hydrateMemory(): Promise<void> {
+  if (typeof window === "undefined") return;
+
+  const keys = ["conversations", "facts", "profile"];
+  const defaults: Record<string, unknown> = {
+    conversations: [],
+    facts: [],
+    profile: { name: "", email: "", timezone: "Asia/Kolkata", lastActive: new Date().toISOString() },
+  };
+
+  await Promise.all(
+    keys.map(async (key) => {
+      const cacheKey = MEMORY_PREFIX + key;
+      const val = await secureGet(cacheKey, defaults[key] ?? null);
+      _memCache.set(cacheKey, val);
+    })
+  );
 }
 
 function pruneOldConversations() {
@@ -317,9 +339,15 @@ export function exportAdminData(): string {
 export function importAdminData(jsonStr: string): boolean {
   try {
     const data: AdminData = JSON.parse(jsonStr);
-    if (data.conversations) setItem("conversations", data.conversations);
-    if (data.memoryFacts) setItem("facts", data.memoryFacts);
-    if (data.userProfile) setItem("profile", data.userProfile);
+    if (data.conversations) {
+      setItem("conversations", data.conversations);
+    }
+    if (data.memoryFacts) {
+      setItem("facts", data.memoryFacts);
+    }
+    if (data.userProfile) {
+      setItem("profile", data.userProfile);
+    }
     return true;
   } catch {
     return false;
@@ -345,6 +373,16 @@ export function downloadAdminData() {
 
 export function clearAllMemory() {
   if (typeof window === "undefined") return;
+  // Clear cache
+  for (const key of Array.from(_memCache.keys())) {
+    if (key.startsWith(MEMORY_PREFIX)) {
+      _memCache.delete(key);
+    }
+  }
+  // Clear any remaining raw localStorage keys (legacy)
   const keys = Object.keys(localStorage).filter((k) => k.startsWith(MEMORY_PREFIX));
   keys.forEach((k) => localStorage.removeItem(k));
+  // Also clear encrypted versions (pe_ prefix for MEMORY_PREFIX keys)
+  const encKeys = Object.keys(localStorage).filter((k) => k.startsWith("pe_" + MEMORY_PREFIX));
+  encKeys.forEach((k) => localStorage.removeItem(k));
 }
