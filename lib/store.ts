@@ -1,9 +1,9 @@
 /**
- * Unified Data Store — SchoolIT AI
- * ==================================
+ * Unified Data Store — PROLAI
+ * ============================
  * SINGLE SOURCE OF TRUTH for all localStorage operations.
  *
- * All keys use the consistent prefix "schoolit_" with underscores.
+ * All keys use the consistent prefix "prolai_" with underscores.
  * This module handles: settings, conversations (metadata + messages),
  * schedule items, and user profile cache.
  *
@@ -12,16 +12,16 @@
  * user data — no other file should call localStorage directly.
  *
  * KEY MAP:
- *   schoolit_settings           → ChatSettings (model, persona, etc.)
- *   schoolit_conversations      → Conversation[] metadata list
- *   schoolit_msgs_{id}          → Serialized Message[] for a conversation
- *   schoolit_schedule           → ScheduleItem[] list
- *   schoolit_profile            → CachedProfile (name, email, isAdmin)
+ *   prolai_settings           → ChatSettings (model, persona, etc.)
+ *   prolai_conversations      → Conversation[] metadata list
+ *   prolai_msgs_{id}          → Serialized Message[] for a conversation
+ *   prolai_schedule           → ScheduleItem[] list
+ *   prolai_profile            → CachedProfile (name, email, isAdmin)
  */
 
 import type { ChatSettings, ScheduleItem } from "@/lib/types";
 
-const PREFIX = "schoolit_";
+const PREFIX = "prolai_";
 
 // ── Core Helpers ──────────────────────────────────────────────────────
 
@@ -78,7 +78,19 @@ export function runStoreMigrations() {
   _migrated = true;
 
   try {
-    // Migrate "schoolit-schedule" (hyphen) → "schoolit_schedule" (underscore)
+    // Migrate "schoolit_*" prefix → "prolai_*" prefix (rebrand migration)
+    const oldPrefix = "schoolit_";
+    const keysToMigrate = Object.keys(localStorage).filter((k) => k.startsWith(oldPrefix));
+    for (const oldKey of keysToMigrate) {
+      const newKey = PREFIX + oldKey.slice(oldPrefix.length);
+      if (!localStorage.getItem(newKey)) {
+        const value = localStorage.getItem(oldKey);
+        if (value) localStorage.setItem(newKey, value);
+      }
+      localStorage.removeItem(oldKey);
+    }
+
+    // Migrate "schoolit-schedule" (hyphen) → "prolai_schedule" (underscore)
     const oldSchedule = localStorage.getItem("schoolit-schedule");
     if (oldSchedule && !localStorage.getItem(PREFIX + "schedule")) {
       localStorage.setItem(PREFIX + "schedule", oldSchedule);
@@ -198,7 +210,7 @@ export function removeConversationMessages(id: string) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-//  Schedule Items (unified key: schoolit_schedule)
+//  Schedule Items (unified key: prolai_schedule)
 // ══════════════════════════════════════════════════════════════════════
 
 export function getScheduleItems(): ScheduleItem[] {
@@ -263,10 +275,11 @@ export function saveCachedProfile(profile: CachedProfile) {
 
 export function clearAllUserData() {
   if (typeof window === "undefined") return;
-  const keys = Object.keys(localStorage).filter((k) => k.startsWith(PREFIX));
+  const keys = Object.keys(localStorage).filter(
+    (k) => k.startsWith(PREFIX) || k.startsWith("schoolit_") || k.startsWith("schoolit-")
+  );
   keys.forEach((k) => localStorage.removeItem(k));
-  // Also clean up legacy hyphenated keys
-  localStorage.removeItem("schoolit-schedule");
-  localStorage.removeItem("schoolit-messages");
+  sessionStorage.removeItem("prolai-messages");
+  sessionStorage.removeItem("schoolit-messages");
 }
 

@@ -1,5 +1,5 @@
 /**
- * Server-Side Conversations API — SchoolIT AI
+ * Server-Side Conversations API — PROLAI
  * ==============================================
  * ALL Supabase operations go through this route.
  * No database credentials are ever exposed to the browser.

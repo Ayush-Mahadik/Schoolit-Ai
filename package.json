@@ -1,6 +1,6 @@
 {
-  "name": "schoolit-ai",
-  "version": "2.0.0",
+  "name": "prolai",
+  "version": "3.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",

@@ -1,5 +1,5 @@
 /**
- * Cloud Storage Service — SchoolIT AI
+ * Cloud Storage Service — PROLAI
  * =====================================
  * SECURITY: All database operations go through /api/conversations (server-side).
  * No Supabase credentials are exposed to the browser.

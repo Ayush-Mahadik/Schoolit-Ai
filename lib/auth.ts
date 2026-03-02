@@ -1,6 +1,6 @@
 /**
- * NextAuth Configuration — SchoolIT AI
- * ======================================
+ * NextAuth Configuration — PROLAI
+ * ================================
  * Google OAuth only (no guest access).
  * Admin detection via ADMIN_EMAILS env var.
  * User preferences persisted to localStorage via client-side hooks.

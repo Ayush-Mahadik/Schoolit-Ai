@@ -1,5 +1,5 @@
 /**
- * Knowledge Base API — SchoolIT AI (Hardened)
+ * Knowledge Base API — PROLAI (Hardened)
  * =============================================
  * Stores and searches imported knowledge (WhatsApp exports, notes, documents).
  * The AI uses this via the search_knowledge_base tool to recall stored info.

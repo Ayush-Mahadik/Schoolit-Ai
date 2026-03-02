@@ -26,7 +26,7 @@ export default function NotFound() {
           href="/"
           className="px-6 py-2.5 bg-blue-500 hover:bg-blue-400 text-white text-sm font-bold rounded-lg transition-colors inline-block"
         >
-          Back to SchoolIT AI
+          Back to PROLAI
         </Link>
       </div>
     </div>

@@ -1,5 +1,5 @@
 /**
- * WhatsApp Chat Export Parser — SchoolIT AI
+ * WhatsApp Chat Export Parser — PROLAI
  * ===========================================
  * Parses WhatsApp "Export Chat" .txt files into structured entries.
  * Now supports media references (images, videos, documents, audio, stickers).

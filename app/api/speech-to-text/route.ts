@@ -1,5 +1,5 @@
 /**
- * Speech-to-Text API Route — SchoolIT AI
+ * Speech-to-Text API Route — PROLAI
  * ========================================
  * Server-side proxy to Sarvam AI's Saaras v3 STT engine.
  * Accepts audio blob from the client, forwards it to Sarvam,

@@ -20,6 +20,7 @@ import { VoiceInputButton } from "@/components/VoiceInputButton";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { Icon, Send, Upload, Bot, Wrench, ExternalLink, Brain, Paperclip, Search, BarChart3, PenLine, Loader, Clock, Check, Sparkles } from "@/components/Icons";
 import type { Message } from "@/lib/types";
+import { SITE_NAME } from "@/lib/config";
 
 interface ChatInterfaceProps {
   messages: Message[];
@@ -266,7 +267,7 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
     }
   };
 
-  const modelInfo = { name: "SchoolIT AI", icon: "brain" };
+  const modelInfo = { name: SITE_NAME, icon: "brain" };
 
   return (
     <div
@@ -399,7 +400,7 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
             </button>
           </div>
           <p className="text-[10px] text-slate-600 mt-1.5 text-center font-medium">
-            SchoolIT AI <span className="text-blue-500">·By Ayush Mahadik·</span> Multi-Model Intelligence <span className="text-blue-500">·</span> Responses may not always be accurate
+            {SITE_NAME} <span className="text-blue-500">·By Ayush Mahadik·</span> Multi-Model Intelligence <span className="text-blue-500">·</span> Responses may not always be accurate
           </p>
         </div>
       </div>

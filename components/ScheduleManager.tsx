@@ -28,7 +28,16 @@ const TYPE_ICON_NAMES: Record<string, string> = {
 function getStoredSchedule(): ScheduleItem[] {
   if (typeof window === "undefined") return [];
   try {
-    const data = localStorage.getItem("schoolit-schedule");
+    let data = localStorage.getItem("prolai-schedule");
+    if (!data) {
+      // Backward compat: migrate old key
+      const oldData = localStorage.getItem("schoolit-schedule");
+      if (oldData) {
+        localStorage.setItem("prolai-schedule", oldData);
+        localStorage.removeItem("schoolit-schedule");
+        data = oldData;
+      }
+    }
     return data ? JSON.parse(data) : [];
   } catch {
     return [];
@@ -37,7 +46,7 @@ function getStoredSchedule(): ScheduleItem[] {
 
 function saveSchedule(items: ScheduleItem[]) {
   if (typeof window !== "undefined") {
-    localStorage.setItem("schoolit-schedule", JSON.stringify(items));
+    localStorage.setItem("prolai-schedule", JSON.stringify(items));
   }
 }
 

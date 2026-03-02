@@ -1,5 +1,5 @@
 /**
- * API Client — SchoolIT AI (v3.0)
+ * API Client — PROLAI (v3.0)
  *
  * Uses relative URLs so it works on both Vercel and localhost.
  * Supports model selection, thinking modes, and file attachments.

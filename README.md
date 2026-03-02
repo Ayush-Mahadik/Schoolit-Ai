@@ -1,15 +1,16 @@
-# SchoolIT AI
+# PROLAI (formerly SchoolIT AI)
 
 An intelligent AI-powered school assistant built with Next.js, featuring multi-model support, real-time tool usage, and a modern Grok-inspired dark interface.
 
-![SchoolIT AI](https://img.shields.io/badge/SchoolIT-AI-blue?style=for-the-badge)
+![PROLAI](https://img.shields.io/badge/PROLAI-AI-blue?style=for-the-badge)
 ![Next.js](https://img.shields.io/badge/Next.js-14-black?style=flat-square&logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue?style=flat-square&logo=typescript)
 ![Vercel](https://img.shields.io/badge/Deployed-Vercel-black?style=flat-square&logo=vercel)
 
 ## 🌐 Live Demo
 
-**[schoolit-ai.vercel.app](https://schoolit-ai.vercel.app)**
+**Primary:** **[prolai.in](https://prolai.in)**  
+**Legacy:** **[schoolit-ai.vercel.app](https://schoolit-ai.vercel.app)**
 
 ## ✨ Features
 
@@ -148,6 +149,11 @@ Required Vercel environment variables:
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `ADMIN_EMAILS`
+- `NEXT_PUBLIC_SITE_URL`
+- `NEXT_PUBLIC_OLD_SITE_URL`
+- `SELF_HOSTED_LLM_URL`
+- `SELF_HOSTED_LLM_MODEL_ID`
+- `SELF_HOSTED_LLM_API_KEY`
 
 ## 🤖 Available AI Tools
 

@@ -1,10 +1,13 @@
 /**
- * Chat API Route — SchoolIT AI
+ * Chat API Route — PROLAI v3.0
  * ==============================
- * Multi-provider support: GitHub Models → Groq → Google Gemini
- * Thinking modes (fast, balanced, deep)
- * Admin bypass for rate limiting
- * Agentic tool-use conversation loop
+ * Clean orchestrator importing from modular server-side files:
+ *   - providers.ts — AI provider config, model registry, client factory
+ *   - moderation.ts — Ban system, harassment detection, sanitization
+ *   - rate-limiter.ts — Tiered rate limiting with admin bypass
+ *   - security.ts — CSRF, origin validation, request fingerprinting
+ *   - prompts.ts — System prompt builder, personas
+ *   - tools.ts — Tool definitions & executors
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -13,10 +16,22 @@ import { getServerSession } from "next-auth";
 import { authOptions, isAdminEmail } from "@/lib/auth";
 import { buildSystemPrompt, VALID_SUBJECTS, type TeacherStyle } from "@/lib/server/prompts";
 import { TOOL_DEFINITIONS, executeTool } from "@/lib/server/tools";
+import {
+  MODEL_MAP, ALL_MODEL_IDS, MODEL_NAMES, MODEL_COMPLETION_CAPS,
+  THINKING_MODE_TOKENS, THINKING_MODE_MODEL_PRIORITY,
+  USES_MAX_COMPLETION_TOKENS, TOOL_LABELS,
+  getClientForModel, isProviderCoolingDown, markProviderRateLimited,
+  isGroqDailyBudgetExhausted, addGroqTokenUsage,
+} from "@/lib/server/providers";
+import {
+  banUser, isUserBanned, isHarassment, sanitizeString, detectPromptInjection,
+} from "@/lib/server/moderation";
+import { checkRateLimit } from "@/lib/server/rate-limiter";
+import { validateOrigin, getRequestIP } from "@/lib/server/security";
 
 // ── Next.js route config ──────────────────────────────────────────────
 export const dynamic = "force-dynamic";
-export const maxDuration = 60; // seconds — prevents Vercel from killing AI calls at 10s
+export const maxDuration = 60;
 
 // ── Constants ─────────────────────────────────────────────────────────
 const MAX_TOOL_ROUNDS = 8;
@@ -24,273 +39,13 @@ const MAX_MESSAGE_LENGTH = 12_000;
 const MAX_HISTORY_MESSAGES = 30;
 const VALID_PERSONAS = ["formal", "creative", "socratic", "balanced", "exam_coach"];
 
-// ── IP / Email Ban System ─────────────────────────────────────────────
-// Tracks banned IPs and emails with expiry. Persists in memory (resets on deploy).
-interface BanRecord {
-  reason: string;
-  bannedAt: number;
-  expiresAt: number;  // 0 = permanent
-  strikes: number;
-}
-const bannedIPs = new Map<string, BanRecord>();
-const bannedEmails = new Map<string, BanRecord>();
-const BAN_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-const PERMANENT_BAN_STRIKES = 3; // 3 strikes = permanent
-
-function banUser(ip: string, email: string, reason: string) {
-  const now = Date.now();
-  // IP ban
-  const ipRecord = bannedIPs.get(ip);
-  const ipStrikes = (ipRecord?.strikes || 0) + 1;
-  bannedIPs.set(ip, {
-    reason,
-    bannedAt: now,
-    expiresAt: ipStrikes >= PERMANENT_BAN_STRIKES ? 0 : now + BAN_DURATION_MS,
-    strikes: ipStrikes,
-  });
-  // Email ban (if authenticated)
-  if (email) {
-    const emailRecord = bannedEmails.get(email);
-    const emailStrikes = (emailRecord?.strikes || 0) + 1;
-    bannedEmails.set(email, {
-      reason,
-      bannedAt: now,
-      expiresAt: emailStrikes >= PERMANENT_BAN_STRIKES ? 0 : now + BAN_DURATION_MS,
-      strikes: emailStrikes,
-    });
-  }
-  console.warn(`[BAN] Banned IP=${ip} email=${email || "guest"} strikes=${ipStrikes} reason=${reason}`);
-}
-
-function isUserBanned(ip: string, email: string): BanRecord | null {
-  const now = Date.now();
-  // Check email ban first (more specific)
-  if (email) {
-    const emailBan = bannedEmails.get(email);
-    if (emailBan && (emailBan.expiresAt === 0 || now < emailBan.expiresAt)) {
-      return emailBan;
-    }
-    if (emailBan && now >= emailBan.expiresAt && emailBan.expiresAt > 0) {
-      bannedEmails.delete(email); // Expired
-    }
-  }
-  // Check IP ban
-  const ipBan = bannedIPs.get(ip);
-  if (ipBan && (ipBan.expiresAt === 0 || now < ipBan.expiresAt)) {
-    return ipBan;
-  }
-  if (ipBan && now >= ipBan.expiresAt && ipBan.expiresAt > 0) {
-    bannedIPs.delete(ip); // Expired
-  }
-  return null;
-}
-
-// ── Provider Configuration ────────────────────────────────────────────
-type ProviderName = "github" | "groq" | "gemini";
-
-interface ProviderConfig {
-  name: ProviderName;
-  baseURL: string;
-  getApiKey: () => string | undefined;
-}
-
-const PROVIDERS: Record<ProviderName, ProviderConfig> = {
-  github: {
-    name: "github",
-    baseURL: "https://models.inference.ai.azure.com",
-    getApiKey: () => process.env.GITHUB_TOKEN?.trim(),
-  },
-  groq: {
-    name: "groq",
-    baseURL: "https://api.groq.com/openai/v1",
-    getApiKey: () => process.env.GROQ_API_KEY?.trim(),
-  },
-  gemini: {
-    name: "gemini",
-    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
-    getApiKey: () => process.env.GEMINI_API_KEY?.trim(),
-  },
-};
-
-// Model → provider + actual API model name
-interface ModelConfig {
-  provider: ProviderName;
-  apiModel: string;       // the model name sent to the API
-  supportsTools: boolean;
-  supportsVision: boolean;
-}
-
-const MODEL_MAP: Record<string, ModelConfig> = {
-  "gpt-4.1":          { provider: "github", apiModel: "gpt-4.1",                    supportsTools: true,  supportsVision: true  },
-  "gpt-4o":           { provider: "github", apiModel: "gpt-4o",                     supportsTools: true,  supportsVision: true  },
-  "llama-3.3-70b":    { provider: "groq",   apiModel: "llama-3.3-70b-versatile",    supportsTools: true,  supportsVision: false },
-  "llama-3.1-8b":     { provider: "groq",   apiModel: "llama-3.1-8b-instant",     supportsTools: true,  supportsVision: false },
-  "gemini-2.0-flash": { provider: "gemini", apiModel: "gemini-2.0-flash",           supportsTools: true,  supportsVision: true  },
-  "gemini-1.5-flash": { provider: "gemini", apiModel: "gemini-1.5-flash",           supportsTools: true,  supportsVision: true  },
-};
-
-// Ordered fallback preference: GitHub → Groq → Gemini (ALL FREE)
-const ALL_MODEL_IDS = ["gpt-4o", "gpt-4.1", "llama-3.3-70b", "llama-3.1-8b", "gemini-2.0-flash", "gemini-1.5-flash"];
-
-// Models that require max_completion_tokens instead of max_tokens
-const USES_MAX_COMPLETION_TOKENS = new Set<string>();
-
-// Models that return reasoning_content (grok-3-mini style thinking)
-const HAS_REASONING_CONTENT = new Set<string>([]);
-
-// Token limits per thinking mode — generous to avoid truncation
-const THINKING_MODE_TOKENS: Record<string, number> = {
-  fast: 8192,
-  balanced: 16384,
-  deep: 16384,
-};
-
-// Per-model completion caps (controls output token burn)
-const MODEL_COMPLETION_CAPS: Record<string, number> = {
-  "llama-3.3-70b": 8192,
-  "llama-3.1-8b": 4096,
-  "gpt-4o": 8192,
-  "gpt-4.1": 8192,
-  "gemini-2.0-flash": 8192,
-  "gemini-1.5-flash": 8192,
-};
-
-// ── Provider-level rate-limit tracker ─────────────────────────────────
-// Tracks when a provider last hit 429, so we can proactively skip it.
-const providerCooldown = new Map<ProviderName, number>();
-const COOLDOWN_MS: Record<ProviderName, number> = {
-  github: 30_000,    // GitHub Models: 30s cooldown
-  groq: 90_000,      // Groq: 90s cooldown (very aggressive rate limits on free tier)
-  gemini: 30_000,    // Gemini: 30s cooldown
-};
-
-// ── Groq Daily Token Budget Tracker ───────────────────────────────────
-// Groq free tier: 100k tokens/day. Track usage to avoid hitting daily cap.
-const groqDailyTokens = { used: 0, resetAt: 0 };
-const GROQ_DAILY_LIMIT = 85_000; // Leave 15k buffer
-
-function getGroqDailyUsage(): number {
-  const now = Date.now();
-  if (now > groqDailyTokens.resetAt) {
-    // Reset at midnight UTC
-    const tomorrow = new Date();
-    tomorrow.setUTCHours(24, 0, 0, 0);
-    groqDailyTokens.used = 0;
-    groqDailyTokens.resetAt = tomorrow.getTime();
-  }
-  return groqDailyTokens.used;
-}
-
-function addGroqTokenUsage(tokens: number) {
-  getGroqDailyUsage(); // ensure reset
-  groqDailyTokens.used += tokens;
-}
-
-function isGroqDailyBudgetExhausted(): boolean {
-  return getGroqDailyUsage() >= GROQ_DAILY_LIMIT;
-}
-
-function isProviderCoolingDown(provider: ProviderName): boolean {
-  const until = providerCooldown.get(provider);
-  if (!until) return false;
-  if (Date.now() > until) { providerCooldown.delete(provider); return false; }
-  return true;
-}
-
-function markProviderRateLimited(provider: ProviderName) {
-  providerCooldown.set(provider, Date.now() + (COOLDOWN_MS[provider] || 30_000));
-}
-
-// ── In-Memory Rate Limiter ────────────────────────────────────────────
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_NORMAL = 25; // Authenticated users: 25/min
-const RATE_WINDOW_MS = 60_000;
-
-function checkRateLimit(ip: string, isAdmin: boolean): { allowed: boolean; remaining: number } {
-  // Admins bypass rate limiting
-  if (isAdmin) return { allowed: true, remaining: 999 };
-
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip);
-  const limit = RATE_LIMIT_NORMAL;
-
-  // Periodic cleanup
-  if (rateLimitMap.size > 10_000) {
-    const keysToDelete: string[] = [];
-    rateLimitMap.forEach((val, key) => {
-      if (now > val.resetAt) keysToDelete.push(key);
-    });
-    keysToDelete.forEach((k) => rateLimitMap.delete(k));
-  }
-
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return { allowed: true, remaining: limit - 1 };
-  }
-  if (entry.count >= limit) return { allowed: false, remaining: 0 };
-  entry.count++;
-  return { allowed: true, remaining: limit - entry.count };
-}
-
-// ── Multi-Provider Client Factory ─────────────────────────────────────
-const clientCache = new Map<ProviderName, OpenAI>();
-
-function getClientForProvider(provider: ProviderName): OpenAI | null {
-  const cached = clientCache.get(provider);
-  if (cached) return cached;
-
-  const config = PROVIDERS[provider];
-  const apiKey = config.getApiKey();
-  if (!apiKey) return null;
-
-  const client = new OpenAI({
-    baseURL: config.baseURL,
-    apiKey,
-  });
-  clientCache.set(provider, client);
-  return client;
-}
-
-function getClientForModel(modelId: string): { client: OpenAI; apiModel: string; config: ModelConfig } | null {
-  const config = MODEL_MAP[modelId];
-  if (!config) return null;
-  const client = getClientForProvider(config.provider);
-  if (!client) return null;
-  return { client, apiModel: config.apiModel, config };
-}
-
-// ── Input Sanitization ────────────────────────────────────────────────
-function sanitizeString(str: string, maxLen: number): string {
-  return str
-    .replace(/\x00/g, "")
-    .replace(/[\x01-\x08]/g, "")
-    .replace(/[\x0E-\x1F]/g, "") // Remove more control chars
-    .trim()
-    .slice(0, maxLen);
-}
-
-// ── Request validation ────────────────────────────────────────────────
-function validateOrigin(req: NextRequest): boolean {
-  const origin = req.headers.get("origin") || "";
-  const referer = req.headers.get("referer") || "";
-  // Allow same-origin and Vercel preview deployments
-  if (!origin && !referer) return true; // Server-side or non-browser
-  const allowed = [
-    "https://schoolit-ai.vercel.app",
-    "https://frontend-",  // Vercel preview deployments for this project
-    "http://localhost:3000",
-    "http://localhost:3001",
-  ];
-  return allowed.some((a) => origin.startsWith(a) || referer.startsWith(a));
-}
-
 // ══════════════════════════════════════════════════════════════════════
 //  POST /api/chat
 // ══════════════════════════════════════════════════════════════════════
 
 export async function POST(req: NextRequest) {
  try {
-  // Validate request origin (CSRF protection)
+  // ── CSRF / Origin validation ────────────────────────────────────────
   if (!validateOrigin(req)) {
     return NextResponse.json(
       { error: "forbidden", message: "Invalid request origin." },
@@ -298,7 +53,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Check auth & admin status
+  // ── Auth & Admin ────────────────────────────────────────────────────
   let isAdmin = false;
   let userEmail = "";
   try {
@@ -311,37 +66,40 @@ export async function POST(req: NextRequest) {
     // No session — treat as guest
   }
 
-  // Rate limit (admins bypass)
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const ip = getRequestIP(req);
 
-  // ── Check if user is banned ─────────────────────────────────────────
+  // ── Ban check ───────────────────────────────────────────────────────
   const banRecord = isUserBanned(ip, userEmail);
   if (banRecord && !isAdmin) {
     const isPermanent = banRecord.expiresAt === 0;
-    const remaining = isPermanent ? "permanent" : `${Math.ceil((banRecord.expiresAt - Date.now()) / (24 * 60 * 60 * 1000))} days remaining`;
+    const remaining = isPermanent
+      ? "permanent"
+      : `${Math.ceil((banRecord.expiresAt - Date.now()) / (24 * 60 * 60 * 1000))} days remaining`;
     return NextResponse.json({
-      response: `⛔ Your access to SchoolIT AI has been suspended (${remaining}). Reason: ${banRecord.reason}. Strikes: ${banRecord.strikes}/3.${isPermanent ? " This ban is permanent due to repeated violations." : " Please conduct yourself appropriately when the ban expires."}`,
+      response: `⛔ Your access to PROLAI has been suspended (${remaining}). Reason: ${banRecord.reason}. Strikes: ${banRecord.strikes}/3.${isPermanent ? " This ban is permanent due to repeated violations." : " Please conduct yourself appropriately when the ban expires."}`,
       conversation_id: crypto.randomUUID(),
-      sources: [],
-      tool_calls: [],
-      charts: [],
+      sources: [], tool_calls: [], charts: [],
       model: "moderation",
       moderation_action: "access_banned",
     }, { status: 200 });
   }
 
-  const rateCheck = checkRateLimit(ip, isAdmin);
+  // ── Rate limit (admins bypass) ──────────────────────────────────────
+  const rateCheck = checkRateLimit(ip, { isAdmin, tier: "free" });
   if (!rateCheck.allowed) {
     return NextResponse.json(
       { error: "rate_limited", message: "Too many requests. Please wait a moment and try again." },
       {
         status: 429,
-        headers: { "X-RateLimit-Remaining": "0" },
+        headers: {
+          "X-RateLimit-Remaining": "0",
+          ...(rateCheck.retryAfter ? { "Retry-After": String(rateCheck.retryAfter) } : {}),
+        },
       }
     );
   }
 
-  // Parse body
+  // ── Parse body ──────────────────────────────────────────────────────
   let body: Record<string, unknown>;
   try {
     body = await req.json();
@@ -352,7 +110,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Validate required fields
   const rawMessage = body.message;
   if (!rawMessage || typeof rawMessage !== "string" || rawMessage.trim().length === 0) {
     return NextResponse.json(
@@ -369,35 +126,34 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // ── Anti-harassment content filter ──────────────────────────────────
-  // Block harassing/derogatory messages about the creator or students
-  const lowerMsg = message.toLowerCase();
-  const harassmentPatterns = [
-    /ayush.*fem\s*boy/i,
-    /fem\s*boy.*ayush/i,
-    /is\s+ayush\s+(a|the)\s+fem/i,
-    /ayush.*\b(gay|trans|homo|queer|sissy|trap)\b/i,
-    /\b(gay|trans|homo|queer|sissy|trap|fem\s*boy)\b.*ayush/i,
-  ];
-  const isHarassment = harassmentPatterns.some(p => p.test(message));
-  if (isHarassment) {
-    // Actually ban the user
+  // ── Prompt injection detection ──────────────────────────────────────
+  if (detectPromptInjection(message) && !isAdmin) {
+    console.warn(`[SECURITY] Prompt injection attempt: IP=${ip}, email=${userEmail || "guest"}`);
+    return NextResponse.json({
+      response: "⚠️ Your message was flagged by PROLAI's security system. Please rephrase your question naturally.",
+      conversation_id: crypto.randomUUID(),
+      sources: [], tool_calls: [], charts: [],
+      model: "security",
+      moderation_action: "prompt_injection_blocked",
+    }, { status: 200 });
+  }
+
+  // ── Anti-harassment filter ──────────────────────────────────────────
+  if (isHarassment(message)) {
     banUser(ip, userEmail, "Anti-harassment policy violation");
     const banInfo = isUserBanned(ip, userEmail);
-    console.warn(`[MODERATION] User BANNED: IP=${ip}, email=${userEmail || "guest"}, strikes=${banInfo?.strikes || 1}`);
+    console.warn(`[MODERATION] BANNED: IP=${ip}, email=${userEmail || "guest"}, strikes=${banInfo?.strikes || 1}`);
     return NextResponse.json({
-      response: `⛔ This message violates SchoolIT AI's anti-harassment policy. Your access has been suspended for 7 days (Strike ${banInfo?.strikes || 1}/3). ${(banInfo?.strikes || 0) >= 2 ? "⚠️ One more violation will result in a PERMANENT ban." : "Harassment, bullying, and inappropriate personal remarks are strictly prohibited."}`,
+      response: `⛔ This message violates PROLAI's anti-harassment policy. Your access has been suspended for 7 days (Strike ${banInfo?.strikes || 1}/3). ${(banInfo?.strikes || 0) >= 2 ? "⚠️ One more violation = PERMANENT ban." : "Harassment and inappropriate remarks are strictly prohibited."}`,
       conversation_id: crypto.randomUUID(),
-      sources: [],
-      tool_calls: [],
-      charts: [],
+      sources: [], tool_calls: [], charts: [],
       model: "moderation",
       moderation_action: "access_suspended",
       penalty_days: 7,
-    }, { status: 200 }); // 200 so frontend renders the message
+    }, { status: 200 });
   }
 
-  // Validate optional fields
+  // ── Validate optional fields ────────────────────────────────────────
   const subject = VALID_SUBJECTS.includes(String(body.subject || "").toLowerCase())
     ? String(body.subject).toLowerCase()
     : "general";
@@ -406,33 +162,18 @@ export async function POST(req: NextRequest) {
     : "balanced";
   const useWebSearch = body.use_web_search !== false;
 
-  // Thinking mode
   const thinkingMode = ["fast", "balanced", "deep"].includes(String(body.thinking_mode || ""))
     ? String(body.thinking_mode)
     : "balanced";
   const chainOfThought = thinkingMode === "deep" || body.chain_of_thought === true;
   const thinkingModeMax = THINKING_MODE_TOKENS[thinkingMode] || 4096;
 
-  // ── Smart Auto-Routing by Thinking Mode ──────────────────────────────
-  // Each mode uses a curated set of models across providers.
-  // All selected models support tools. Spread across providers to avoid 429s.
-  //
-  // Fast (2 models):     GPT-4o (fast+tools) + Gemini Flash (vision+tools) → Groq only as backup
-  // Balanced (3 models): GPT-4.1 (best reasoning) + Gemini 2.0 Flash (tools+vision) + GPT-4o (fast backup)
-  // Deep (4 models):     GPT-4.1 (primary) + GPT-4o (review) + Gemini 2.0 Flash (cross-check) + Llama (backup)
-  const THINKING_MODE_MODEL_PRIORITY: Record<string, string[]> = {
-    fast:     ["gpt-4o", "gemini-2.0-flash", "llama-3.1-8b", "gpt-4.1", "gemini-1.5-flash", "llama-3.3-70b"],
-    balanced: ["gpt-4.1", "gemini-2.0-flash", "gpt-4o", "llama-3.1-8b", "gemini-1.5-flash", "llama-3.3-70b"],
-    deep:     ["gpt-4.1", "gpt-4o", "gemini-2.0-flash", "llama-3.3-70b", "gemini-1.5-flash", "llama-3.1-8b"],
-  };
-
-  // Pick the first available model, skipping providers on cooldown
+  // ── Smart Auto-Routing by Thinking Mode ─────────────────────────────
   const priorityList = THINKING_MODE_MODEL_PRIORITY[thinkingMode] || THINKING_MODE_MODEL_PRIORITY.balanced;
   const modelId = priorityList.find(m => {
     const cfg = MODEL_MAP[m];
     if (!cfg || !getClientForModel(m)) return false;
     if (isProviderCoolingDown(cfg.provider)) return false;
-    // Skip Groq models if daily token budget is exhausted
     if (cfg.provider === "groq" && isGroqDailyBudgetExhausted()) return false;
     return true;
   }) || priorityList.find(m => getClientForModel(m) !== null) || "gpt-4.1";
@@ -444,6 +185,7 @@ export async function POST(req: NextRequest) {
   const scheduleContext = typeof body.schedule_context === "string" ? body.schedule_context : "";
   const memoryContext = typeof body.memory_context === "string" ? body.memory_context : "";
 
+  // ── Intent detection ────────────────────────────────────────────────
   const hasYouTubeUrl = /(https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)[^\s]+)/i.test(message);
   const wantsFlowchart = /(flowchart|diagram|mind ?map|process map)/i.test(message);
   const wantsFlashcards = /(flashcards?|revision cards?|study cards?)/i.test(message);
@@ -452,10 +194,9 @@ export async function POST(req: NextRequest) {
   const wantsMockTest = /(mock test|timed test|simulate exam|exam simulation|timed quiz|practice exam)/i.test(message);
   const wantsCBSENews = /(cbse update|cbse notification|date sheet|exam date|syllabus change|board announcement|cbse circular|cbse news)/i.test(message);
   const hasFilesAttached = contextFiles.length > 0;
-
-  // Detect coding-related requests
   const wantsCode = /(write|code|program|script|function|algorithm|implement|debug|fix.*code|class|html|css|javascript|python|java|c\+\+)/i.test(message);
 
+  // Build tool hints
   let toolHint = "";
   if (hasYouTubeUrl) toolHint += "[ToolHint: Use summarize_video for the provided video URL.]\n";
   if (wantsFlowchart) toolHint += "[ToolHint: Use generate_flowchart and render Mermaid output. ALWAYS use the tool — never output ASCII flowcharts.]\n";
@@ -464,156 +205,105 @@ export async function POST(req: NextRequest) {
   if (wantsQuestionPaper) toolHint += "[ToolHint: Use generate_question_paper to create a full CBSE-style paper with sections and model answers.]\n";
   if (wantsMockTest) toolHint += "[ToolHint: Use generate_mock_test to create a timed mock exam with timer and auto-evaluation.]\n";
   if (wantsCBSENews) toolHint += "[ToolHint: Use cbse_notifications to fetch latest CBSE updates, dates, and circulars.]\n";
-  if (wantsCode) toolHint += "[ToolHint: When writing code, ALWAYS use proper markdown code blocks with language tags like ```python, ```javascript, ```html etc. Include comments and explanations.]\n";
-  if (hasFilesAttached) {
-    toolHint += "[ToolHint: Files are attached. Use analyze_document for docs and analyze_screenshot for images.]\n";
-  }
+  if (wantsCode) toolHint += "[ToolHint: When writing code, ALWAYS use proper markdown code blocks with language tags.]\n";
+  if (hasFilesAttached) toolHint += "[ToolHint: Files are attached. Use analyze_document for docs and analyze_screenshot for images.]\n";
   const effectiveMessage = toolHint ? `${message}\n\n${toolHint.trim()}` : message;
 
-  // Build file context string
+  // Build file context
   let fileContext: string | undefined;
   if (contextFiles.length > 0) {
-    const parts = contextFiles
-      .slice(0, 5)
-      .map((f: Record<string, unknown>) => {
-        const name = sanitizeString(String(f.name || "file"), 200);
-        const type = String(f.type || "unknown");
-        const rawContent = String(f.content || "");
-        const isBinaryMarker = rawContent.includes("[BINARY_FILE]") || /^(application\/pdf|application\/zip|application\/octet-stream|application\/msword|application\/vnd\.)/i.test(type);
-        if (isBinaryMarker) {
-          return `### File: ${name}\nType: ${type}\nBinary file attached. Use analyze_document tool for metadata-aware help.`;
-        }
-        const content = sanitizeString(rawContent, 15_000);
-        return `### File: ${name}\nType: ${type}\n${content}`;
-      });
+    const parts = contextFiles.slice(0, 5).map((f: Record<string, unknown>) => {
+      const name = sanitizeString(String(f.name || "file"), 200);
+      const type = String(f.type || "unknown");
+      const rawContent = String(f.content || "");
+      const isBinaryMarker = rawContent.includes("[BINARY_FILE]") || /^(application\/pdf|application\/zip|application\/octet-stream|application\/msword|application\/vnd\.)/i.test(type);
+      if (isBinaryMarker) return `### File: ${name}\nType: ${type}\nBinary file — use analyze_document tool.`;
+      const content = sanitizeString(rawContent, 15_000);
+      return `### File: ${name}\nType: ${type}\n${content}`;
+    });
     fileContext = parts.join("\n\n");
   }
 
-  // Build system prompt (with memory context for admin, admin PII only for admin)
+  // Build system prompt
   const systemPrompt = buildSystemPrompt(persona, subject, chainOfThought, fileContext, memoryContext || undefined, isAdmin);
-
-  // Append schedule context if available
   const fullSystemPrompt = scheduleContext
-    ? systemPrompt + `\n\n## Student's Current Schedule:\n${scheduleContext}\n\nWhen the student asks about scheduling, planning, or study sessions, use the manage_schedule tool to add items. Reference their existing schedule when relevant.`
+    ? systemPrompt + `\n\n## Student's Current Schedule:\n${scheduleContext}\n\nUse manage_schedule to add items. Reference existing schedule when relevant.`
     : systemPrompt;
 
-  // Get AI client for requested model
+  // Check at least one provider
   const primarySetup = getClientForModel(modelId);
   if (!primarySetup) {
-    // Check if ANY provider is configured
     const anyAvailable = ALL_MODEL_IDS.some(m => getClientForModel(m) !== null);
     if (!anyAvailable) {
       return NextResponse.json({
-        response:
-          "The AI service is not configured. Please set at least one API key (GITHUB_TOKEN, GROQ_API_KEY, GEMINI_API_KEY, or OPENROUTER_API_KEY) in environment variables.",
+        response: "The AI service is not configured. Please set at least one API key.",
         conversation_id: crypto.randomUUID(),
         error: "No AI providers configured",
-        sources: [],
-        tool_calls: [],
-        charts: [],
-        model: modelId,
+        sources: [], tool_calls: [], charts: [], model: modelId,
       });
     }
   }
 
-  // Build messages array
+  // ── Build messages array ────────────────────────────────────────────
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: fullSystemPrompt },
   ];
+  console.log(`[PROLAI] prompt=${fullSystemPrompt.length}ch model=${modelId} admin=${isAdmin} history=${history.length}`);
 
-  // Log system prompt size for debugging
-  console.log(`System prompt size: ${fullSystemPrompt.length} chars, model: ${modelId}, isAdmin: ${isAdmin}, historyLen: ${history.length}`);
-
-  // Add conversation history
-  // Groq has very tight rate limits (12k TPM), so aggressively truncate for Groq models
+  // Add history (truncated for Groq)
   const isGroqPrimary = MODEL_MAP[modelId]?.provider === "groq";
   const maxHistoryMsgs = isGroqPrimary ? 6 : MAX_HISTORY_MESSAGES;
   const maxMsgLen = isGroqPrimary ? 2000 : MAX_MESSAGE_LENGTH;
-  const trimmedHistory = history.slice(-maxHistoryMsgs);
-  for (const msg of trimmedHistory) {
+  for (const msg of history.slice(-maxHistoryMsgs)) {
     const role = String(msg.role || "");
     if (role === "user" || role === "assistant") {
-      messages.push({
-        role: role as "user" | "assistant",
-        content: sanitizeString(String(msg.content || ""), maxMsgLen),
-      });
+      messages.push({ role: role as "user" | "assistant", content: sanitizeString(String(msg.content || ""), maxMsgLen) });
     }
   }
 
-  // Add current user message (with image support)
+  // Add current message (with image support)
   const imageFiles = contextFiles.filter(
-    (f: Record<string, unknown>) =>
-      String(f.type || "").startsWith("image/") && String(f.content || "").startsWith("data:")
+    (f: Record<string, unknown>) => String(f.type || "").startsWith("image/") && String(f.content || "").startsWith("data:")
   );
-
-  // Only send image_url parts to models that support vision
   const primaryConfig = MODEL_MAP[modelId];
   const modelSupportsVision = primaryConfig?.supportsVision ?? false;
-
-  // Filter oversized images (>2MB base64 ≈ 1.5MB actual) to prevent API failures
   const safeImages = imageFiles.filter((f: Record<string, unknown>) => String(f.content || "").length < 2_000_000);
   const oversizedCount = imageFiles.length - safeImages.length;
 
   if (safeImages.length > 0 && modelSupportsVision) {
-    const sizeNote = oversizedCount > 0 ? `\n\n(${oversizedCount} image(s) skipped — too large. Please resize to under 1.5MB.)` : "";
+    const sizeNote = oversizedCount > 0 ? `\n\n(${oversizedCount} image(s) skipped — too large.)` : "";
     const contentParts: OpenAI.Chat.ChatCompletionContentPart[] = [
       { type: "text", text: effectiveMessage + sizeNote },
     ];
     for (const img of safeImages.slice(0, 3)) {
-      contentParts.push({
-        type: "image_url",
-        image_url: { url: String(img.content), detail: "auto" },
-      });
+      contentParts.push({ type: "image_url", image_url: { url: String(img.content), detail: "auto" } });
     }
     messages.push({ role: "user", content: contentParts });
   } else if (imageFiles.length > 0 && !modelSupportsVision) {
-    // Model doesn't support vision — add image context as text description
-    const imageNote = `\n\n[The user attached ${imageFiles.length} image(s): ${imageFiles.map((f: Record<string, unknown>) => String(f.name || "image")).join(", ")}. This model doesn't support direct image analysis. The system will automatically route to a vision-capable model. Please use the analyze_screenshot tool for image analysis.]`;
-    messages.push({ role: "user", content: effectiveMessage + imageNote });
+    messages.push({ role: "user", content: effectiveMessage + `\n\n[${imageFiles.length} image(s) attached. Use analyze_screenshot tool.]` });
   } else if (oversizedCount > 0) {
-    messages.push({ role: "user", content: effectiveMessage + `\n\n[The uploaded image(s) were too large to process. Please resize to under 1.5MB per image and try again.]` });
+    messages.push({ role: "user", content: effectiveMessage + `\n\n[Images too large. Resize to under 1.5MB.]` });
   } else {
     messages.push({ role: "user", content: effectiveMessage });
   }
 
-  // Build tool list — only skip tools for very simple greetings (1-2 words, no tool hints)
-  const requestedTools = useWebSearch
-    ? TOOL_DEFINITIONS
-    : TOOL_DEFINITIONS.filter((t) => t.function.name !== "web_search");
+  // Build tool list
+  const requestedTools = useWebSearch ? TOOL_DEFINITIONS : TOOL_DEFINITIONS.filter(t => t.function.name !== "web_search");
   const isSimplePrompt = message.trim().split(/\s+/).length <= 2 && contextFiles.length === 0 && !toolHint;
   const tools = isSimplePrompt ? [] : requestedTools;
 
-  // === NDJSON STREAMING RESPONSE ===
-  // Streams real-time status updates + final result as newline-delimited JSON.
+  // ═══════════════════════════════════════════════════════════════════
+  //  NDJSON STREAMING RESPONSE
+  // ═══════════════════════════════════════════════════════════════════
   const encoder = new TextEncoder();
-  const MODEL_NAMES: Record<string, string> = {
-    "gpt-4.1": "GPT-4.1", "gpt-4o": "GPT-4o",
-    "llama-3.3-70b": "Llama 3.3 70B", "llama-3.1-8b": "Llama 3.1 8B",
-    "gemini-2.0-flash": "Gemini 2.0 Flash", "gemini-1.5-flash": "Gemini 1.5 Flash",
-  };
-  const TOOL_LABELS: Record<string, string> = {
-    web_search: "Searching the web", generate_chart: "Generating chart",
-    generate_flowchart: "Creating flowchart", create_flashcards: "Creating flashcards",
-    generate_quiz: "Generating quiz", manage_schedule: "Managing schedule",
-    manage_calendar: "Updating calendar",
-    analyze_document: "Analyzing document", analyze_screenshot: "Analyzing image",
-    summarize_video: "Analyzing video",
-    generate_image: "Generating image", create_manim_animation: "Creating animation",
-    search_knowledge_base: "Searching knowledge base",
-    generate_question_paper: "Generating question paper",
-    generate_mock_test: "Creating mock test",
-    cbse_notifications: "Fetching CBSE updates",
-  };
-
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
   const writeEvent = async (type: string, payload: Record<string, unknown> = {}) => {
     try { await writer.write(encoder.encode(JSON.stringify({ type, ...payload }) + '\n')); } catch {}
   };
 
-  // Fire-and-forget: AI logic runs async, pushes events to stream
   (async () => {
-  // Tracking
+  // Tracking collections
   const sources: string[] = [];
   const toolCallsLog: string[] = [];
   const charts: unknown[] = [];
@@ -630,72 +320,39 @@ export async function POST(req: NextRequest) {
   try {
     let activeModelId = modelId;
 
-    // Prefer tool/vision-reliable models for analyzer-heavy requests
-    const taskNeedsReliableTools =
-      hasFilesAttached ||
-      imageFiles.length > 0 ||
-      hasYouTubeUrl ||
-      wantsFlowchart ||
-      wantsFlashcards ||
-      wantsQuiz ||
-      wantsQuestionPaper ||
-      wantsMockTest;
-
-    if (taskNeedsReliableTools) {
-      const currentConfig = MODEL_MAP[activeModelId];
-      const needsToolCapable = !currentConfig?.supportsTools;
-      if (needsToolCapable) {
-        const preferredToolModels = ["gpt-4o", "gpt-4.1", "llama-3.1-8b", "llama-3.3-70b", "gemini-2.0-flash"];
-        const replacement = preferredToolModels.find((m) => getClientForModel(m) !== null);
-        if (replacement) {
-          activeModelId = replacement;
-        }
-      }
+    // Swap to tool-reliable model if needed
+    const taskNeedsReliableTools = hasFilesAttached || imageFiles.length > 0 || hasYouTubeUrl || wantsFlowchart || wantsFlashcards || wantsQuiz || wantsQuestionPaper || wantsMockTest;
+    if (taskNeedsReliableTools && !MODEL_MAP[activeModelId]?.supportsTools) {
+      const replacement = ["gpt-4o", "gpt-4.1", "llama-3.1-8b", "llama-3.3-70b", "gemini-2.0-flash"].find(m => getClientForModel(m) !== null);
+      if (replacement) activeModelId = replacement;
     }
 
-    // Track which round we're on for smarter timeout management
     let loopRound = 0;
-
-    // Wall-clock start time — MUST return before Vercel's 60s limit
     const wallClockStart = Date.now();
 
-    // Helper: attempt an API call with automatic multi-provider fallback
-    // Uses thinking-mode priority list, skips rate-limited providers
+    // ── Multi-provider fallback ───────────────────────────────────────
     const callWithFallback = async (msgs: OpenAI.Chat.ChatCompletionMessageParam[]) => {
-      // Build model list from thinking mode priority, then fill in remaining
       const priorityModels = (THINKING_MODE_MODEL_PRIORITY[thinkingMode] || THINKING_MODE_MODEL_PRIORITY.balanced)
         .filter(m => getClientForModel(m) !== null);
-      // If activeModelId was swapped (e.g., for tool-heavy tasks), ensure it's first
       const modelsFromPriority = activeModelId !== priorityModels[0]
         ? [activeModelId, ...priorityModels.filter(m => m !== activeModelId)]
         : priorityModels;
       const otherModels = ALL_MODEL_IDS.filter(m => !modelsFromPriority.includes(m) && getClientForModel(m) !== null);
-      const imageAttached = imageFiles.length > 0;
-
       let modelsToTry = [...modelsFromPriority, ...otherModels];
 
-      // Sort: move rate-limited providers to the end (don't remove — they're last resort)
-      modelsToTry = modelsToTry.sort((a, b) => {
-        const aCool = isProviderCoolingDown(MODEL_MAP[a]?.provider) ? 1 : 0;
-        const bCool = isProviderCoolingDown(MODEL_MAP[b]?.provider) ? 1 : 0;
-        // Also penalize Groq models if daily budget is near exhaustion
-        const aGroqPenalty = MODEL_MAP[a]?.provider === "groq" && isGroqDailyBudgetExhausted() ? 2 : 0;
-        const bGroqPenalty = MODEL_MAP[b]?.provider === "groq" && isGroqDailyBudgetExhausted() ? 2 : 0;
-        return (aCool + aGroqPenalty) - (bCool + bGroqPenalty);
+      // Sort: penalize rate-limited and budget-exhausted providers
+      modelsToTry.sort((a, b) => {
+        const aCost = (isProviderCoolingDown(MODEL_MAP[a]?.provider) ? 1 : 0) + (MODEL_MAP[a]?.provider === "groq" && isGroqDailyBudgetExhausted() ? 2 : 0);
+        const bCost = (isProviderCoolingDown(MODEL_MAP[b]?.provider) ? 1 : 0) + (MODEL_MAP[b]?.provider === "groq" && isGroqDailyBudgetExhausted() ? 2 : 0);
+        return aCost - bCost;
       });
 
-      // If user attached images, prioritize vision-capable models first
-      if (imageAttached) {
-        modelsToTry = modelsToTry.sort((a, b) => {
-          const av = MODEL_MAP[a]?.supportsVision ? 1 : 0;
-          const bv = MODEL_MAP[b]?.supportsVision ? 1 : 0;
-          return bv - av;
-        });
+      // Prioritize vision models when images attached
+      if (imageFiles.length > 0) {
+        modelsToTry.sort((a, b) => (MODEL_MAP[b]?.supportsVision ? 1 : 0) - (MODEL_MAP[a]?.supportsVision ? 1 : 0));
       }
 
-      if (modelsToTry.length === 0) {
-        throw new Error("No AI providers are configured. Set GITHUB_TOKEN, GROQ_API_KEY, GEMINI_API_KEY, or OPENROUTER_API_KEY.");
-      }
+      if (modelsToTry.length === 0) throw new Error("No AI providers configured.");
 
       let lastError: unknown = null;
       let modelsAttempted = 0;
@@ -704,55 +361,40 @@ export async function POST(req: NextRequest) {
         const tryModelId = modelsToTry[i];
         const setup = getClientForModel(tryModelId);
         if (!setup) continue;
-
         const { client: modelClient, apiModel, config: modelConfig } = setup;
 
-        // Dynamic timeout based on how many models we might still try
+        // Dynamic timeout
         const elapsed = Date.now() - wallClockStart;
         const remaining = Math.max(54_000 - elapsed, 8_000);
+        const callTimeout = i === 0
+          ? Math.min(Math.floor(remaining * 0.6), 35_000)
+          : Math.max(Math.floor((remaining - 2_000) / (modelsToTry.length - i)), 8_000);
 
-        // First model gets generous time; fallbacks split the rest
-        let callTimeout: number;
-        if (i === 0) {
-          callTimeout = Math.min(Math.floor(remaining * 0.6), 35_000);
-        } else {
-          const fallbacksLeft = modelsToTry.length - i;
-          callTimeout = Math.max(Math.floor((remaining - 2_000) / fallbacksLeft), 8_000);
-        }
-
-        // Skip if we're almost out of time
         if (remaining < 6_000 && i > 0) break;
 
         try {
-          // Disable tools for models that don't support function-calling
           const useTools = modelConfig.supportsTools && tools.length > 0;
-
-          // Filter out tool messages if switching to a no-tool model
           let filteredMsgs = msgs;
 
-          // Truncate messages for Groq models to stay within 12k TPM
+          // Groq truncation
           if (modelConfig.provider === "groq") {
-            filteredMsgs = filteredMsgs.map((m) => {
-              if (m.role === "system" && typeof m.content === "string" && m.content.length > 4000) {
-                return { ...m, content: m.content.slice(0, 4000) + "\n\n[System prompt truncated for token efficiency]" };
-              }
-              if ((m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.length > 2000) {
+            filteredMsgs = filteredMsgs.map(m => {
+              if (m.role === "system" && typeof m.content === "string" && m.content.length > 4000)
+                return { ...m, content: m.content.slice(0, 4000) + "\n\n[Truncated]" };
+              if ((m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.length > 2000)
                 return { ...m, content: m.content.slice(0, 2000) + "..." };
-              }
               return m;
             });
-            // Keep only last 6 user/assistant messages + system prompt
-            const systemMsgs = filteredMsgs.filter(m => m.role === "system");
-            const toolMsgs = filteredMsgs.filter(m => m.role === "tool");
-            const convMsgs = filteredMsgs.filter(m => m.role === "user" || m.role === "assistant");
-            filteredMsgs = [...systemMsgs, ...convMsgs.slice(-6), ...toolMsgs.slice(-4)];
+            const sys = filteredMsgs.filter(m => m.role === "system");
+            const tl = filteredMsgs.filter(m => m.role === "tool");
+            const cv = filteredMsgs.filter(m => m.role === "user" || m.role === "assistant");
+            filteredMsgs = [...sys, ...cv.slice(-6), ...tl.slice(-4)];
           }
 
+          // Strip tool messages for non-tool models
           if (!modelConfig.supportsTools) {
-            filteredMsgs = msgs.filter((m) => m.role !== "tool");
-            filteredMsgs = filteredMsgs.map((m) => {
+            filteredMsgs = msgs.filter(m => m.role !== "tool").map(m => {
               if (m.role === "assistant" && "tool_calls" in m) {
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 const { tool_calls: _tc, ...rest } = m as unknown as Record<string, unknown>;
                 return rest as unknown as OpenAI.Chat.ChatCompletionMessageParam;
               }
@@ -760,441 +402,257 @@ export async function POST(req: NextRequest) {
             });
           }
 
-          // Strip image_url parts from messages for models that don't support vision
+          // Strip images for non-vision models
           if (!modelConfig.supportsVision) {
-            filteredMsgs = filteredMsgs.map((m) => {
+            filteredMsgs = filteredMsgs.map(m => {
               if (m.role === "user" && Array.isArray(m.content)) {
-                const textParts = (m.content as OpenAI.Chat.ChatCompletionContentPart[])
-                  .filter((p) => p.type === "text")
-                  .map((p) => (p as { type: "text"; text: string }).text);
-                return { ...m, content: textParts.join("\n") || "Analyze the attached content" };
+                const texts = (m.content as OpenAI.Chat.ChatCompletionContentPart[])
+                  .filter(p => p.type === "text")
+                  .map(p => (p as { type: "text"; text: string }).text);
+                return { ...m, content: texts.join("\n") || "Analyze the attached content" };
               }
               return m;
             });
           }
 
-          console.log(`[${modelConfig.provider}] Trying ${apiModel} (timeout=${callTimeout}ms, round=${loopRound})`);
+          console.log(`[${modelConfig.provider}] ${apiModel} (timeout=${callTimeout}ms, round=${loopRound})`);
+          await writeEvent('status', { message: i === 0 ? "PROLAI is thinking..." : "Trying another approach..." });
 
-          // Stream status: show friendly thinking message (hide model internals from user)
-          const thinkingLabel = i === 0 ? "SchoolIT AI is thinking..." : "Trying another approach...";
-          await writeEvent('status', { message: thinkingLabel });
-
-          const stripToolMsgs = (inputMsgs: OpenAI.Chat.ChatCompletionMessageParam[]) =>
-            inputMsgs
-              .filter((m) => m.role !== "tool")
-              .map((m) => {
-                if (m.role === "assistant" && "tool_calls" in m) {
-                  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                  const { tool_calls: _tc, ...rest } = m as unknown as Record<string, unknown>;
-                  return rest as unknown as OpenAI.Chat.ChatCompletionMessageParam;
-                }
-                return m;
-              });
+          const stripToolMsgs = (input: OpenAI.Chat.ChatCompletionMessageParam[]) =>
+            input.filter(m => m.role !== "tool").map(m => {
+              if (m.role === "assistant" && "tool_calls" in m) {
+                const { tool_calls: _tc, ...rest } = m as unknown as Record<string, unknown>;
+                return rest as unknown as OpenAI.Chat.ChatCompletionMessageParam;
+              }
+              return m;
+            });
 
           const modelMaxTokens = Math.min(thinkingModeMax, MODEL_COMPLETION_CAPS[tryModelId] || thinkingModeMax);
-          const dynamicTokenParam = USES_MAX_COMPLETION_TOKENS.has(tryModelId)
+          const tokenParam = USES_MAX_COMPLETION_TOKENS.has(tryModelId)
             ? { max_completion_tokens: modelMaxTokens }
             : { max_tokens: modelMaxTokens };
 
-          const invoke = async (inputMsgs: OpenAI.Chat.ChatCompletionMessageParam[], allowTools: boolean) =>
-            await Promise.race([
+          const invoke = async (input: OpenAI.Chat.ChatCompletionMessageParam[], allowTools: boolean) =>
+            Promise.race([
               modelClient.chat.completions.create({
-                model: apiModel,
-                ...dynamicTokenParam,
-                messages: inputMsgs,
+                model: apiModel, ...tokenParam, messages: input,
                 tools: allowTools ? tools : undefined,
                 tool_choice: allowTools ? "auto" : undefined,
               }),
-              new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error(`Model ${apiModel} timed out after ${callTimeout / 1000}s`)), callTimeout)
-              ),
+              new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`${apiModel} timed out`)), callTimeout)),
             ]);
 
-          // First attempt (with tools if enabled)
           let response: OpenAI.Chat.ChatCompletion;
           try {
             response = await invoke(filteredMsgs, useTools);
           } catch (firstErr: unknown) {
-            const status = (firstErr as { status?: number })?.status;
-            const errMsg = firstErr instanceof Error ? firstErr.message.toLowerCase() : "";
-            const looksLikeBadRequest = status === 400 || errMsg.includes("bad request") || errMsg.includes("invalid");
-
-            // Retry same model without tools for compatibility/smaller payload
-            if (useTools && looksLikeBadRequest) {
+            const st = (firstErr as { status?: number })?.status;
+            const em = firstErr instanceof Error ? firstErr.message.toLowerCase() : "";
+            if (useTools && (st === 400 || em.includes("bad request") || em.includes("invalid"))) {
               await writeEvent("status", { message: "Retrying in lightweight mode..." });
               response = await invoke(stripToolMsgs(filteredMsgs), false);
-            } else {
-              throw firstErr;
-            }
+            } else throw firstErr;
           }
 
-          // If we fell back to a different model, remember it (silent to user)
           if (tryModelId !== activeModelId) {
-            console.log(`Model fallback: ${activeModelId} → ${tryModelId} [${modelConfig.provider}]`);
+            console.log(`Fallback: ${activeModelId} → ${tryModelId}`);
             activeModelId = tryModelId;
           }
-          // Track Groq token usage for daily budget
-          if (modelConfig.provider === "groq" && response.usage) {
+          if (modelConfig.provider === "groq" && response.usage)
             addGroqTokenUsage((response.usage.prompt_tokens || 0) + (response.usage.completion_tokens || 0));
-          }
+
           return response;
         } catch (err: unknown) {
-          const status = (err as { status?: number })?.status;
-          const errMsg = err instanceof Error ? err.message.toLowerCase() : "";
-          const isLastModel = i === modelsToTry.length - 1;
-          const isFatal = errMsg.includes("api_key") || errMsg.includes("unauthorized") || status === 401;
-          const isPayloadTooLarge = status === 413 || errMsg.includes("too large");
-          const isRateLimited = status === 429 || errMsg.includes("rate limit");
-          const isModelMissing = status === 404 || errMsg.includes("not found") || errMsg.includes("does not exist") || errMsg.includes("decommissioned");
-
-          console.warn(`[${modelConfig.provider}] ${apiModel} failed (status=${status}, rateLimited=${isRateLimited}, msg="${(err instanceof Error ? err.message : "").slice(0, 150)}"), isLast=${isLastModel}`);
+          const st = (err as { status?: number })?.status;
+          const em = err instanceof Error ? err.message.toLowerCase() : "";
+          const isLast = i === modelsToTry.length - 1;
+          console.warn(`[${modelConfig.provider}] ${apiModel} failed (${st}): ${(err instanceof Error ? err.message : "").slice(0, 120)}`);
           lastError = err;
           modelsAttempted++;
 
-          // Fatal auth errors for a specific provider: skip to next provider's models
-          if (isFatal && !isLastModel) {
-            await new Promise((r) => setTimeout(r, 50));
-            continue;
-          }
-          if (isFatal && isLastModel) throw err;
-
-          // Payload too large: skip to next model (might have larger context)
-          if (isPayloadTooLarge && !isLastModel) {
-            await new Promise((r) => setTimeout(r, 50));
-            continue;
-          }
-          if (isPayloadTooLarge && isLastModel) throw err;
-
-          // Model missing: always try next model
-          if (isModelMissing && !isLastModel) {
-            await new Promise((r) => setTimeout(r, 50));
-            continue;
-          }
-          if (isModelMissing && isLastModel) throw err;
-
-          // Rate limited: mark provider for cooldown and try next model
-          if (isRateLimited) {
+          if (st === 429 || em.includes("rate limit")) {
             markProviderRateLimited(modelConfig.provider);
-            // If Groq hit daily limit, record estimated usage
-            if (modelConfig.provider === "groq" && errMsg.includes("tokens per day")) {
-              addGroqTokenUsage(GROQ_DAILY_LIMIT); // Mark as exhausted
-            }
-            if (!isLastModel) {
-              await new Promise((r) => setTimeout(r, 100));
-              continue;
-            }
+            if (modelConfig.provider === "groq" && em.includes("tokens per day")) addGroqTokenUsage(85_000);
           }
 
-          // Non-rate-limit errors: try up to 5 fallbacks before giving up
-          if (!isRateLimited && !isModelMissing && modelsAttempted >= 5) throw err;
-          if (isLastModel) throw err;
-
-          // Brief pause before trying next model
-          await new Promise((r) => setTimeout(r, 150));
-          continue;
+          if (isLast) throw err;
+          if (!em.includes("rate limit") && modelsAttempted >= 5) throw err;
+          await new Promise(r => setTimeout(r, em.includes("rate limit") ? 100 : 150));
         }
       }
       throw lastError;
     };
 
+    // ── Main tool loop ────────────────────────────────────────────────
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      // Bail out if we're running out of time (52s limit, leaves 8s safety)
       if (Date.now() - wallClockStart > 52_000) {
-        console.warn(`Wall-clock limit reached after ${round} rounds, returning partial results`);
-        // Return whatever tool results we've collected so far
-        let partialText = "I found some information but ran out of processing time. Here's what I have:\n\n";
-        if (flashcardSets.length > 0) partialText = ""; // Flashcards are self-contained
-        if (flowcharts.length > 0) partialText = "Here's the flowchart:\n\n";
-        if (charts.length > 0) {
-          for (const chart of charts) partialText += `\n\n\`\`\`chart\n${JSON.stringify(chart)}\n\`\`\``;
-        }
-        if (flowcharts.length > 0) {
-          for (const fc of flowcharts) partialText += `\n\n\`\`\`mermaid\n${fc.mermaidCode}\n\`\`\``;
-        }
-        await writeEvent('status', { message: 'Time limit reached, returning partial results...' });
+        let partial = "I found some information but ran out of time:\n\n";
+        if (flashcardSets.length > 0) partial = "";
+        for (const c of charts) partial += `\n\n\`\`\`chart\n${JSON.stringify(c)}\n\`\`\``;
+        for (const f of flowcharts) partial += `\n\n\`\`\`mermaid\n${f.mermaidCode}\n\`\`\``;
+        await writeEvent('status', { message: 'Time limit reached...' });
         await writeEvent('result', { data: {
-          response: partialText || "The request took too long. Please try again with a simpler query.",
-          conversation_id: crypto.randomUUID(),
-          thinking: null,
-          animation_url: null,
-          model: activeModelId,
-          tool_calls: toolCallsLog,
-          sources: Array.from(new Set(sources)),
-          charts,
-          flowcharts,
-          flashcard_sets: flashcardSets,
-          quiz_sets: quizSets,
+          response: partial || "Request took too long. Try a simpler query.",
+          conversation_id: crypto.randomUUID(), thinking: null, animation_url: null,
+          model: activeModelId, tool_calls: toolCallsLog, sources: Array.from(new Set(sources)),
+          charts, flowcharts, flashcard_sets: flashcardSets, quiz_sets: quizSets,
           mock_tests: mockTests.length > 0 ? mockTests : undefined,
           question_papers: questionPapers.length > 0 ? questionPapers : undefined,
-          manim_animations: manimAnimations,
-          generated_images: generatedImages,
+          manim_animations: manimAnimations, generated_images: generatedImages,
           schedule_actions: scheduleActions,
-          search_images: searchImages.length > 0 ? searchImages : undefined,
-          error: null,
+          search_images: searchImages.length > 0 ? searchImages : undefined, error: null,
         }});
         return;
       }
 
       loopRound = round;
       const response = await callWithFallback(messages);
+      const assistantMsg = response.choices[0].message;
 
-      const choice = response.choices[0];
-      const assistantMsg = choice.message;
-
-      // If model wants to call tools
-      if (assistantMsg.tool_calls && assistantMsg.tool_calls.length > 0) {
+      // ── Tool calls ──────────────────────────────────────────────────
+      if (assistantMsg.tool_calls?.length) {
         messages.push({
-          role: "assistant",
-          content: assistantMsg.content || "",
-          tool_calls: assistantMsg.tool_calls.map((tc) => ({
-            id: tc.id,
-            type: "function" as const,
+          role: "assistant", content: assistantMsg.content || "",
+          tool_calls: assistantMsg.tool_calls.map(tc => ({
+            id: tc.id, type: "function" as const,
             function: { name: tc.function.name, arguments: tc.function.arguments },
           })),
         });
 
-        // Execute ALL tool calls in PARALLEL for speed
-        // (prevents timeout when model calls multiple tools like flowchart + flashcards)
-        // Stream status for each tool being called
-        for (const tc of assistantMsg.tool_calls) {
-          const tName = tc.function.name;
-          await writeEvent('status', { message: TOOL_LABELS[tName] || `Using ${tName.replace(/_/g, ' ')}...` });
-        }
-        const toolPromises = assistantMsg.tool_calls.map(async (tc) => {
-          const toolName = tc.function.name;
-          let toolInput: Record<string, unknown> = {};
-          try {
-            toolInput = JSON.parse(tc.function.arguments);
-          } catch {
-            toolInput = {};
-          }
+        for (const tc of assistantMsg.tool_calls)
+          await writeEvent('status', { message: TOOL_LABELS[tc.function.name] || `Using ${tc.function.name.replace(/_/g, ' ')}...` });
 
-          toolCallsLog.push(toolName);
+        const results = await Promise.allSettled(
+          assistantMsg.tool_calls.map(async tc => {
+            const name = tc.function.name;
+            let input: Record<string, unknown> = {};
+            try { input = JSON.parse(tc.function.arguments); } catch { input = {}; }
+            toolCallsLog.push(name);
 
-          // Auto-inject file context for document/screenshot analyzers
-          if (toolName === "analyze_document" && fileContext && !toolInput.content) {
-            toolInput.content = fileContext;
-          }
-          if (toolName === "analyze_screenshot" && fileContext && !toolInput.description) {
-            toolInput.description = `Uploaded file content:\n${fileContext.slice(0, 5000)}`;
-          }
-          // Inject user email for knowledge base search
-          if (toolName === "search_knowledge_base") {
-            toolInput._user_email = userEmail;
-          }
+            if (name === "analyze_document" && fileContext && !input.content) input.content = fileContext;
+            if (name === "analyze_screenshot" && fileContext && !input.description) input.description = `Uploaded:\n${fileContext.slice(0, 5000)}`;
+            if (name === "search_knowledge_base") input._user_email = userEmail;
 
-          try {
-            const toolResult = await executeTool(toolName, toolInput);
-            return { tc, toolName, toolResult, error: null };
-          } catch (toolErr) {
-            console.error(`Tool ${toolName} execution failed:`, toolErr);
-            return { tc, toolName, toolResult: null, error: toolErr };
-          }
-        });
+            try {
+              return { tc, name, result: await executeTool(name, input), error: null };
+            } catch (e) {
+              console.error(`Tool ${name} failed:`, e);
+              return { tc, name, result: null, error: e };
+            }
+          })
+        );
 
-        const toolResults = await Promise.allSettled(toolPromises);
-
-        for (const settled of toolResults) {
+        for (const settled of results) {
           if (settled.status === "rejected") continue;
-          const { tc, toolName, toolResult, error: toolErr } = settled.value;
-
+          const { tc, name, result: toolResult, error: toolErr } = settled.value;
           if (toolErr || !toolResult) {
-            messages.push({
-              role: "tool",
-              tool_call_id: tc.id,
-              content: JSON.stringify({ error: `Tool "${toolName}" failed. Continue without it.` }),
-            });
+            messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify({ error: `Tool "${name}" failed.` }) });
             continue;
           }
 
           if (toolResult.sources) sources.push(...toolResult.sources);
           if (toolResult.chartData) charts.push(toolResult.chartData);
-          if (toolResult.flowchartData) flowcharts.push(toolResult.flowchartData as { mermaidCode: string; title?: string; explanation?: string });
-          if (toolResult.manimData) manimAnimations.push(toolResult.manimData as { code: string; sceneName: string; explanation: string });
-          if (toolResult.imageData) generatedImages.push(toolResult.imageData as { prompt: string; style: string; subject?: string; url?: string });
-          if (toolResult.flashcardData) flashcardSets.push(toolResult.flashcardData as { topic: string; cards: { front: string; back: string }[] });
-          if (toolResult.quizData) quizSets.push(toolResult.quizData as { topic: string; questions: { question: string; options: string[]; correct: number; explanation: string }[]; difficulty?: string });
+          if (toolResult.flowchartData) flowcharts.push(toolResult.flowchartData as typeof flowcharts[0]);
+          if (toolResult.manimData) manimAnimations.push(toolResult.manimData as typeof manimAnimations[0]);
+          if (toolResult.imageData) generatedImages.push(toolResult.imageData as typeof generatedImages[0]);
+          if (toolResult.flashcardData) flashcardSets.push(toolResult.flashcardData as typeof flashcardSets[0]);
+          if (toolResult.quizData) quizSets.push(toolResult.quizData as typeof quizSets[0]);
           if (toolResult.mockTestData) mockTests.push(toolResult.mockTestData);
           if (toolResult.questionPaperData) questionPapers.push(toolResult.questionPaperData);
           if (toolResult.scheduleData) scheduleActions.push(toolResult.scheduleData);
 
-          // Capture search images from web_search results
-          const resultObj = toolResult.result as Record<string, unknown>;
-          if (resultObj?.images && Array.isArray(resultObj.images)) {
-            searchImages.push(...(resultObj.images as { url: string; thumbnail: string; title: string; source: string }[]));
-          }
+          const rObj = toolResult.result as Record<string, unknown>;
+          if (rObj?.images && Array.isArray(rObj.images)) searchImages.push(...(rObj.images as typeof searchImages));
 
-          const toolResultStr = JSON.stringify(toolResult.result);
-          messages.push({
-            role: "tool",
-            tool_call_id: tc.id,
-            content: toolResultStr.length > 25000 ? toolResultStr.slice(0, 25000) : toolResultStr,
-          });
+          const str = JSON.stringify(toolResult.result);
+          messages.push({ role: "tool", tool_call_id: tc.id, content: str.length > 25000 ? str.slice(0, 25000) : str });
         }
-
         continue;
       }
 
-      // Model done — extract final response
+      // ── Final response ──────────────────────────────────────────────
       let finalText = assistantMsg.content || "";
 
-      // ── Strip hallucinated image markdown ───────────────────────
-      // Models often generate ![Image](url) with non-existent URLs.
-      // Real images come from the ImageRenderer component, not markdown.
+      // Strip hallucinated images
       finalText = finalText.replace(/!\[([^\]]*)\]\((?!https:\/\/image\.pollinations\.ai)[^)]+\)/g, "**$1**");
 
-      // ── Extract thinking/reasoning content ──────────────────────
+      // Extract thinking content
       let thinkingContent: string | null = null;
-
-      // 1. Capture reasoning_content from Grok-3-mini style models
       const rawMsg = assistantMsg as unknown as Record<string, unknown>;
-      if (rawMsg.reasoning_content && typeof rawMsg.reasoning_content === "string") {
+      if (rawMsg.reasoning_content && typeof rawMsg.reasoning_content === "string")
         thinkingContent = String(rawMsg.reasoning_content).trim();
-      }
 
-      // 2. Strip <think>...</think> tags from content (DeepSeek-R1, etc.)
       const thinkMatch = finalText.match(/<think>([\s\S]*?)<\/think>/);
       if (thinkMatch) {
-        if (!thinkingContent) {
-          thinkingContent = thinkMatch[1].trim();
-        }
+        if (!thinkingContent) thinkingContent = thinkMatch[1].trim();
         finalText = finalText.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
       }
-
-      // 3. Also strip any remaining <think> without closing tag
       if (finalText.includes("<think>")) {
         const idx = finalText.indexOf("<think>");
-        const endIdx = finalText.indexOf("</think>", idx);
-        if (endIdx === -1) {
-          // Unclosed think tag — extract and remove
-          const thinkText = finalText.slice(idx + 7).trim();
-          if (!thinkingContent && thinkText) thinkingContent = thinkText;
+        const end = finalText.indexOf("</think>", idx);
+        if (end === -1) {
+          if (!thinkingContent) thinkingContent = finalText.slice(idx + 7).trim();
           finalText = finalText.slice(0, idx).trim();
         }
       }
 
-      if (charts.length > 0) {
-        for (const chart of charts) {
-          finalText += `\n\n\`\`\`chart\n${JSON.stringify(chart)}\n\`\`\``;
-        }
-      }
+      // Append rich blocks
+      for (const c of charts) finalText += `\n\n\`\`\`chart\n${JSON.stringify(c)}\n\`\`\``;
+      for (const f of flowcharts) finalText += `\n\n\`\`\`mermaid\n${f.mermaidCode}\n\`\`\``;
+      for (const a of manimAnimations) finalText += `\n\n\`\`\`manim\n${a.code}\n\`\`\``;
 
-      // Append flowchart mermaid blocks
-      if (flowcharts.length > 0) {
-        for (const fc of flowcharts) {
-          finalText += `\n\n\`\`\`mermaid\n${fc.mermaidCode}\n\`\`\``;
-        }
-      }
-
-      // Append manim code blocks
-      if (manimAnimations.length > 0) {
-        for (const anim of manimAnimations) {
-          finalText += `\n\n\`\`\`manim\n${anim.code}\n\`\`\``;
-        }
-      }
-
-      // If user asked for a visual but the model didn't call generate_image,
-      // create one automatically so the UI always has something renderable.
+      // Auto-generate visual
       if (wantsVisual && generatedImages.length === 0) {
         try {
-          const fallbackVisual = await executeTool("generate_image", {
-            prompt: message.slice(0, 300),
-            style: "diagram",
-            subject,
-          });
-          if (fallbackVisual.imageData) {
-            generatedImages.push(fallbackVisual.imageData as { prompt: string; style: string; subject?: string; url?: string });
-            toolCallsLog.push("generate_image(auto)");
-          }
-        } catch {
-          // best-effort only
-        }
+          const v = await executeTool("generate_image", { prompt: message.slice(0, 300), style: "diagram", subject });
+          if (v.imageData) { generatedImages.push(v.imageData as typeof generatedImages[0]); toolCallsLog.push("generate_image(auto)"); }
+        } catch { /* best-effort */ }
       }
-
-      // Append image blocks
-      if (generatedImages.length > 0) {
-        for (const img of generatedImages) {
-          finalText += `\n\n\`\`\`image\n${JSON.stringify(img)}\n\`\`\``;
-        }
-      }
+      for (const img of generatedImages) finalText += `\n\n\`\`\`image\n${JSON.stringify(img)}\n\`\`\``;
 
       await writeEvent('status', { message: 'Composing final answer...' });
 
-      // ── Deep Mode: Multi-Model Review Pass ────────────────────────
-      // In deep mode, after the primary model finishes, send the response
-      // to a DIFFERENT model for accuracy review and refinement.
-      // This combines the strengths of multiple models.
+      // ── Deep Mode: Multi-Model Review ───────────────────────────────
       let reviewModelUsed: string | null = null;
       if (thinkingMode === "deep" && finalText.length > 100) {
         const timeLeft = 54_000 - (Date.now() - wallClockStart);
-        // Only attempt review if we have at least 12s left
         if (timeLeft > 12_000) {
-          // Pick a review model from a different provider than the primary, not on cooldown
           const primaryProvider = MODEL_MAP[activeModelId]?.provider;
-          const reviewCandidates = priorityList.filter(m => {
+          const candidates = priorityList.filter(m => {
             const cfg = MODEL_MAP[m];
             return cfg && cfg.provider !== primaryProvider && cfg.supportsTools && getClientForModel(m) !== null && !isProviderCoolingDown(cfg.provider);
           });
-          // Fallback: any model that's different from primary (even if on cooldown)
-          const allCandidates = reviewCandidates.length > 0
-            ? reviewCandidates
-            : ALL_MODEL_IDS.filter(m => m !== activeModelId && getClientForModel(m) !== null);
+          const allCandidates = candidates.length > 0 ? candidates : ALL_MODEL_IDS.filter(m => m !== activeModelId && getClientForModel(m) !== null);
 
           if (allCandidates.length > 0) {
-            const reviewModelId = allCandidates[0];
-            const reviewSetup = getClientForModel(reviewModelId);
-
-            if (reviewSetup) {
+            const revId = allCandidates[0];
+            const revSetup = getClientForModel(revId);
+            if (revSetup) {
               try {
-                await writeEvent('status', { message: 'Cross-checking accuracy with a second AI...' });
-
-                const reviewTimeout = Math.min(timeLeft - 3_000, 20_000);
-                const reviewMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-                  {
-                    role: "system",
-                    content: `You are a senior academic reviewer for CBSE students. You've been given a student's question and another AI's response. Your job:
-
-1. CHECK for factual errors, wrong formulas, incorrect calculations, or misleading statements.
-2. CHECK for missing important steps, concepts, or edge cases.
-3. IMPROVE clarity, add any missing LaTeX formatting (use $inline$ and $$display$$), and enhance explanations.
-4. KEEP the same structure and tone — don't rewrite from scratch unless the original is seriously flawed.
-5. If the original response is already excellent, return it with only minor polish.
-6. PRESERVE all markdown formatting, code blocks, mermaid blocks, chart blocks, and image blocks exactly as they are.
-7. Do NOT add meta-commentary like "The original response was good". Just output the final improved answer directly.`
-                  },
-                  {
-                    role: "user",
-                    content: `Student's question: ${message}\n\n---\n\nAI Response to review:\n${finalText.slice(0, 12000)}`
-                  }
-                ];
-
-                const reviewResponse = await Promise.race([
-                  reviewSetup.client.chat.completions.create({
-                    model: reviewSetup.apiModel,
-                    max_tokens: Math.min(maxTokens, MODEL_COMPLETION_CAPS[reviewModelId] || 8192),
-                    messages: reviewMessages,
+                await writeEvent('status', { message: 'Cross-checking with second AI...' });
+                const revTimeout = Math.min(timeLeft - 3_000, 20_000);
+                const revResp = await Promise.race([
+                  revSetup.client.chat.completions.create({
+                    model: revSetup.apiModel,
+                    max_tokens: Math.min(maxTokens, MODEL_COMPLETION_CAPS[revId] || 8192),
+                    messages: [
+                      { role: "system", content: "You are a senior academic reviewer. Check for errors, improve clarity, preserve all formatting blocks. Output the improved answer directly." },
+                      { role: "user", content: `Question: ${message}\n\n---\n\nResponse to review:\n${finalText.slice(0, 12000)}` },
+                    ],
                   }),
-                  new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error("Review timed out")), reviewTimeout)
-                  ),
+                  new Promise<never>((_, rej) => setTimeout(() => rej(new Error("Review timeout")), revTimeout)),
                 ]);
-
-                const reviewText = reviewResponse.choices[0]?.message?.content?.trim();
-                if (reviewText && reviewText.length > 80) {
-                  // Strip any meta-commentary the reviewer might add
-                  const cleaned = reviewText
-                    .replace(/^(The original response|Here is the reviewed|I've reviewed|After reviewing)[\s\S]*?\n\n/i, "")
-                    .trim();
-
+                const revText = revResp.choices[0]?.message?.content?.trim();
+                if (revText && revText.length > 80) {
+                  const cleaned = revText.replace(/^(The original|Here is|I've reviewed|After reviewing)[\s\S]*?\n\n/i, "").trim();
                   if (cleaned.length > finalText.length * 0.3) {
                     finalText = cleaned;
-                    reviewModelUsed = reviewModelId;
-                    console.log(`Deep mode review: ${activeModelId} → reviewed by ${reviewModelId}`);
+                    reviewModelUsed = revId;
+                    console.log(`Deep review: ${activeModelId} → ${revId}`);
                   }
                 }
-              } catch (reviewErr) {
-                // Review is best-effort — if it fails, use the original response
-                console.warn("Deep mode review failed (using original):", reviewErr instanceof Error ? reviewErr.message : reviewErr);
+              } catch (e) {
+                console.warn("Deep review failed:", e instanceof Error ? e.message : e);
               }
             }
           }
@@ -1208,22 +666,16 @@ export async function POST(req: NextRequest) {
       await writeEvent('result', { data: {
         response: finalText,
         conversation_id: crypto.randomUUID(),
-        thinking: thinkingContent,
-        animation_url: null,
-        sources: Array.from(new Set(sources)),
-        tool_calls: toolCallsLog,
-        charts,
-        flowcharts,
-        manim_animations: manimAnimations,
-        generated_images: generatedImages,
-        flashcard_sets: flashcardSets,
+        thinking: thinkingContent, animation_url: null,
+        sources: Array.from(new Set(sources)), tool_calls: toolCallsLog,
+        charts, flowcharts, manim_animations: manimAnimations,
+        generated_images: generatedImages, flashcard_sets: flashcardSets,
         quiz_sets: quizSets,
         mock_tests: mockTests.length > 0 ? mockTests : undefined,
         question_papers: questionPapers.length > 0 ? questionPapers : undefined,
         schedule_actions: scheduleActions,
         search_images: searchImages.length > 0 ? searchImages : undefined,
-        error: null,
-        model: modelsUsed,
+        error: null, model: modelsUsed,
         rate_limit_remaining: rateCheck.remaining,
       }});
       return;
@@ -1231,119 +683,53 @@ export async function POST(req: NextRequest) {
 
     // Max rounds exceeded
     await writeEvent('result', { data: {
-      response:
-        "I performed multiple research steps but couldn't fully resolve the query. Here's what I found so far — please try rephrasing your question.",
+      response: "Multiple research steps completed but couldn't fully resolve. Please rephrase.",
       conversation_id: crypto.randomUUID(),
-      sources: Array.from(new Set(sources)),
-      tool_calls: toolCallsLog,
-      charts,
-      flowcharts,
-      manim_animations: manimAnimations,
-      generated_images: generatedImages,
-      flashcard_sets: flashcardSets,
-      quiz_sets: quizSets,
+      sources: Array.from(new Set(sources)), tool_calls: toolCallsLog,
+      charts, flowcharts, manim_animations: manimAnimations,
+      generated_images: generatedImages, flashcard_sets: flashcardSets, quiz_sets: quizSets,
       mock_tests: mockTests.length > 0 ? mockTests : undefined,
       question_papers: questionPapers.length > 0 ? questionPapers : undefined,
-      schedule_actions: scheduleActions,
-      error: null,
-      model: activeModelId,
+      schedule_actions: scheduleActions, error: null, model: activeModelId,
     }});
   } catch (error: unknown) {
     console.error("Chat API error:", error);
-    console.error("Error type:", typeof error);
-    console.error("Error constructor:", error?.constructor?.name);
-    if (error instanceof Error) {
-      console.error("Error stack:", error.stack);
-    }
-    // Log OpenAI-specific error properties
-    const apiErr = error as { status?: number; code?: string; type?: string; headers?: Record<string, string> };
-    console.error("Status:", apiErr.status, "Code:", apiErr.code, "Type:", apiErr.type);
-
+    const apiErr = error as { status?: number; code?: string };
     const rawMsg = error instanceof Error ? error.message : String(error);
     const msg = rawMsg.toLowerCase();
-    const statusCode = (error as { status?: number })?.status;
-    let userError = "Something went wrong. Please try again in a moment.";
-    let statusHint = "";
+    const sc = apiErr.status;
+    let userError = "Something went wrong. Please try again.";
+    let hint = "";
 
-    if (statusCode === 429 || msg.includes("rate") || msg.includes("429")) {
-      userError = "All AI providers are temporarily rate-limited. SchoolIT AI spreads requests across multiple providers — please wait 30 seconds and try again.";
-      statusHint = "rate_limited";
-    } else if (statusCode === 401 || msg.includes("auth") || msg.includes("401") || msg.includes("api_key") || msg.includes("unauthorized") || msg.includes("invalid")) {
-      userError = "API authentication failed. The server token may need to be refreshed — please contact the admin.";
-      statusHint = "auth_error";
-    } else if (statusCode === 403 || msg.includes("403") || msg.includes("forbidden") || msg.includes("permission")) {
-      userError = "Access denied by the AI service. The API token may not have the required permissions.";
-      statusHint = "forbidden";
-    } else if (msg.includes("quota") || msg.includes("billing") || msg.includes("exceeded") || msg.includes("insufficient")) {
-      userError = "API quota exceeded. Please try again later or contact the admin.";
-      statusHint = "quota_exceeded";
-    } else if (msg.includes("connect") || msg.includes("network") || msg.includes("econnrefused") || msg.includes("fetch") || msg.includes("enotfound")) {
-      userError = "Could not reach the AI service. This is usually a temporary issue — please try again.";
-      statusHint = "network_error";
-    } else if (msg.includes("timeout") || msg.includes("timed out") || msg.includes("deadline")) {
-      userError = "The request took too long. Try asking a shorter question or switching to Fast mode.";
-      statusHint = "timeout";
-    } else if (statusCode === 404 || msg.includes("not found") || msg.includes("does not exist") || msg.includes("404") || msg.includes("decommissioned")) {
-      userError = "One of the AI models was temporarily unavailable. The system tried alternatives — please send your message again.";
-      statusHint = "model_not_found";
-    } else if (msg.includes("content_filter") || msg.includes("content policy") || msg.includes("safety")) {
-      userError = "Your message was flagged by the content safety filter. Please rephrase your question.";
-      statusHint = "content_filter";
-    } else if (statusCode === 400 || msg.includes("bad request") || msg.includes("bad_request")) {
-      userError = "The AI model rejected this request. Try a shorter message or different wording.";
-      statusHint = "bad_request";
-    } else if (statusCode === 413 || msg.includes("too large") || msg.includes("413")) {
-      userError = "The request was too large for the AI model. Try a shorter message or fewer attachments.";
-      statusHint = "payload_too_large";
-    } else if (statusCode && statusCode >= 500) {
-      userError = "The AI service is experiencing issues. Please try again in a moment.";
-      statusHint = "server_error";
-    }
+    if (sc === 429 || msg.includes("rate")) { userError = "All AI providers are temporarily rate-limited. Please wait 30 seconds."; hint = "rate_limited"; }
+    else if (sc === 401 || msg.includes("api_key") || msg.includes("unauthorized")) { userError = "API auth failed. Contact admin."; hint = "auth_error"; }
+    else if (sc === 403) { userError = "Access denied."; hint = "forbidden"; }
+    else if (msg.includes("quota") || msg.includes("exceeded")) { userError = "API quota exceeded."; hint = "quota_exceeded"; }
+    else if (msg.includes("connect") || msg.includes("network")) { userError = "Cannot reach AI service."; hint = "network_error"; }
+    else if (msg.includes("timeout")) { userError = "Request took too long. Try Fast mode."; hint = "timeout"; }
+    else if (sc === 404 || msg.includes("not found") || msg.includes("decommissioned")) { userError = "AI model unavailable. Try again."; hint = "model_not_found"; }
+    else if (msg.includes("content_filter") || msg.includes("safety")) { userError = "Content flagged. Please rephrase."; hint = "content_filter"; }
+    else if (sc === 400 || msg.includes("bad request")) { userError = "Request rejected. Try different wording."; hint = "bad_request"; }
+    else if (sc === 413) { userError = "Request too large. Reduce attachments."; hint = "payload_too_large"; }
+    else if (sc && sc >= 500) { userError = "AI service issues. Try again."; hint = "server_error"; }
 
-    console.error(`Chat error [${statusHint || "unknown"}]: ${rawMsg}`);
+    console.error(`[${hint || "unknown"}] ${rawMsg.slice(0, 200)}`);
 
-    const hasUsefulData =
-      (charts?.length || 0) > 0 ||
-      (flowcharts?.length || 0) > 0 ||
-      (generatedImages?.length || 0) > 0 ||
-      (flashcardSets?.length || 0) > 0 ||
-      (quizSets?.length || 0) > 0 ||
-      (mockTests?.length || 0) > 0 ||
-      (questionPapers?.length || 0) > 0 ||
-      (searchImages?.length || 0) > 0;
-
-    let partialResponse = userError;
-    if (hasUsefulData) {
-      partialResponse =
-        "I hit a model error while finalizing the text response, but I already prepared useful results below.";
-
-      if (charts.length > 0) {
-        for (const chart of charts) {
-          partialResponse += `\n\n\`\`\`chart\n${JSON.stringify(chart)}\n\`\`\``;
-        }
-      }
-      if (flowcharts.length > 0) {
-        for (const fc of flowcharts) {
-          partialResponse += `\n\n\`\`\`mermaid\n${fc.mermaidCode}\n\`\`\``;
-        }
-      }
-      if (generatedImages.length > 0) {
-        for (const img of generatedImages) {
-          partialResponse += `\n\n\`\`\`image\n${JSON.stringify(img)}\n\`\`\``;
-        }
-      }
+    const hasData = [charts, flowcharts, generatedImages, flashcardSets, quizSets, mockTests, questionPapers, searchImages].some(a => (a?.length || 0) > 0);
+    let resp = userError;
+    if (hasData) {
+      resp = "Model error but results prepared below.";
+      for (const c of charts) resp += `\n\n\`\`\`chart\n${JSON.stringify(c)}\n\`\`\``;
+      for (const f of flowcharts) resp += `\n\n\`\`\`mermaid\n${f.mermaidCode}\n\`\`\``;
+      for (const img of generatedImages) resp += `\n\n\`\`\`image\n${JSON.stringify(img)}\n\`\`\``;
     }
 
     await writeEvent('result', { data: {
-      response: partialResponse,
-      conversation_id: crypto.randomUUID(),
-      error: hasUsefulData ? null : (statusHint || "unknown_error"),
-      sources: Array.from(new Set(sources || [])),
-      tool_calls: toolCallsLog || [],
-      charts: charts || [],
-      flowcharts: flowcharts || [],
-      generated_images: generatedImages || [],
-      flashcard_sets: flashcardSets || [],
+      response: resp, conversation_id: crypto.randomUUID(),
+      error: hasData ? null : (hint || "unknown_error"),
+      sources: Array.from(new Set(sources || [])), tool_calls: toolCallsLog || [],
+      charts: charts || [], flowcharts: flowcharts || [],
+      generated_images: generatedImages || [], flashcard_sets: flashcardSets || [],
       quiz_sets: quizSets || [],
       mock_tests: (mockTests?.length || 0) > 0 ? mockTests : undefined,
       question_papers: (questionPapers?.length || 0) > 0 ? questionPapers : undefined,
@@ -1351,11 +737,7 @@ export async function POST(req: NextRequest) {
       model: modelId,
     }});
   }
-  })().catch((e) => {
-    console.error("Stream async error:", e);
-  }).finally(() => {
-    writer.close().catch(() => {});
-  });
+  })().catch(e => console.error("Stream error:", e)).finally(() => writer.close().catch(() => {}));
 
   return new Response(readable, {
     headers: {
@@ -1365,19 +747,12 @@ export async function POST(req: NextRequest) {
     },
   });
  } catch (fatal: unknown) {
-    // Top-level safety net — ensures we ALWAYS return JSON, never a naked 500
-    console.error("FATAL chat route error:", fatal);
-    return NextResponse.json(
-      {
-        response: "An unexpected error occurred. Please try again.",
-        conversation_id: crypto.randomUUID(),
-        error: "internal_error",
-        sources: [],
-        tool_calls: [],
-        charts: [],
-        model: "unknown",
-      },
-      { status: 200 }
-    );
+    console.error("FATAL:", fatal);
+    return NextResponse.json({
+      response: "An unexpected error occurred. Please try again.",
+      conversation_id: crypto.randomUUID(),
+      error: "internal_error",
+      sources: [], tool_calls: [], charts: [], model: "unknown",
+    }, { status: 200 });
   }
 }

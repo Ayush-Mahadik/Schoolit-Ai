@@ -1,5 +1,5 @@
 /**
- * Cloud Storage Availability — SchoolIT AI
+ * Cloud Storage Availability — PROLAI
  * ==========================================
  * SECURITY: All Supabase credentials are now server-side only.
  * No database URLs or API keys are exposed to the browser.

@@ -21,6 +21,7 @@ import {
 import { Icon, Menu, Globe } from "@/components/Icons";
 import type { Message, Persona, Subject, ChatSettings, ThinkingMode, ScheduleItem, MockTestData, QuestionPaperData } from "@/lib/types";
 import type { FileAttachment } from "@/components/FileUploadButton";
+import { SITE_NAME, OLD_SITE_URL, SITE_URL } from "@/lib/config";
 
 // ── Subject definitions (now with Lucide icon names) ─────────────────
 const SUBJECTS: Subject[] = [
@@ -53,10 +54,26 @@ export default function Home() {
   const [thinkingStatus, setThinkingStatus] = useState<string[]>([]);
   const [guestMessageCount, setGuestMessageCount] = useState(0);
   const [showAuthWall, setShowAuthWall] = useState(false);
+  const [showDomainBanner, setShowDomainBanner] = useState(false);
+
+  // ── Detect legacy domain and show pointer to new PROLAI domain ───────────────
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const currentOrigin = window.location.origin.replace(/\/$/, "");
+      const primary = SITE_URL.replace(/\/$/, "");
+      const legacy = OLD_SITE_URL.replace(/\/$/, "");
+      if (legacy && currentOrigin === legacy && primary && primary !== legacy) {
+        setShowDomainBanner(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   // ── Load saved settings & personas on mount ─────────────────────────
   useEffect(() => {
-    // Run storage migrations (e.g., schoolit-schedule → schoolit_schedule)
+    // Run storage migrations (e.g., schoolit-schedule → prolai_schedule)
     runStoreMigrations();
     fetchPersonas().then(setPersonas).catch(console.error);
     const saved = getUserSettings();
@@ -109,7 +126,7 @@ export default function Home() {
   const restoredRef = useRef(false);
   useEffect(() => {
     try {
-      const saved = sessionStorage.getItem("schoolit-messages");
+      const saved = sessionStorage.getItem("prolai-messages") || sessionStorage.getItem("schoolit-messages");
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) {
@@ -123,7 +140,7 @@ export default function Home() {
   useEffect(() => {
     if (!restoredRef.current) return;
     try {
-      sessionStorage.setItem("schoolit-messages", JSON.stringify(messages));
+      sessionStorage.setItem("prolai-messages", JSON.stringify(messages));
     } catch { /* ignore */ }
   }, [messages]);
 
@@ -366,7 +383,7 @@ export default function Home() {
             </div>
             <h2 className="text-xl font-bold text-white mb-2">Sign in to continue</h2>
             <p className="text-slate-400 text-sm mb-6 leading-relaxed">
-              You&apos;ve used your free message! Sign in with Google to get <span className="text-brand-400 font-medium">unlimited access</span> to SchoolIT AI — flashcards, quizzes, study tools, and more.
+              You&apos;ve used your free message! Sign in with Google to get <span className="text-brand-400 font-medium">unlimited access</span> to {SITE_NAME} — flashcards, quizzes, study tools, and more.
             </p>
             <button
               onClick={() => signIn("google")}
@@ -429,7 +446,7 @@ export default function Home() {
                 <Icon name="graduation-cap" className="w-4 h-4 text-white" />
               </div>
               <div className="min-w-0">
-                <h1 className="text-sm font-bold text-white truncate">SchoolIT AI</h1>
+                <h1 className="text-sm font-bold text-white truncate">{SITE_NAME}</h1>
                 <p className="text-[10px] text-slate-500 truncate hidden sm:block">
                   <Icon name={currentSubjectInfo.icon} className="w-3 h-3 inline mr-1" />
                   {currentSubjectInfo.name}
@@ -535,6 +552,24 @@ export default function Home() {
             </div>
           )}
         </AnimatePresence>
+
+        {/* ── Domain pointer banner for legacy deployments ─────── */}
+        {showDomainBanner && (
+          <div className="px-3 sm:px-5 py-2 bg-amber-950/70 border-b border-amber-500/40 text-xs text-amber-100 flex items-center justify-between gap-2">
+            <span className="truncate">
+              SchoolIT AI has been rebranded to <strong>PROLAI</strong>. Visit us at{" "}
+              <a
+                href={SITE_URL}
+                className="underline font-semibold"
+                target="_blank"
+                rel="noreferrer"
+              >
+                {SITE_URL.replace(/^https?:\/\//, "")}
+              </a>
+              .
+            </span>
+          </div>
+        )}
 
         {/* ── Chat + Schedule ──────────────────────────────────── */}
         <div className="flex-1 flex min-h-0">

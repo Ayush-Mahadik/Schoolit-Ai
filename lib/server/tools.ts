@@ -797,7 +797,7 @@ export async function executeTool(
             result: {
               message:
                 "Google Calendar sync is running in local planner mode. " +
-                "I created this event in your SchoolIT schedule so you can track it immediately.",
+                "I created this event in your PROLAI schedule so you can track it immediately.",
               action,
               created_event: {
                 title,

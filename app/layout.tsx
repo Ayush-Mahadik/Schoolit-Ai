@@ -18,9 +18,16 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SchoolIT AI",
+  title: "PROLAI — Professional AI Learning Assistant",
   description:
-    "AI-powered learning assistant with multi-model support, deep reasoning, and advanced tools.",
+    "AI-powered learning platform with multi-model intelligence, deep reasoning, and 20+ study tools for CBSE students.",
+  keywords: ["PROLAI", "AI tutor", "CBSE", "study", "learning", "education"],
+  authors: [{ name: "Ayush Mahadik" }],
+  openGraph: {
+    title: "PROLAI — Professional AI Learning Assistant",
+    description: "Multi-model AI learning platform with deep reasoning and 20+ study tools.",
+    type: "website",
+  },
 };
 
 export default function RootLayout({

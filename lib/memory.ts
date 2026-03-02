@@ -1,5 +1,5 @@
 /**
- * Admin Memory System — SchoolIT AI
+ * Admin Memory System — PROLAI
  * ====================================
  * Persists conversation history, key facts, and user data
  * for admin accounts ONLY (configured via ADMIN_EMAILS env var).
@@ -15,10 +15,29 @@
  * the ADMIN_EMAILS environment variable server-side.
  */
 
-const MEMORY_PREFIX = "schoolit_memory_";
+const MEMORY_PREFIX = "prolai_memory_";
+const OLD_MEMORY_PREFIX = "schoolit_memory_";
 const MAX_CONVERSATIONS = 100;
 const MAX_MEMORY_FACTS = 200;
 const MAX_SUMMARY_LENGTH = 500;
+
+// ── Migrate old "schoolit_memory_" keys → "prolai_memory_" ────────────
+if (typeof window !== "undefined") {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(OLD_MEMORY_PREFIX)) {
+        const newKey = MEMORY_PREFIX + key.slice(OLD_MEMORY_PREFIX.length);
+        if (!localStorage.getItem(newKey)) {
+          localStorage.setItem(newKey, localStorage.getItem(key)!);
+        }
+        localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // Ignore storage errors during migration
+  }
+}
 
 // ── Admin Lock — admin status comes from NextAuth session ─────────────
 let _currentUserEmail: string | null = null;
@@ -315,7 +334,7 @@ export function downloadAdminData() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `schoolit-admin-data-${new Date().toISOString().split("T")[0]}.txt`;
+  a.download = `prolai-admin-data-${new Date().toISOString().split("T")[0]}.txt`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

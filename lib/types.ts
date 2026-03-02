@@ -1,5 +1,5 @@
 /**
- * Shared TypeScript types for SchoolIT AI
+ * Shared TypeScript types for PROLAI
  */
 
 // ── AI Model & Thinking Mode ──────────────────────────────────────────
@@ -10,9 +10,10 @@ export type AIModel =
   | "llama-3.3-70b"
   | "gemma2-9b"
   | "gemini-2.0-flash"
-  | "gemini-1.5-flash";
+  | "gemini-1.5-flash"
+  | "prolai-llm";
 
-export type AIProvider = "github" | "groq" | "gemini";
+export type AIProvider = "github" | "groq" | "gemini" | "selfhosted";
 
 export interface ModelOption {
   id: AIModel;
@@ -92,6 +93,17 @@ export const MODEL_OPTIONS: ModelOption[] = [
     supportsVision: true,
     hasThinking: false,
     provider: "gemini",
+  },
+  {
+    id: "prolai-llm",
+    name: "PROLAI Local LLM",
+    description: "Self-hosted model running on Oracle/DigitalOcean",
+    icon: "cpu",
+    speed: "medium",
+    supportsTools: false,
+    supportsVision: false,
+    hasThinking: false,
+    provider: "selfhosted",
   },
 ];
 
