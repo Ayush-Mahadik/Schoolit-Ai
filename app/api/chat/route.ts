@@ -24,6 +24,67 @@ const MAX_MESSAGE_LENGTH = 12_000;
 const MAX_HISTORY_MESSAGES = 30;
 const VALID_PERSONAS = ["formal", "creative", "socratic", "balanced", "exam_coach"];
 
+// ── IP / Email Ban System ─────────────────────────────────────────────
+// Tracks banned IPs and emails with expiry. Persists in memory (resets on deploy).
+interface BanRecord {
+  reason: string;
+  bannedAt: number;
+  expiresAt: number;  // 0 = permanent
+  strikes: number;
+}
+const bannedIPs = new Map<string, BanRecord>();
+const bannedEmails = new Map<string, BanRecord>();
+const BAN_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const PERMANENT_BAN_STRIKES = 3; // 3 strikes = permanent
+
+function banUser(ip: string, email: string, reason: string) {
+  const now = Date.now();
+  // IP ban
+  const ipRecord = bannedIPs.get(ip);
+  const ipStrikes = (ipRecord?.strikes || 0) + 1;
+  bannedIPs.set(ip, {
+    reason,
+    bannedAt: now,
+    expiresAt: ipStrikes >= PERMANENT_BAN_STRIKES ? 0 : now + BAN_DURATION_MS,
+    strikes: ipStrikes,
+  });
+  // Email ban (if authenticated)
+  if (email) {
+    const emailRecord = bannedEmails.get(email);
+    const emailStrikes = (emailRecord?.strikes || 0) + 1;
+    bannedEmails.set(email, {
+      reason,
+      bannedAt: now,
+      expiresAt: emailStrikes >= PERMANENT_BAN_STRIKES ? 0 : now + BAN_DURATION_MS,
+      strikes: emailStrikes,
+    });
+  }
+  console.warn(`[BAN] Banned IP=${ip} email=${email || "guest"} strikes=${ipStrikes} reason=${reason}`);
+}
+
+function isUserBanned(ip: string, email: string): BanRecord | null {
+  const now = Date.now();
+  // Check email ban first (more specific)
+  if (email) {
+    const emailBan = bannedEmails.get(email);
+    if (emailBan && (emailBan.expiresAt === 0 || now < emailBan.expiresAt)) {
+      return emailBan;
+    }
+    if (emailBan && now >= emailBan.expiresAt && emailBan.expiresAt > 0) {
+      bannedEmails.delete(email); // Expired
+    }
+  }
+  // Check IP ban
+  const ipBan = bannedIPs.get(ip);
+  if (ipBan && (ipBan.expiresAt === 0 || now < ipBan.expiresAt)) {
+    return ipBan;
+  }
+  if (ipBan && now >= ipBan.expiresAt && ipBan.expiresAt > 0) {
+    bannedIPs.delete(ip); // Expired
+  }
+  return null;
+}
+
 // ── Provider Configuration ────────────────────────────────────────────
 type ProviderName = "github" | "groq" | "gemini";
 
@@ -63,13 +124,13 @@ const MODEL_MAP: Record<string, ModelConfig> = {
   "gpt-4.1":          { provider: "github", apiModel: "gpt-4.1",                    supportsTools: true,  supportsVision: true  },
   "gpt-4o":           { provider: "github", apiModel: "gpt-4o",                     supportsTools: true,  supportsVision: true  },
   "llama-3.3-70b":    { provider: "groq",   apiModel: "llama-3.3-70b-versatile",    supportsTools: true,  supportsVision: false },
-  "gemma2-9b":        { provider: "groq",   apiModel: "gemma2-9b-it",              supportsTools: true,  supportsVision: false },
+  "llama-3.1-8b":     { provider: "groq",   apiModel: "llama-3.1-8b-instant",     supportsTools: true,  supportsVision: false },
   "gemini-2.0-flash": { provider: "gemini", apiModel: "gemini-2.0-flash",           supportsTools: true,  supportsVision: true  },
   "gemini-1.5-flash": { provider: "gemini", apiModel: "gemini-1.5-flash",           supportsTools: true,  supportsVision: true  },
 };
 
 // Ordered fallback preference: GitHub → Groq → Gemini (ALL FREE)
-const ALL_MODEL_IDS = ["gpt-4o", "gpt-4.1", "llama-3.3-70b", "gemma2-9b", "gemini-2.0-flash", "gemini-1.5-flash"];
+const ALL_MODEL_IDS = ["gpt-4o", "gpt-4.1", "llama-3.3-70b", "llama-3.1-8b", "gemini-2.0-flash", "gemini-1.5-flash"];
 
 // Models that require max_completion_tokens instead of max_tokens
 const USES_MAX_COMPLETION_TOKENS = new Set<string>();
@@ -87,7 +148,7 @@ const THINKING_MODE_TOKENS: Record<string, number> = {
 // Per-model completion caps (controls output token burn)
 const MODEL_COMPLETION_CAPS: Record<string, number> = {
   "llama-3.3-70b": 8192,
-  "gemma2-9b": 4096,
+  "llama-3.1-8b": 4096,
   "gpt-4o": 8192,
   "gpt-4.1": 8192,
   "gemini-2.0-flash": 8192,
@@ -102,6 +163,32 @@ const COOLDOWN_MS: Record<ProviderName, number> = {
   groq: 90_000,      // Groq: 90s cooldown (very aggressive rate limits on free tier)
   gemini: 30_000,    // Gemini: 30s cooldown
 };
+
+// ── Groq Daily Token Budget Tracker ───────────────────────────────────
+// Groq free tier: 100k tokens/day. Track usage to avoid hitting daily cap.
+const groqDailyTokens = { used: 0, resetAt: 0 };
+const GROQ_DAILY_LIMIT = 85_000; // Leave 15k buffer
+
+function getGroqDailyUsage(): number {
+  const now = Date.now();
+  if (now > groqDailyTokens.resetAt) {
+    // Reset at midnight UTC
+    const tomorrow = new Date();
+    tomorrow.setUTCHours(24, 0, 0, 0);
+    groqDailyTokens.used = 0;
+    groqDailyTokens.resetAt = tomorrow.getTime();
+  }
+  return groqDailyTokens.used;
+}
+
+function addGroqTokenUsage(tokens: number) {
+  getGroqDailyUsage(); // ensure reset
+  groqDailyTokens.used += tokens;
+}
+
+function isGroqDailyBudgetExhausted(): boolean {
+  return getGroqDailyUsage() >= GROQ_DAILY_LIMIT;
+}
 
 function isProviderCoolingDown(provider: ProviderName): boolean {
   const until = providerCooldown.get(provider);
@@ -226,6 +313,23 @@ export async function POST(req: NextRequest) {
 
   // Rate limit (admins bypass)
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+
+  // ── Check if user is banned ─────────────────────────────────────────
+  const banRecord = isUserBanned(ip, userEmail);
+  if (banRecord && !isAdmin) {
+    const isPermanent = banRecord.expiresAt === 0;
+    const remaining = isPermanent ? "permanent" : `${Math.ceil((banRecord.expiresAt - Date.now()) / (24 * 60 * 60 * 1000))} days remaining`;
+    return NextResponse.json({
+      response: `⛔ Your access to SchoolIT AI has been suspended (${remaining}). Reason: ${banRecord.reason}. Strikes: ${banRecord.strikes}/3.${isPermanent ? " This ban is permanent due to repeated violations." : " Please conduct yourself appropriately when the ban expires."}`,
+      conversation_id: crypto.randomUUID(),
+      sources: [],
+      tool_calls: [],
+      charts: [],
+      model: "moderation",
+      moderation_action: "access_banned",
+    }, { status: 200 });
+  }
+
   const rateCheck = checkRateLimit(ip, isAdmin);
   if (!rateCheck.allowed) {
     return NextResponse.json(
@@ -277,10 +381,12 @@ export async function POST(req: NextRequest) {
   ];
   const isHarassment = harassmentPatterns.some(p => p.test(message));
   if (isHarassment) {
-    // Log the violation
-    console.warn(`[MODERATION] Harassment blocked from IP: ${ip}, email: ${userEmail || "guest"}`);
+    // Actually ban the user
+    banUser(ip, userEmail, "Anti-harassment policy violation");
+    const banInfo = isUserBanned(ip, userEmail);
+    console.warn(`[MODERATION] User BANNED: IP=${ip}, email=${userEmail || "guest"}, strikes=${banInfo?.strikes || 1}`);
     return NextResponse.json({
-      response: "⛔ This message violates SchoolIT AI's anti-harassment policy. Your access has been suspended for 7 days. Harassment, bullying, and inappropriate personal remarks are strictly prohibited.",
+      response: `⛔ This message violates SchoolIT AI's anti-harassment policy. Your access has been suspended for 7 days (Strike ${banInfo?.strikes || 1}/3). ${(banInfo?.strikes || 0) >= 2 ? "⚠️ One more violation will result in a PERMANENT ban." : "Harassment, bullying, and inappropriate personal remarks are strictly prohibited."}`,
       conversation_id: crypto.randomUUID(),
       sources: [],
       tool_calls: [],
@@ -315,16 +421,20 @@ export async function POST(req: NextRequest) {
   // Balanced (3 models): GPT-4.1 (best reasoning) + Gemini 2.0 Flash (tools+vision) + GPT-4o (fast backup)
   // Deep (4 models):     GPT-4.1 (primary) + GPT-4o (review) + Gemini 2.0 Flash (cross-check) + Llama (backup)
   const THINKING_MODE_MODEL_PRIORITY: Record<string, string[]> = {
-    fast:     ["gpt-4o", "gemini-2.0-flash", "llama-3.3-70b", "gpt-4.1", "gemini-1.5-flash", "gemma2-9b"],
-    balanced: ["gpt-4.1", "gemini-2.0-flash", "gpt-4o", "llama-3.3-70b", "gemini-1.5-flash", "gemma2-9b"],
-    deep:     ["gpt-4.1", "gpt-4o", "gemini-2.0-flash", "llama-3.3-70b", "gemini-1.5-flash", "gemma2-9b"],
+    fast:     ["gpt-4o", "gemini-2.0-flash", "llama-3.1-8b", "gpt-4.1", "gemini-1.5-flash", "llama-3.3-70b"],
+    balanced: ["gpt-4.1", "gemini-2.0-flash", "gpt-4o", "llama-3.1-8b", "gemini-1.5-flash", "llama-3.3-70b"],
+    deep:     ["gpt-4.1", "gpt-4o", "gemini-2.0-flash", "llama-3.3-70b", "gemini-1.5-flash", "llama-3.1-8b"],
   };
 
   // Pick the first available model, skipping providers on cooldown
   const priorityList = THINKING_MODE_MODEL_PRIORITY[thinkingMode] || THINKING_MODE_MODEL_PRIORITY.balanced;
   const modelId = priorityList.find(m => {
     const cfg = MODEL_MAP[m];
-    return cfg && getClientForModel(m) !== null && !isProviderCoolingDown(cfg.provider);
+    if (!cfg || !getClientForModel(m)) return false;
+    if (isProviderCoolingDown(cfg.provider)) return false;
+    // Skip Groq models if daily token budget is exhausted
+    if (cfg.provider === "groq" && isGroqDailyBudgetExhausted()) return false;
+    return true;
   }) || priorityList.find(m => getClientForModel(m) !== null) || "gpt-4.1";
   const maxTokens = Math.min(thinkingModeMax, MODEL_COMPLETION_CAPS[modelId] || thinkingModeMax);
   const wantsVisual = /(\bimage\b|\bdiagram\b|\billustration\b|\bvisuali[sz]e\b|\bdraw\b|\bshow\b.*\bstructure\b|\bshow\b.*\bprocess\b)/i.test(message);
@@ -415,13 +525,17 @@ export async function POST(req: NextRequest) {
   console.log(`System prompt size: ${fullSystemPrompt.length} chars, model: ${modelId}, isAdmin: ${isAdmin}, historyLen: ${history.length}`);
 
   // Add conversation history
-  const trimmedHistory = history.slice(-MAX_HISTORY_MESSAGES);
+  // Groq has very tight rate limits (12k TPM), so aggressively truncate for Groq models
+  const isGroqPrimary = MODEL_MAP[modelId]?.provider === "groq";
+  const maxHistoryMsgs = isGroqPrimary ? 6 : MAX_HISTORY_MESSAGES;
+  const maxMsgLen = isGroqPrimary ? 2000 : MAX_MESSAGE_LENGTH;
+  const trimmedHistory = history.slice(-maxHistoryMsgs);
   for (const msg of trimmedHistory) {
     const role = String(msg.role || "");
     if (role === "user" || role === "assistant") {
       messages.push({
         role: role as "user" | "assistant",
-        content: sanitizeString(String(msg.content || ""), MAX_MESSAGE_LENGTH),
+        content: sanitizeString(String(msg.content || ""), maxMsgLen),
       });
     }
   }
@@ -474,7 +588,7 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
   const MODEL_NAMES: Record<string, string> = {
     "gpt-4.1": "GPT-4.1", "gpt-4o": "GPT-4o",
-    "llama-3.3-70b": "Llama 3.3 70B", "gemma2-9b": "Gemma 2 9B",
+    "llama-3.3-70b": "Llama 3.3 70B", "llama-3.1-8b": "Llama 3.1 8B",
     "gemini-2.0-flash": "Gemini 2.0 Flash", "gemini-1.5-flash": "Gemini 1.5 Flash",
   };
   const TOOL_LABELS: Record<string, string> = {
@@ -531,7 +645,7 @@ export async function POST(req: NextRequest) {
       const currentConfig = MODEL_MAP[activeModelId];
       const needsToolCapable = !currentConfig?.supportsTools;
       if (needsToolCapable) {
-        const preferredToolModels = ["gpt-4o", "gpt-4.1", "llama-3.3-70b", "gemma2-9b", "gemini-2.0-flash"];
+        const preferredToolModels = ["gpt-4o", "gpt-4.1", "llama-3.1-8b", "llama-3.3-70b", "gemini-2.0-flash"];
         const replacement = preferredToolModels.find((m) => getClientForModel(m) !== null);
         if (replacement) {
           activeModelId = replacement;
@@ -564,7 +678,10 @@ export async function POST(req: NextRequest) {
       modelsToTry = modelsToTry.sort((a, b) => {
         const aCool = isProviderCoolingDown(MODEL_MAP[a]?.provider) ? 1 : 0;
         const bCool = isProviderCoolingDown(MODEL_MAP[b]?.provider) ? 1 : 0;
-        return aCool - bCool;
+        // Also penalize Groq models if daily budget is near exhaustion
+        const aGroqPenalty = MODEL_MAP[a]?.provider === "groq" && isGroqDailyBudgetExhausted() ? 2 : 0;
+        const bGroqPenalty = MODEL_MAP[b]?.provider === "groq" && isGroqDailyBudgetExhausted() ? 2 : 0;
+        return (aCool + aGroqPenalty) - (bCool + bGroqPenalty);
       });
 
       // If user attached images, prioritize vision-capable models first
@@ -612,6 +729,25 @@ export async function POST(req: NextRequest) {
 
           // Filter out tool messages if switching to a no-tool model
           let filteredMsgs = msgs;
+
+          // Truncate messages for Groq models to stay within 12k TPM
+          if (modelConfig.provider === "groq") {
+            filteredMsgs = filteredMsgs.map((m) => {
+              if (m.role === "system" && typeof m.content === "string" && m.content.length > 4000) {
+                return { ...m, content: m.content.slice(0, 4000) + "\n\n[System prompt truncated for token efficiency]" };
+              }
+              if ((m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.length > 2000) {
+                return { ...m, content: m.content.slice(0, 2000) + "..." };
+              }
+              return m;
+            });
+            // Keep only last 6 user/assistant messages + system prompt
+            const systemMsgs = filteredMsgs.filter(m => m.role === "system");
+            const toolMsgs = filteredMsgs.filter(m => m.role === "tool");
+            const convMsgs = filteredMsgs.filter(m => m.role === "user" || m.role === "assistant");
+            filteredMsgs = [...systemMsgs, ...convMsgs.slice(-6), ...toolMsgs.slice(-4)];
+          }
+
           if (!modelConfig.supportsTools) {
             filteredMsgs = msgs.filter((m) => m.role !== "tool");
             filteredMsgs = filteredMsgs.map((m) => {
@@ -697,6 +833,10 @@ export async function POST(req: NextRequest) {
             console.log(`Model fallback: ${activeModelId} → ${tryModelId} [${modelConfig.provider}]`);
             activeModelId = tryModelId;
           }
+          // Track Groq token usage for daily budget
+          if (modelConfig.provider === "groq" && response.usage) {
+            addGroqTokenUsage((response.usage.prompt_tokens || 0) + (response.usage.completion_tokens || 0));
+          }
           return response;
         } catch (err: unknown) {
           const status = (err as { status?: number })?.status;
@@ -705,7 +845,7 @@ export async function POST(req: NextRequest) {
           const isFatal = errMsg.includes("api_key") || errMsg.includes("unauthorized") || status === 401;
           const isPayloadTooLarge = status === 413 || errMsg.includes("too large");
           const isRateLimited = status === 429 || errMsg.includes("rate limit");
-          const isModelMissing = status === 404 || errMsg.includes("not found") || errMsg.includes("does not exist");
+          const isModelMissing = status === 404 || errMsg.includes("not found") || errMsg.includes("does not exist") || errMsg.includes("decommissioned");
 
           console.warn(`[${modelConfig.provider}] ${apiModel} failed (status=${status}, rateLimited=${isRateLimited}, msg="${(err instanceof Error ? err.message : "").slice(0, 150)}"), isLast=${isLastModel}`);
           lastError = err;
@@ -735,6 +875,10 @@ export async function POST(req: NextRequest) {
           // Rate limited: mark provider for cooldown and try next model
           if (isRateLimited) {
             markProviderRateLimited(modelConfig.provider);
+            // If Groq hit daily limit, record estimated usage
+            if (modelConfig.provider === "groq" && errMsg.includes("tokens per day")) {
+              addGroqTokenUsage(GROQ_DAILY_LIMIT); // Mark as exhausted
+            }
             if (!isLastModel) {
               await new Promise((r) => setTimeout(r, 100));
               continue;
@@ -1139,8 +1283,8 @@ export async function POST(req: NextRequest) {
     } else if (msg.includes("timeout") || msg.includes("timed out") || msg.includes("deadline")) {
       userError = "The request took too long. Try asking a shorter question or switching to Fast mode.";
       statusHint = "timeout";
-    } else if (statusCode === 404 || msg.includes("not found") || msg.includes("does not exist") || msg.includes("404")) {
-      userError = "The AI model isn't available right now. The system will auto-retry with alternatives — please try again.";
+    } else if (statusCode === 404 || msg.includes("not found") || msg.includes("does not exist") || msg.includes("404") || msg.includes("decommissioned")) {
+      userError = "One of the AI models was temporarily unavailable. The system tried alternatives — please send your message again.";
       statusHint = "model_not_found";
     } else if (msg.includes("content_filter") || msg.includes("content policy") || msg.includes("safety")) {
       userError = "Your message was flagged by the content safety filter. Please rephrase your question.";

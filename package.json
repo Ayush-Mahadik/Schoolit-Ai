@@ -25,8 +25,7 @@
     "recharts": "^2.15.0",
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
-    "remark-math": "^6.0.0",
-    "tweetnacl": "^1.0.3"
+    "remark-math": "^6.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

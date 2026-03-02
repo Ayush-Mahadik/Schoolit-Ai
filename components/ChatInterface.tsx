@@ -331,6 +331,11 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
               </motion.div>
             )}
 
+            {/* Smart follow-up suggestions after last assistant message */}
+            {!isLoading && messages.length > 0 && messages[messages.length - 1]?.role === "assistant" && (
+              <SmartSuggestions lastMessage={messages[messages.length - 1]} onSend={onSend} subject={subject} />
+            )}
+
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -476,6 +481,7 @@ function UserBubble({ message, onEdit }: { message: Message; onEdit?: (id: strin
 // ── Assistant message bubble ─────────────────────────────────────────
 function AssistantBubble({ message, onRegenerate }: { message: Message; onRegenerate?: (id: string) => void }) {
   const [copied, setCopied] = useState(false);
+  const [reaction, setReaction] = useState<'up' | 'down' | null>(null);
   const contentHasImageBlocks = /```image\n[\s\S]*?```/i.test(message.content);
 
   // Feed content directly to ReactMarkdown — it handles all code blocks (mermaid, manim, chart, image)
@@ -749,7 +755,7 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
           </div>
         )}
 
-        {/* Action buttons — Copy / Regenerate */}
+        {/* Action buttons — Copy / Like / Dislike / Regenerate */}
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             onClick={handleCopy}
@@ -766,6 +772,24 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
                 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
               </svg>
             )}
+          </button>
+          <button
+            onClick={() => setReaction(reaction === 'up' ? null : 'up')}
+            className={`p-1.5 rounded-lg transition-colors ${reaction === 'up' ? 'text-green-400 bg-green-500/10' : 'text-slate-600 hover:text-slate-300 hover:bg-surface-3'}`}
+            title="Good response"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill={reaction === 'up' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z"/>
+            </svg>
+          </button>
+          <button
+            onClick={() => setReaction(reaction === 'down' ? null : 'down')}
+            className={`p-1.5 rounded-lg transition-colors ${reaction === 'down' ? 'text-red-400 bg-red-500/10' : 'text-slate-600 hover:text-slate-300 hover:bg-surface-3'}`}
+            title="Bad response"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill={reaction === 'down' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22h0a3.13 3.13 0 0 1-3-3.88Z"/>
+            </svg>
           </button>
           {onRegenerate && (
             <button
@@ -837,6 +861,80 @@ function ThinkingIndicator({ modelInfo, statusMessages = [] }: { modelInfo: { na
         )}
       </div>
     </div>
+  );
+}
+
+// ── Smart follow-up suggestions ──────────────────────────────────────
+function SmartSuggestions({ lastMessage, onSend, subject }: { lastMessage: Message; onSend: (text: string) => void; subject: string }) {
+  // Generate contextual follow-up suggestions based on the last response
+  const suggestions = React.useMemo(() => {
+    const content = lastMessage.content.toLowerCase();
+    const has = (kw: string) => content.includes(kw);
+    const items: string[] = [];
+
+    // Context-aware suggestions
+    if (lastMessage.flashcardSets?.length) {
+      items.push("Quiz me on these flashcards");
+      items.push("Add more flashcards on this topic");
+    }
+    if (lastMessage.quizSets?.length) {
+      items.push("Give me harder questions");
+      items.push("Create flashcards from these topics");
+    }
+    if (lastMessage.flowcharts?.length) {
+      items.push("Explain this in more detail");
+      items.push("Create a simpler version");
+    }
+    if (has("formula") || has("equation") || has("theorem")) {
+      items.push("Show me a worked example");
+      items.push("What are common mistakes to avoid?");
+    }
+    if (has("step") || has("steps")) {
+      items.push("Can you explain step 2 in more detail?");
+      items.push("Give me a similar problem to practice");
+    }
+    if (has("graph") || has("chart") || has("diagram")) {
+      items.push("Explain the trend shown here");
+      items.push("What happens if the values change?");
+    }
+
+    // Generic follow-ups if we don't have enough contextual ones
+    const generics = [
+      "Explain this in simpler terms",
+      "Give me practice questions on this",
+      "Summarize this in bullet points",
+      `Create flashcards on this topic`,
+      "What are the key points to remember?",
+      "How does this apply in real life?",
+    ];
+
+    // Fill up to 3 suggestions
+    while (items.length < 3 && generics.length > 0) {
+      const pick = generics.splice(Math.floor(Math.random() * generics.length), 1)[0];
+      if (!items.includes(pick)) items.push(pick);
+    }
+
+    return items.slice(0, 3);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastMessage.id]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.3, duration: 0.3 }}
+      className="flex flex-wrap gap-2 pl-9 mt-1"
+    >
+      {suggestions.map((s, i) => (
+        <button
+          key={i}
+          onClick={() => onSend(s)}
+          className="text-xs px-3 py-1.5 rounded-full bg-surface-2 hover:bg-surface-3 border border-surface-4 hover:border-brand-500/30 text-slate-400 hover:text-white transition-all duration-150"
+        >
+          {s}
+        </button>
+      ))}
+    </motion.div>
   );
 }
 
