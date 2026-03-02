@@ -14,6 +14,7 @@ import { FlashcardRenderer } from "@/components/FlashcardRenderer";
 import { QuizRenderer } from "@/components/QuizRenderer";
 import { MockTestRenderer } from "@/components/MockTestRenderer";
 import { QuestionPaperRenderer } from "@/components/QuestionPaperRenderer";
+import { CodeBlock } from "@/components/CodeBlock";
 import { FileUploadButton, FileChips, type FileAttachment } from "@/components/FileUploadButton";
 import { VoiceInputButton } from "@/components/VoiceInputButton";
 import { VideoPlayer } from "@/components/VideoPlayer";
@@ -581,6 +582,10 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
                       return <RenderedTable headers={parsedTable.headers} rows={parsedTable.rows} />;
                     }
                   }
+                  // Multi-line code blocks → syntax-highlighted CodeBlock
+                  if (!isInline) {
+                    return <CodeBlock code={codeStr} language={className} />;
+                  }
                   return <code className={className} {...props}>{children}</code>;
                 },
                 pre({ children, ...props }) {
@@ -732,6 +737,15 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {/* Model badge — shows which AI model(s) generated this response */}
+        {message.model && (
+          <div className="flex items-center gap-1.5 mt-1">
+            <span className="text-[9px] px-2 py-0.5 rounded-full bg-surface-3/60 text-slate-500 font-medium tracking-wide border border-surface-4/40">
+              ⚡ {message.model}
+            </span>
           </div>
         )}
 

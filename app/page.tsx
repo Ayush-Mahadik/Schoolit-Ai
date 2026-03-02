@@ -235,6 +235,7 @@ export default function Home() {
           mockTests: response.mock_tests as MockTestData[] || undefined,
           questionPapers: response.question_papers as QuestionPaperData[] || undefined,
           searchImages: response.search_images || undefined,
+          model: response.model || undefined,
         };
 
         setMessages((prev) => ({

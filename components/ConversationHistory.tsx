@@ -27,10 +27,115 @@ import type { Message } from "@/lib/types";
 // Use ConversationMeta from store as the Conversation type
 type Conversation = ConversationMeta;
 
+/**
+ * Generate a smart, concise title from conversation messages.
+ * Removes question prefixes, extracts key topics, and formats nicely.
+ */
+function generateSmartTitle(messages: Message[]): string {
+  const userMessages = messages.filter(m => m.role === "user");
+  const assistantMessages = messages.filter(m => m.role === "assistant");
+  if (userMessages.length === 0) return "New Chat";
+
+  const firstMsg = userMessages[0].content;
+
+  // Remove common prefixes and filler words
+  let title = firstMsg
+    .replace(/^(can you |please |help me |explain |what is |what are |how to |how do |how does |show me |tell me |teach me |i want to |i need to |i'd like to |could you )/i, "")
+    .replace(/[?!.]+$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // Extract key subject/topic from the AI response if user message is too vague
+  if (title.length < 10 && assistantMessages.length > 0) {
+    const aiContent = assistantMessages[0].content;
+    // Try to extract a topic heading from the AI response
+    const headingMatch = aiContent.match(/^#+\s+(.+)/m);
+    if (headingMatch) {
+      title = headingMatch[1].replace(/[*_#]/g, "").trim();
+    }
+  }
+
+  // Capitalize first letter
+  title = title.charAt(0).toUpperCase() + title.slice(1);
+
+  // Truncate smartly at word boundary
+  if (title.length > 55) {
+    title = title.slice(0, 52);
+    const lastSpace = title.lastIndexOf(" ");
+    if (lastSpace > 30) title = title.slice(0, lastSpace);
+    title += "...";
+  }
+
+  return title || "New Chat";
+}
+
+/**
+ * Generate a brief AI-style content summary from conversation messages.
+ * Shows topics discussed, tools used, and key outcomes.
+ */
+function generateConversationSummary(messages: Message[]): string {
+  const parts: string[] = [];
+  const userMsgs = messages.filter(m => m.role === "user");
+  const assistantMsgs = messages.filter(m => m.role === "assistant");
+
+  // Count topics discussed
+  if (userMsgs.length > 1) {
+    parts.push(`${userMsgs.length} questions`);
+  }
+
+  // Detect tool usage
+  const allTools = new Set<string>();
+  assistantMsgs.forEach(m => m.toolCalls?.forEach(t => allTools.add(t)));
+  if (allTools.size > 0) {
+    const toolLabels: Record<string, string> = {
+      web_search: "Web search", generate_chart: "Charts",
+      generate_flowchart: "Flowcharts", create_flashcards: "Flashcards",
+      generate_quiz: "Quiz", generate_question_paper: "Question paper",
+      generate_mock_test: "Mock test", summarize_video: "Video",
+      generate_image: "Images", create_manim_animation: "Animation",
+    };
+    const usedLabels = Array.from(allTools)
+      .map(t => toolLabels[t])
+      .filter(Boolean)
+      .slice(0, 3);
+    if (usedLabels.length > 0) parts.push(usedLabels.join(", "));
+  }
+
+  // Check for special content
+  if (assistantMsgs.some(m => m.flashcardSets && m.flashcardSets.length > 0)) parts.push("📇 Flashcards");
+  if (assistantMsgs.some(m => m.quizSets && m.quizSets.length > 0)) parts.push("✅ Quiz");
+  if (assistantMsgs.some(m => m.mockTests && m.mockTests.length > 0)) parts.push("📝 Mock test");
+  if (assistantMsgs.some(m => m.sources && m.sources.length > 0)) parts.push("🔗 Sources");
+
+  if (parts.length === 0) {
+    // Fallback: use first few words of first assistant response
+    const firstResponse = assistantMsgs[0]?.content || "";
+    const preview = firstResponse.replace(/[#*_`]/g, "").replace(/\s+/g, " ").trim().slice(0, 80);
+    return preview ? preview + (preview.length >= 80 ? "..." : "") : "Chat conversation";
+  }
+
+  return parts.join(" · ");
+}
+
 interface ConversationHistoryProps {
   currentMessages: Message[];
   onLoadConversation?: (id: string, messages: Message[]) => void;
   onNewChat?: () => void;
+}
+
+/** Format timestamp as relative time (e.g., "2h ago", "3d ago") */
+function formatTimeAgo(timestamp: number): string {
+  const diff = Date.now() - timestamp;
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 4) return `${weeks}w ago`;
+  return new Date(timestamp).toLocaleDateString("en-IN", { month: "short", day: "numeric" });
 }
 
 /**
@@ -119,12 +224,23 @@ export function ConversationHistory({
     const userMessages = currentMessages.filter((m) => m.role === "user");
     if (userMessages.length === 0) return;
 
-    const firstUserMsg = userMessages[0].content;
-    const title = firstUserMsg.slice(0, 60) + (firstUserMsg.length > 60 ? "..." : "");
-    const preview = firstUserMsg.slice(0, 120);
+    // Generate smart title using AI-style heuristics
+    const title = generateSmartTitle(currentMessages);
+    const preview = generateConversationSummary(currentMessages);
 
     const conversationId = activeId || `conv-${Date.now()}`;
     const subject = (currentMessages[0] as { subject?: string }).subject || "general";
+
+    // Deduplication: skip if a very similar conversation was saved in the last 30s
+    const existingConvs = getConversationList();
+    const isDuplicate = existingConvs.some(c => {
+      if (c.id === conversationId) return false; // Same conversation, allow update
+      const timeDiff = Date.now() - c.timestamp;
+      if (timeDiff > 30_000) return false; // Only check recent saves
+      // Check if titles are very similar (same first 40 chars)
+      return c.title.slice(0, 40) === title.slice(0, 40) && c.messageCount === currentMessages.length;
+    });
+    if (isDuplicate && !activeId) return; // Skip saving duplicate
 
     const newConv: Conversation = {
       id: conversationId,
@@ -154,6 +270,9 @@ export function ConversationHistory({
         generatedImages: m.generatedImages || undefined,
         flashcardSets: m.flashcardSets || undefined,
         quizSets: m.quizSets || undefined,
+        mockTests: m.mockTests || undefined,
+        questionPapers: m.questionPapers || undefined,
+        searchImages: m.searchImages || undefined,
       }));
       const msgJson = JSON.stringify(serializableMessages);
       saveConversationMessages(conversationId, msgJson);
@@ -378,13 +497,14 @@ export function ConversationHistory({
                                     <div className="text-sm font-medium text-white truncate mb-1">
                                       {conv.title}
                                     </div>
-                                    <div className="text-xs text-slate-500 truncate mb-1">
+                                    <div className="text-[11px] text-slate-500 line-clamp-2 mb-1.5 leading-relaxed">
                                       {conv.preview}
                                     </div>
-                                    <div className="flex items-center gap-2 text-xs text-slate-600">
-                                      <span className="capitalize">{conv.subject}</span>
-                                      <span>•</span>
+                                    <div className="flex items-center gap-2 text-[10px] text-slate-600">
+                                      <span className="capitalize px-1.5 py-0.5 rounded bg-surface-3/50">{conv.subject}</span>
                                       <span>{conv.messageCount} msgs</span>
+                                      <span>·</span>
+                                      <span>{formatTimeAgo(conv.timestamp)}</span>
                                     </div>
                                   </div>
                                   <button

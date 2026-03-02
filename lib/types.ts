@@ -168,7 +168,7 @@ export interface Message {
   questionPapers?: QuestionPaperData[];
   searchImages?: { url: string; thumbnail: string; title: string; source: string }[];
   attachments?: FileAttachmentMeta[];
-  model?: AIModel;
+  model?: string;
 }
 
 export interface Subject {

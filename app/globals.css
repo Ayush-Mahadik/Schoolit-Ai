@@ -87,11 +87,121 @@ button:focus-visible {
 }
 
 .prose-chat pre {
-  @apply bg-surface-2 rounded-lg p-4 mb-3 overflow-x-auto border border-surface-3/60;
+  @apply bg-transparent rounded-lg p-0 mb-3 overflow-visible border-0;
 }
 
 .prose-chat pre code {
   @apply bg-transparent p-0 text-[13px];
+}
+
+/* Code block inside CodeBlock component — skip prose-chat pre/code styles */
+.code-block-container pre {
+  @apply m-0 p-0 border-0 bg-transparent rounded-none;
+}
+
+.code-block-container code {
+  @apply bg-transparent p-0 rounded-none;
+}
+
+.code-block-container table {
+  @apply border-0 m-0;
+}
+
+.code-block-container td,
+.code-block-container th {
+  @apply border-0 p-0;
+}
+
+/* ── highlight.js GitHub Dark theme — adapted for SchoolIT ──────────── */
+.hljs {
+  color: #c9d1d9;
+}
+
+.hljs-doctag,
+.hljs-keyword,
+.hljs-meta .hljs-keyword,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-type,
+.hljs-variable.language_ {
+  color: #ff7b72;
+}
+
+.hljs-title,
+.hljs-title.class_,
+.hljs-title.class_.inherited__,
+.hljs-title.function_ {
+  color: #d2a8ff;
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-literal,
+.hljs-meta,
+.hljs-number,
+.hljs-operator,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-selector-id,
+.hljs-variable {
+  color: #79c0ff;
+}
+
+.hljs-meta .hljs-string,
+.hljs-regexp,
+.hljs-string {
+  color: #a5d6ff;
+}
+
+.hljs-built_in,
+.hljs-symbol {
+  color: #ffa657;
+}
+
+.hljs-code,
+.hljs-comment,
+.hljs-formula {
+  color: #8b949e;
+}
+
+.hljs-name,
+.hljs-quote,
+.hljs-selector-pseudo,
+.hljs-selector-tag {
+  color: #7ee787;
+}
+
+.hljs-subst {
+  color: #c9d1d9;
+}
+
+.hljs-section {
+  color: #1f6feb;
+  font-weight: bold;
+}
+
+.hljs-bullet {
+  color: #f2cc60;
+}
+
+.hljs-emphasis {
+  color: #c9d1d9;
+  font-style: italic;
+}
+
+.hljs-strong {
+  color: #c9d1d9;
+  font-weight: bold;
+}
+
+.hljs-addition {
+  color: #aff5b4;
+  background-color: #033a16;
+}
+
+.hljs-deletion {
+  color: #ffdcd7;
+  background-color: #67060c;
 }
 
 .prose-chat blockquote {

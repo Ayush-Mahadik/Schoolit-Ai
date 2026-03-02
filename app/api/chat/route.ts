@@ -97,7 +97,11 @@ const MODEL_COMPLETION_CAPS: Record<string, number> = {
 // ── Provider-level rate-limit tracker ─────────────────────────────────
 // Tracks when a provider last hit 429, so we can proactively skip it.
 const providerCooldown = new Map<ProviderName, number>();
-const COOLDOWN_MS = 30_000; // Skip provider for 30s after a 429
+const COOLDOWN_MS: Record<ProviderName, number> = {
+  github: 30_000,    // GitHub Models: 30s cooldown
+  groq: 90_000,      // Groq: 90s cooldown (very aggressive rate limits on free tier)
+  gemini: 30_000,    // Gemini: 30s cooldown
+};
 
 function isProviderCoolingDown(provider: ProviderName): boolean {
   const until = providerCooldown.get(provider);
@@ -107,7 +111,7 @@ function isProviderCoolingDown(provider: ProviderName): boolean {
 }
 
 function markProviderRateLimited(provider: ProviderName) {
-  providerCooldown.set(provider, Date.now() + COOLDOWN_MS);
+  providerCooldown.set(provider, Date.now() + (COOLDOWN_MS[provider] || 30_000));
 }
 
 // ── In-Memory Rate Limiter ────────────────────────────────────────────
@@ -307,12 +311,12 @@ export async function POST(req: NextRequest) {
   // Each mode uses a curated set of models across providers.
   // All selected models support tools. Spread across providers to avoid 429s.
   //
-  // Fast (2 models):     GitHub GPT-4o (fast+tools) + Groq Llama (blazing)
-  // Balanced (3 models): GPT-4.1 (best reasoning) + Gemini 2.0 Flash (tools+vision) + Llama (fast backup)
+  // Fast (2 models):     GPT-4o (fast+tools) + Gemini Flash (vision+tools) → Groq only as backup
+  // Balanced (3 models): GPT-4.1 (best reasoning) + Gemini 2.0 Flash (tools+vision) + GPT-4o (fast backup)
   // Deep (4 models):     GPT-4.1 (primary) + GPT-4o (review) + Gemini 2.0 Flash (cross-check) + Llama (backup)
   const THINKING_MODE_MODEL_PRIORITY: Record<string, string[]> = {
-    fast:     ["gpt-4o", "llama-3.3-70b", "gemini-2.0-flash", "gpt-4.1", "gemini-1.5-flash", "gemma2-9b"],
-    balanced: ["gpt-4.1", "gemini-2.0-flash", "llama-3.3-70b", "gpt-4o", "gemini-1.5-flash", "gemma2-9b"],
+    fast:     ["gpt-4o", "gemini-2.0-flash", "llama-3.3-70b", "gpt-4.1", "gemini-1.5-flash", "gemma2-9b"],
+    balanced: ["gpt-4.1", "gemini-2.0-flash", "gpt-4o", "llama-3.3-70b", "gemini-1.5-flash", "gemma2-9b"],
     deep:     ["gpt-4.1", "gpt-4o", "gemini-2.0-flash", "llama-3.3-70b", "gemini-1.5-flash", "gemma2-9b"],
   };
 
@@ -339,14 +343,18 @@ export async function POST(req: NextRequest) {
   const wantsCBSENews = /(cbse update|cbse notification|date sheet|exam date|syllabus change|board announcement|cbse circular|cbse news)/i.test(message);
   const hasFilesAttached = contextFiles.length > 0;
 
+  // Detect coding-related requests
+  const wantsCode = /(write|code|program|script|function|algorithm|implement|debug|fix.*code|class|html|css|javascript|python|java|c\+\+)/i.test(message);
+
   let toolHint = "";
   if (hasYouTubeUrl) toolHint += "[ToolHint: Use summarize_video for the provided video URL.]\n";
-  if (wantsFlowchart) toolHint += "[ToolHint: Use generate_flowchart and render Mermaid output.]\n";
+  if (wantsFlowchart) toolHint += "[ToolHint: Use generate_flowchart and render Mermaid output. ALWAYS use the tool — never output ASCII flowcharts.]\n";
   if (wantsFlashcards) toolHint += "[ToolHint: Use create_flashcards.]\n";
   if (wantsQuiz && !wantsMockTest && !wantsQuestionPaper) toolHint += "[ToolHint: Use generate_quiz.]\n";
   if (wantsQuestionPaper) toolHint += "[ToolHint: Use generate_question_paper to create a full CBSE-style paper with sections and model answers.]\n";
   if (wantsMockTest) toolHint += "[ToolHint: Use generate_mock_test to create a timed mock exam with timer and auto-evaluation.]\n";
   if (wantsCBSENews) toolHint += "[ToolHint: Use cbse_notifications to fetch latest CBSE updates, dates, and circulars.]\n";
+  if (wantsCode) toolHint += "[ToolHint: When writing code, ALWAYS use proper markdown code blocks with language tags like ```python, ```javascript, ```html etc. Include comments and explanations.]\n";
   if (hasFilesAttached) {
     toolHint += "[ToolHint: Files are attached. Use analyze_document for docs and analyze_screenshot for images.]\n";
   }
@@ -454,11 +462,11 @@ export async function POST(req: NextRequest) {
     messages.push({ role: "user", content: effectiveMessage });
   }
 
-  // Build tool list
+  // Build tool list — only skip tools for very simple greetings (1-2 words, no tool hints)
   const requestedTools = useWebSearch
     ? TOOL_DEFINITIONS
     : TOOL_DEFINITIONS.filter((t) => t.function.name !== "web_search");
-  const isSimplePrompt = message.trim().split(/\s+/).length <= 3 && contextFiles.length === 0;
+  const isSimplePrompt = message.trim().split(/\s+/).length <= 2 && contextFiles.length === 0 && !toolHint;
   const tools = isSimplePrompt ? [] : requestedTools;
 
   // === NDJSON STREAMING RESPONSE ===
