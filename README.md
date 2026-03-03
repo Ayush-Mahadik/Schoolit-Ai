@@ -9,8 +9,8 @@ An intelligent AI-powered school assistant built with Next.js, featuring multi-m
 
 ## 🌐 Live Demo
 
-**Primary:** **[prolai.me](https://prolai.me)**  
-**Legacy:** **[schoolit-ai.vercel.app](https://schoolit-ai.vercel.app)**
+**Primary:** **[prolai.me](https://prolai.me)** (also accessible via [www.prolai.me](https://www.prolai.me))  
+**Legacy:** **[schoolit-ai.vercel.app](https://schoolit-ai.vercel.app)** (redirects to prolai.me)
 
 ## ✨ Features
 

@@ -7,6 +7,12 @@
   "redirects": [
     {
       "source": "/(.*)",
+      "has": [{ "type": "host", "value": "www.prolai.me" }],
+      "destination": "https://prolai.me/$1",
+      "permanent": true
+    },
+    {
+      "source": "/(.*)",
       "has": [{ "type": "host", "value": "schoolit-ai.vercel.app" }],
       "destination": "https://prolai.me/$1",
       "permanent": true

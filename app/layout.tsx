@@ -18,14 +18,20 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://prolai.me"),
   title: "PROLAI — Professional AI Learning Assistant",
   description:
     "AI-powered learning platform with multi-model intelligence, deep reasoning, and 20+ study tools for CBSE students.",
   keywords: ["PROLAI", "AI tutor", "CBSE", "study", "learning", "education"],
   authors: [{ name: "Ayush Mahadik" }],
+  alternates: {
+    canonical: "https://prolai.me",
+  },
   openGraph: {
     title: "PROLAI — Professional AI Learning Assistant",
     description: "Multi-model AI learning platform with deep reasoning and 20+ study tools.",
+    url: "https://prolai.me",
+    siteName: "PROLAI",
     type: "website",
   },
 };

@@ -100,6 +100,7 @@ export function validateOrigin(req: NextRequest): boolean {
   const allowed = [
     PRIMARY_ORIGIN,
     LEGACY_ORIGIN,
+    "https://www.prolai.me",
     "https://frontend-", // Vercel preview deployments
     "http://localhost:3000",
     "http://localhost:3001",
