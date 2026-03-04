@@ -48,7 +48,7 @@ function invalidateCSRFToken() {
 async function fetchWithTimeout(
   url: string,
   options: RequestInit,
-  timeoutMs: number = 120_000
+  timeoutMs: number = 180_000
 ): Promise<Response> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);

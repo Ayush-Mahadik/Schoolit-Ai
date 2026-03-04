@@ -172,8 +172,8 @@ export default function Home() {
       try {
         const subjectMessages = messages[activeSubject] || [];
         // Auto-routing picks models per thinking mode; use generous defaults
-        const recentWindow = 12;
-        const perMessageLimit = 1400;
+        const recentWindow = 16;
+        const perMessageLimit = 2000;
 
         // Keep only recent dialogue as structured history
         const history = subjectMessages
@@ -418,11 +418,11 @@ export default function Home() {
       {/* ── Main Content ─────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* ── Header ─────────────────────────────────────────────── */}
-        <header className="flex items-center justify-between px-3 sm:px-5 h-14 border-b border-surface-3/60 bg-surface-0/95 backdrop-blur-xl shrink-0 relative">
+        <header className="flex items-center justify-between px-3 sm:px-5 h-14 border-b border-glass-border glass-panel shrink-0 relative">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 hover:bg-surface-3 rounded-lg transition-colors text-slate-400 hover:text-white"
+              className="p-2 hover:bg-glass-medium rounded-lg transition-colors text-slate-400 hover:text-white"
               aria-label="Toggle sidebar"
             >
               <Menu className="w-5 h-5" />
@@ -502,7 +502,7 @@ export default function Home() {
         {/* ── Mobile Menu Dropdown ──────────────────────────────── */}
         <AnimatePresence>
           {mobileMenuOpen && (
-            <div className="md:hidden border-b border-surface-3 bg-surface-1 px-3 py-2 flex flex-wrap items-center gap-2 z-10">
+            <div className="md:hidden border-b border-glass-border glass-panel px-3 py-2 flex flex-wrap items-center gap-2 z-10">
               <ThinkingModeToggle
                 activeMode={settings.thinkingMode}
                 onSelect={(mode: ThinkingMode) => {

@@ -32,12 +32,12 @@ import { CSRF_HEADER } from "@/lib/config";
 
 // ── Next.js route config ──────────────────────────────────────────────
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120; // 2 minutes for complex requests
 
 // ── Constants ─────────────────────────────────────────────────────────
-const MAX_TOOL_ROUNDS = 8;
-const MAX_MESSAGE_LENGTH = 12_000;
-const MAX_HISTORY_MESSAGES = 30;
+const MAX_TOOL_ROUNDS = 10;
+const MAX_MESSAGE_LENGTH = 24_000;
+const MAX_HISTORY_MESSAGES = 40;
 const VALID_PERSONAS = ["formal", "creative", "socratic", "balanced", "exam_coach"];
 
 // ══════════════════════════════════════════════════════════════════════

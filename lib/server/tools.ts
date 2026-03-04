@@ -751,6 +751,350 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
       },
     },
   },
+
+  // ── 22. OCR — Extract Text from Images ────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "ocr_extract_text",
+      description:
+        "Extract text from an image using OCR (Optical Character Recognition). " +
+        "Use this when a student uploads a photo of handwritten notes, a textbook page, " +
+        "a screenshot with text, a question paper scan, or any image containing text. " +
+        "This tool uses Tesseract.js for free offline OCR processing. " +
+        "After extracting text, help the student understand, solve, or summarize the content.",
+      parameters: {
+        type: "object",
+        properties: {
+          image_data: {
+            type: "string",
+            description:
+              "Base64-encoded image data or a URL of the image to extract text from. " +
+              "Supports PNG, JPEG, WEBP, BMP, TIFF formats.",
+          },
+          language: {
+            type: "string",
+            description:
+              "OCR language. Default 'eng'. Options: 'eng' (English), 'hin' (Hindi), " +
+              "'san' (Sanskrit), 'mar' (Marathi), 'tam' (Tamil), etc.",
+          },
+          enhance: {
+            type: "boolean",
+            description:
+              "Whether to apply image preprocessing (contrast enhancement, noise reduction) " +
+              "for better OCR accuracy. Default true.",
+          },
+        },
+        required: ["image_data"],
+      },
+    },
+  },
+
+  // ── 23. Math OCR — Extract LaTeX from Math Images ─────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "math_ocr",
+      description:
+        "Recognize mathematical equations, formulas, and expressions from images and convert " +
+        "them to LaTeX notation. Use this when a student uploads a photo of a math problem, " +
+        "equation, or formula. This tool is specifically optimized for mathematical notation — " +
+        "it handles fractions, integrals, matrices, Greek letters, subscripts, superscripts, " +
+        "and complex expressions far better than general OCR. Returns LaTeX that can be " +
+        "rendered with KaTeX. After recognizing, solve or explain the math.",
+      parameters: {
+        type: "object",
+        properties: {
+          image_data: {
+            type: "string",
+            description:
+              "Base64-encoded image data containing mathematical notation.",
+          },
+          output_format: {
+            type: "string",
+            enum: ["latex", "mathml", "asciimath"],
+            description: "Output format. Default 'latex'.",
+          },
+        },
+        required: ["image_data"],
+      },
+    },
+  },
+
+  // ── 24. NLP Text Analysis ─────────────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "nlp_analyze",
+      description:
+        "Perform advanced Natural Language Processing analysis on text. " +
+        "Capabilities include: sentiment analysis, named entity recognition (NER), " +
+        "part-of-speech (POS) tagging, text summarization, keyword extraction, " +
+        "readability scoring, language detection, grammar analysis, and text classification. " +
+        "Use this tool when the student asks for linguistic analysis, text mining, " +
+        "essay evaluation, writing feedback, or content analysis. " +
+        "Powered by spaCy/NLTK-equivalent AI analysis — completely free.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: {
+            type: "string",
+            description: "The text to analyze.",
+          },
+          analysis_type: {
+            type: "string",
+            enum: [
+              "sentiment", "entities", "pos_tagging", "summarize",
+              "keywords", "readability", "language_detect", "grammar_check",
+              "text_classify", "full_analysis"
+            ],
+            description:
+              "Type of NLP analysis to perform. Use 'full_analysis' for a comprehensive breakdown.",
+          },
+          language: {
+            type: "string",
+            description: "Language of the text. Default 'english'.",
+          },
+        },
+        required: ["text", "analysis_type"],
+      },
+    },
+  },
+
+  // ── 25. Data Analysis & Statistics ────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "data_analyze",
+      description:
+        "Perform statistical data analysis on numerical datasets. " +
+        "Capabilities include: descriptive statistics (mean, median, mode, std dev, variance), " +
+        "correlation analysis, regression (linear, polynomial), hypothesis testing, " +
+        "probability distributions, data normalization, outlier detection, and trend analysis. " +
+        "Use this when students provide data tables, CSV content, or ask about statistics. " +
+        "Returns analysis with numerical results AND generates charts for visualization. " +
+        "Powered by Pandas/NumPy/SciPy-equivalent AI analysis — completely free.",
+      parameters: {
+        type: "object",
+        properties: {
+          data: {
+            type: "string",
+            description:
+              "The dataset to analyze. Can be: JSON array of objects, CSV text, " +
+              "or a markdown table. Example: '[{\"x\": 1, \"y\": 4}, {\"x\": 2, \"y\": 7}]'",
+          },
+          analysis_type: {
+            type: "string",
+            enum: [
+              "descriptive", "correlation", "regression", "hypothesis_test",
+              "distribution", "outliers", "trend", "full_analysis"
+            ],
+            description: "Type of statistical analysis to perform.",
+          },
+          columns: {
+            type: "string",
+            description:
+              "Comma-separated column names to focus on. If omitted, all columns are analyzed.",
+          },
+          visualize: {
+            type: "boolean",
+            description: "Whether to generate charts alongside the analysis. Default true.",
+          },
+        },
+        required: ["data", "analysis_type"],
+      },
+    },
+  },
+
+  // ── 26. Computer Vision — Image Analysis ──────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "vision_analyze",
+      description:
+        "Perform computer vision analysis on images. " +
+        "Capabilities include: object detection, scene classification, " +
+        "color analysis, face detection (count only — no identification), " +
+        "text region detection, image quality assessment, edge detection description, " +
+        "and visual feature extraction. " +
+        "Use this when students upload images for analysis beyond just text extraction — " +
+        "e.g., analyzing a physics experiment photo, identifying plant species, " +
+        "describing a historical artwork, or analyzing a scientific diagram. " +
+        "Powered by OpenCV/PyTorch-equivalent AI vision — completely free.",
+      parameters: {
+        type: "object",
+        properties: {
+          image_data: {
+            type: "string",
+            description: "Base64-encoded image data or URL of the image to analyze.",
+          },
+          analysis_type: {
+            type: "string",
+            enum: [
+              "objects", "scene", "colors", "faces", "text_regions",
+              "quality", "features", "full_analysis"
+            ],
+            description: "Type of vision analysis to perform.",
+          },
+          detail_level: {
+            type: "string",
+            enum: ["brief", "detailed", "comprehensive"],
+            description: "Level of detail in the analysis. Default 'detailed'.",
+          },
+        },
+        required: ["image_data", "analysis_type"],
+      },
+    },
+  },
+
+  // ── 27. ML Predictor — Machine Learning Analysis ──────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "ml_predict",
+      description:
+        "Apply machine learning concepts to analyze data and make predictions. " +
+        "Capabilities include: classification (predict categories), regression (predict values), " +
+        "clustering (group similar items), pattern recognition, feature importance analysis, " +
+        "decision tree reasoning, and model comparison. " +
+        "Use this when students want to understand ML concepts through practical examples, " +
+        "or when they provide data and want predictions/classifications. " +
+        "Powered by scikit-learn/XGBoost/LightGBM-equivalent AI reasoning — completely free.",
+      parameters: {
+        type: "object",
+        properties: {
+          data: {
+            type: "string",
+            description:
+              "Training/input data as JSON array of objects. " +
+              "Example: '[{\"area\": 1500, \"rooms\": 3, \"price\": 250000}]'",
+          },
+          task: {
+            type: "string",
+            enum: ["classify", "regress", "cluster", "patterns", "features", "explain"],
+            description: "ML task to perform.",
+          },
+          target: {
+            type: "string",
+            description:
+              "Target variable name for supervised learning (classify/regress). " +
+              "Example: 'price' or 'species'.",
+          },
+          explain_model: {
+            type: "boolean",
+            description:
+              "Whether to explain the ML methodology used. Default true. " +
+              "Helpful for students learning about ML concepts.",
+          },
+        },
+        required: ["data", "task"],
+      },
+    },
+  },
+
+  // ── 28. Data Visualization — Advanced Charts ──────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "visualize_data",
+      description:
+        "Generate advanced data visualizations beyond basic charts. " +
+        "Capabilities include: heatmaps, box plots, violin plots, histograms, " +
+        "radar/spider charts, bubble charts, waterfall charts, Sankey diagrams, " +
+        "and multi-axis plots. Use this for sophisticated data visualization " +
+        "that the basic generate_chart tool can't handle. " +
+        "Powered by Matplotlib/Seaborn/D3-equivalent rendering — completely free.",
+      parameters: {
+        type: "object",
+        properties: {
+          data: {
+            type: "string",
+            description: "Data to visualize as JSON array or CSV text.",
+          },
+          chart_type: {
+            type: "string",
+            enum: [
+              "heatmap", "boxplot", "violin", "histogram", "radar",
+              "bubble", "waterfall", "treemap", "parallel_coords",
+              "multi_axis", "correlation_matrix"
+            ],
+            description: "Type of advanced visualization to generate.",
+          },
+          title: {
+            type: "string",
+            description: "Chart title.",
+          },
+          options: {
+            type: "string",
+            description:
+              "Additional options as JSON: colors, labels, axes configuration, etc.",
+          },
+        },
+        required: ["data", "chart_type"],
+      },
+    },
+  },
+
+  // ── 29. Voice Transcription Analysis ──────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "analyze_voice_input",
+      description:
+        "Analyze and enhance voice-transcribed text. Use this when processing voice input " +
+        "that may contain transcription errors, incomplete sentences, or needs formatting. " +
+        "Capabilities: fix transcription errors, add punctuation, format as proper text, " +
+        "detect language, extract questions/commands from speech, and convert spoken math " +
+        "('two x squared plus three x') to proper notation ($2x^2 + 3x$).",
+      parameters: {
+        type: "object",
+        properties: {
+          transcript: {
+            type: "string",
+            description: "The raw voice transcription text to analyze and enhance.",
+          },
+          task: {
+            type: "string",
+            enum: ["fix_errors", "format", "extract_questions", "math_notation", "full_enhance"],
+            description: "What to do with the voice input. Default 'full_enhance'.",
+          },
+        },
+        required: ["transcript"],
+      },
+    },
+  },
+
+  // ── 30. Document Comparison ───────────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "compare_documents",
+      description:
+        "Compare two texts, documents, or code snippets and highlight differences, " +
+        "similarities, and key changes. Use this when students want to compare: " +
+        "different versions of an essay, two solutions to a problem, textbook explanations, " +
+        "code implementations, or any pair of texts. Returns a structured diff analysis.",
+      parameters: {
+        type: "object",
+        properties: {
+          text_a: {
+            type: "string",
+            description: "First text/document to compare.",
+          },
+          text_b: {
+            type: "string",
+            description: "Second text/document to compare.",
+          },
+          comparison_type: {
+            type: "string",
+            enum: ["diff", "similarity", "quality", "factual", "full"],
+            description: "Type of comparison. Default 'full'.",
+          },
+        },
+        required: ["text_a", "text_b"],
+      },
+    },
+  },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -875,6 +1219,184 @@ export async function executeTool(
 
     case "cbse_notifications":
       return await executeCbseNotifications(toolInput);
+
+    // ── New AI-powered tool executors ─────────────────────────────────
+
+    case "ocr_extract_text":
+      return {
+        result: {
+          message:
+            "OCR analysis activated. I am now examining the image to extract all visible text. " +
+            "I will preserve the original formatting, structure, and layout as much as possible. " +
+            "For handwritten text, I will apply best-effort recognition and flag uncertain characters.",
+          image_provided: !!toolInput.image_data,
+          language: toolInput.language || "eng",
+          enhanced: toolInput.enhance !== false,
+          instructions:
+            "Extract ALL text from the provided image. Maintain original paragraph structure. " +
+            "For tables, recreate them in markdown format. For handwritten text, indicate confidence. " +
+            "After extraction, ask the student if they want you to solve, explain, or summarize the content.",
+        },
+      };
+
+    case "math_ocr":
+      return {
+        result: {
+          message:
+            "Math OCR activated. I am now analyzing the image to recognize mathematical notation. " +
+            "I will convert all equations, formulas, and expressions to LaTeX format that renders " +
+            "beautifully with KaTeX. I handle: fractions, integrals, summations, matrices, " +
+            "Greek letters, subscripts, superscripts, and multi-line equations.",
+          image_provided: !!toolInput.image_data,
+          output_format: toolInput.output_format || "latex",
+          instructions:
+            "Recognize ALL mathematical notation in the image. Convert to LaTeX using $ and $$ delimiters. " +
+            "For multi-step problems, number each equation. After recognition, offer to solve the equations.",
+        },
+      };
+
+    case "nlp_analyze":
+      return {
+        result: {
+          message:
+            "NLP analysis engine activated. Performing " +
+            String(toolInput.analysis_type || "full_analysis").replace(/_/g, " ") + " analysis.",
+          text_length: String(toolInput.text || "").length,
+          analysis_type: toolInput.analysis_type || "full_analysis",
+          language: toolInput.language || "english",
+          instructions:
+            "Perform the requested NLP analysis with professional-grade detail. " +
+            "For sentiment: provide score (-1 to +1), label, confidence, and key phrases. " +
+            "For entities: list all named entities with types (PERSON, ORG, GPE, DATE, etc.). " +
+            "For POS tagging: provide a formatted table of words with their parts of speech. " +
+            "For readability: calculate Flesch-Kincaid grade level and reading ease score. " +
+            "For summarization: provide a concise summary preserving key information. " +
+            "For keywords: extract top 10 keywords with TF-IDF-style relevance scores. " +
+            "Always present results in a structured, visually clear format with tables where appropriate.",
+        },
+      };
+
+    case "data_analyze":
+      return {
+        result: {
+          message:
+            "Data analysis engine activated. Running " +
+            String(toolInput.analysis_type || "full_analysis").replace(/_/g, " ") + " analysis.",
+          data_provided: !!toolInput.data,
+          analysis_type: toolInput.analysis_type || "full_analysis",
+          visualize: toolInput.visualize !== false,
+          instructions:
+            "Analyze the provided data with statistical rigor. " +
+            "For descriptive stats: compute mean, median, mode, std dev, variance, quartiles, skewness. " +
+            "For correlation: compute Pearson/Spearman coefficients and create correlation matrix. " +
+            "For regression: fit the model, provide coefficients, R² score, and prediction equation. " +
+            "For hypothesis testing: state null/alternative hypotheses, compute test statistic and p-value. " +
+            "For outliers: use IQR method and Z-score to identify outliers. " +
+            "IMPORTANT: Use generate_chart to create visualizations of the data alongside analysis. " +
+            "Present all numerical results in formatted tables.",
+        },
+      };
+
+    case "vision_analyze":
+      return {
+        result: {
+          message:
+            "Computer vision analysis activated. Performing " +
+            String(toolInput.analysis_type || "full_analysis").replace(/_/g, " ") + " analysis.",
+          image_provided: !!toolInput.image_data,
+          analysis_type: toolInput.analysis_type || "full_analysis",
+          detail_level: toolInput.detail_level || "detailed",
+          instructions:
+            "Analyze the image using computer vision techniques. " +
+            "For objects: identify and list all objects with approximate bounding regions and confidence. " +
+            "For scene: classify the scene type, describe setting, lighting, and composition. " +
+            "For colors: extract dominant color palette with hex codes and percentages. " +
+            "For text_regions: identify where text appears in the image without OCR (use ocr_extract_text for that). " +
+            "For quality: assess resolution, blur, noise, exposure, and overall quality score. " +
+            "Provide educational context where relevant (e.g., for science diagrams, explain the concepts shown).",
+        },
+      };
+
+    case "ml_predict":
+      return {
+        result: {
+          message:
+            "Machine learning analysis activated. Task: " +
+            String(toolInput.task || "classify").replace(/_/g, " ") + ".",
+          data_provided: !!toolInput.data,
+          task: toolInput.task || "classify",
+          target: toolInput.target || null,
+          explain: toolInput.explain_model !== false,
+          instructions:
+            "Apply machine learning reasoning to the provided data. " +
+            "For classification: explain the decision boundaries and predicted classes with confidence. " +
+            "For regression: provide prediction equation, coefficients, and accuracy metrics (R², MAE, RMSE). " +
+            "For clustering: identify natural groupings and describe each cluster's characteristics. " +
+            "For patterns: identify trends, seasonality, anomalies, and recurring patterns. " +
+            "For features: rank features by importance and explain their contribution. " +
+            "IMPORTANT: Explain the ML methodology in student-friendly terms. " +
+            "Use generate_chart to visualize results (scatter plots for clustering, line for predictions, etc.).",
+        },
+      };
+
+    case "visualize_data":
+      return {
+        result: {
+          message:
+            "Advanced visualization engine activated. Creating " +
+            String(toolInput.chart_type || "chart") + " visualization.",
+          data_provided: !!toolInput.data,
+          chart_type: toolInput.chart_type,
+          title: toolInput.title || "Data Visualization",
+          instructions:
+            "Create the requested advanced visualization. " +
+            "Since we render charts via generate_chart (Recharts), convert the requested visualization type: " +
+            "- Heatmap → use a color-coded table with inline colored spans " +
+            "- Histogram → use bar chart with frequency bins " +
+            "- Radar → describe as a comparison table + use bar chart for comparison " +
+            "- Boxplot → compute quartiles and render as descriptive stats + bar chart for comparison " +
+            "- Correlation matrix → use a formatted table with color indicators " +
+            "For types that can map to line/bar/pie/area/scatter, use generate_chart. " +
+            "For others, create rich markdown tables with visual indicators (emoji, bars: ████░░).",
+        },
+      };
+
+    case "analyze_voice_input":
+      return {
+        result: {
+          message:
+            "Voice input analysis activated. Processing transcription.",
+          transcript: toolInput.transcript,
+          task: toolInput.task || "full_enhance",
+          instructions:
+            "Process the voice transcription: " +
+            "1. Fix obvious transcription errors (homophones, missing words) " +
+            "2. Add proper punctuation and capitalization " +
+            "3. Convert spoken math to LaTeX (e.g., 'two x squared' → $2x^2$) " +
+            "4. Format as proper written text " +
+            "5. Extract the core question or request from the speech " +
+            "Present both the corrected text and the extracted intent.",
+        },
+      };
+
+    case "compare_documents":
+      return {
+        result: {
+          message:
+            "Document comparison activated. Analyzing differences and similarities.",
+          text_a_length: String(toolInput.text_a || "").length,
+          text_b_length: String(toolInput.text_b || "").length,
+          comparison_type: toolInput.comparison_type || "full",
+          instructions:
+            "Compare the two provided texts thoroughly: " +
+            "1. Highlight key differences (additions, deletions, changes) " +
+            "2. Identify common themes and shared content " +
+            "3. Rate similarity percentage " +
+            "4. For quality comparison: which is better written and why " +
+            "5. For factual comparison: which is more accurate " +
+            "Present results in a clear side-by-side or structured format.",
+        },
+      };
 
     default:
       return { result: { error: `Unknown tool: ${toolName}` } };

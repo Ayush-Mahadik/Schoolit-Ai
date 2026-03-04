@@ -151,15 +151,16 @@ export function ConversationHistory({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [cloudStatus, setCloudStatus] = useState<"idle" | "syncing" | "synced" | "offline">("idle");
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const userEmail = session?.user?.email || null;
-  const cloudEnabled = isCloudEnabled() && !!userEmail;
+  const isAuthenticated = sessionStatus === "authenticated";
+  const cloudEnabled = isCloudEnabled() && !!userEmail && isAuthenticated;
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load conversations from localStorage
+  // Load conversations from localStorage (and cloud if authenticated)
   useEffect(() => {
     loadConversations();
-  }, []);
+  }, [sessionStatus]);
 
   // Auto-save current conversation
   useEffect(() => {
@@ -356,7 +357,7 @@ export function ConversationHistory({
         className={`p-2 rounded-xl transition-all duration-200 shrink-0 ${
           isOpen
             ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-            : "hover:bg-surface-3 text-slate-400 hover:text-white border border-transparent"
+            : "hover:bg-glass-medium text-slate-400 hover:text-white border border-transparent"
         }`}
         title={isOpen ? "Close history" : "Chat history"}
       >
@@ -382,27 +383,28 @@ export function ConversationHistory({
               animate={{ x: 0 }}
               exit={{ x: -320 }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="fixed left-0 top-0 bottom-0 w-80 bg-surface-1 border-r border-surface-4 z-[70] flex flex-col"
+              className="fixed left-0 top-0 bottom-0 w-80 glass-strong z-[70] flex flex-col"
             >
               {/* Header */}
-              <div className="p-4 border-b border-surface-4">
+              <div className="p-4 border-b border-glass-border">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-lg font-bold text-white flex items-center gap-2">
                     <Icon name="history" className="w-5 h-5 text-blue-400" />
                     History
-                    {cloudEnabled && (
+                    {isAuthenticated && cloudEnabled && (
                       <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium uppercase tracking-wide ${
                         cloudStatus === "synced" ? "bg-green-500/15 text-green-400 border border-green-500/30" :
                         cloudStatus === "syncing" ? "bg-blue-500/15 text-blue-400 border border-blue-500/30" :
-                        "bg-yellow-500/15 text-yellow-400 border border-yellow-500/30"
+                        cloudStatus === "offline" ? "bg-yellow-500/15 text-yellow-400 border border-yellow-500/30" :
+                        "bg-surface-3/30 text-slate-500 border border-surface-4/30"
                       }`}>
-                        {cloudStatus === "synced" ? "☁️ Cloud" : cloudStatus === "syncing" ? "⟳ Syncing" : "⚠ Offline"}
+                        {cloudStatus === "synced" ? "☁️ Cloud" : cloudStatus === "syncing" ? "⟳ Syncing" : cloudStatus === "offline" ? "⚠ Retry" : "Local"}
                       </span>
                     )}
                   </h2>
                   <button
                     onClick={() => setIsOpen(false)}
-                    className="p-1 hover:bg-surface-3 rounded-lg text-slate-500 hover:text-white transition-colors"
+                    className="p-1 hover:bg-glass-medium rounded-lg text-slate-500 hover:text-white transition-colors"
                   >
                     <Icon name="x" className="w-4 h-4" />
                   </button>
@@ -416,7 +418,7 @@ export function ConversationHistory({
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Search conversations..."
-                    className="w-full pl-10 pr-3 py-2 bg-surface-2 border border-surface-4 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50"
+                    className="w-full pl-10 pr-3 py-2 glass-input rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none"
                   />
                 </div>
 
@@ -428,7 +430,7 @@ export function ConversationHistory({
                     setActiveId(null);
                     setIsOpen(false);
                   }}
-                  className="w-full mt-3 px-3 py-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 rounded-lg text-sm font-medium text-blue-400 hover:text-blue-300 transition-colors flex items-center justify-center gap-2"
+                  className="w-full mt-3 px-3 py-2 btn-glass rounded-lg text-sm font-medium text-blue-400 hover:text-blue-300 transition-colors flex items-center justify-center gap-2"
                 >
                   <Icon name="plus" className="w-4 h-4" />
                   New Chat
@@ -488,8 +490,8 @@ export function ConversationHistory({
                                 }}
                                 className={`w-full text-left p-3 rounded-lg transition-all duration-150 group relative ${
                                   conv.id === activeId
-                                    ? "bg-blue-500/10 border border-blue-500/30"
-                                    : "hover:bg-surface-3 border border-transparent"
+                                    ? "glass-accent border border-blue-500/30"
+                                    : "hover:bg-glass-medium border border-transparent"
                                 }`}
                               >
                                 <div className="flex items-start justify-between gap-2">
@@ -527,7 +529,7 @@ export function ConversationHistory({
 
               {/* Footer */}
               {conversations.length > 0 && (
-                <div className="p-3 border-t border-surface-4">
+                <div className="p-3 border-t border-glass-border">
                   <button
                     onClick={clearAllConversations}
                     className="w-full px-3 py-2 text-xs font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors flex items-center justify-center gap-2"

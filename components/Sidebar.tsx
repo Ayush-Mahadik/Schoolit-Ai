@@ -35,22 +35,22 @@ export function Sidebar({
       animate={{ x: 0 }}
       exit={{ x: -260 }}
       transition={{ type: "spring", damping: 25, stiffness: 200 }}
-      className="w-[260px] h-full bg-surface-1/95 backdrop-blur-xl border-r border-surface-3/60 flex flex-col shrink-0 z-40 fixed lg:relative"
+      className="w-[260px] h-full glass-strong flex flex-col shrink-0 z-40 fixed lg:relative"
     >
       {/* ── Header ────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-4 h-14 border-b border-surface-3">
+      <div className="flex items-center justify-between px-4 h-14 border-b border-glass-border">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/25">
             <GraduationCap className="w-4 h-4 text-white" />
           </div>
           <div>
             <h2 className="text-sm font-bold text-white leading-tight tracking-wide">SchoolIT AI</h2>
-            <p className="text-[10px] text-blue-400/50 font-medium">v3.0</p>
+            <p className="text-[10px] text-blue-400/60 font-medium">v3.0</p>
           </div>
         </div>
         <button
           onClick={onClose}
-          className="p-1.5 hover:bg-surface-3 rounded-md transition-colors text-slate-500 hover:text-white"
+          className="p-1.5 hover:bg-glass-medium rounded-md transition-colors text-slate-500 hover:text-white"
           aria-label="Close sidebar"
         >
           <PanelLeftClose className="w-4 h-4" />
@@ -59,20 +59,20 @@ export function Sidebar({
 
       {/* ── New Chat + Schedule ────────────────────────────────────── */}
       <div className="p-3 space-y-1.5">
-        <button className="w-full py-2 px-3 bg-gradient-to-r from-blue-600/15 to-indigo-600/10 hover:from-blue-600/25 hover:to-indigo-600/15 text-white text-sm font-medium rounded-lg transition-all duration-200 flex items-center gap-2.5 border border-blue-500/10 hover:border-blue-500/20">
+        <button className="w-full py-2 px-3 btn-glass text-white text-sm font-medium rounded-lg transition-all duration-200 flex items-center gap-2.5">
           <Plus className="w-4 h-4 text-slate-400" />
           New Conversation
         </button>
         <Link
           href="/schedule"
-          className="w-full py-2 px-3 hover:bg-surface-3 text-slate-400 text-sm rounded-lg transition-colors flex items-center gap-2.5"
+          className="w-full py-2 px-3 hover:bg-glass-medium text-slate-400 text-sm rounded-lg transition-colors flex items-center gap-2.5"
         >
           <Calendar className="w-4 h-4" />
           Schedule
         </Link>
         <Link
           href="/knowledge"
-          className="w-full py-2 px-3 hover:bg-surface-3 text-slate-400 text-sm rounded-lg transition-colors flex items-center gap-2.5"
+          className="w-full py-2 px-3 hover:bg-glass-medium text-slate-400 text-sm rounded-lg transition-colors flex items-center gap-2.5"
         >
           <Icon name="book-open" className="w-4 h-4" />
           Knowledge Base
@@ -80,7 +80,7 @@ export function Sidebar({
         {isAdmin && (
           <button
             onClick={() => downloadAdminData()}
-            className="w-full py-2 px-3 hover:bg-surface-3 text-slate-400 text-sm rounded-lg transition-colors flex items-center gap-2.5"
+            className="w-full py-2 px-3 hover:bg-glass-medium text-slate-400 text-sm rounded-lg transition-colors flex items-center gap-2.5"
           >
             <Icon name="download" className="w-4 h-4" />
             Export Memory
@@ -101,8 +101,8 @@ export function Sidebar({
               className={clsx(
                 "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150",
                 activeSubject === subject.id
-                  ? "bg-surface-3 text-white"
-                  : "text-slate-400 hover:bg-surface-3/50 hover:text-slate-200"
+                  ? "glass-accent text-white"
+                  : "text-slate-400 hover:bg-glass-medium hover:text-slate-200"
               )}
             >
               <Icon
@@ -122,13 +122,13 @@ export function Sidebar({
       </div>
 
       {/* ── Social Links ──────────────────────────────────────────── */}
-      <div className="px-3 py-2 border-t border-surface-3">
+      <div className="px-3 py-2 border-t border-glass-border">
         <div className="flex items-center justify-center gap-2">
           <a
             href="https://github.com/Ayush-Mahadik"
             target="_blank"
             rel="noopener noreferrer"
-            className="p-2 hover:bg-surface-3 rounded-lg transition-colors text-slate-600 hover:text-white"
+            className="p-2 hover:bg-glass-medium rounded-lg transition-colors text-slate-600 hover:text-white"
             title="GitHub"
           >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -139,7 +139,7 @@ export function Sidebar({
             href="https://discord.com/users/notleaped84"
             target="_blank"
             rel="noopener noreferrer"
-            className="p-2 hover:bg-surface-3 rounded-lg transition-colors text-slate-600 hover:text-[#5865F2]"
+            className="p-2 hover:bg-glass-medium rounded-lg transition-colors text-slate-600 hover:text-[#5865F2]"
             title="Discord: notleaped84"
           >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -150,9 +150,9 @@ export function Sidebar({
       </div>
 
       {/* ── User Footer ───────────────────────────────────────────── */}
-      <div className="p-3 border-t border-surface-3">
+      <div className="p-3 border-t border-glass-border">
         {status === "authenticated" && user ? (
-          <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-surface-2/50">
+          <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg glass-subtle">
             {user.image ? (
               <img
                 src={user.image}

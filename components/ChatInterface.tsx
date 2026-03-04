@@ -346,7 +346,7 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
       {/* Grok-style right side marker panel (outside scroll area so it stays visible) */}
       {assistantMessages.length >= 1 && (
         <div className="hidden md:flex absolute right-2 top-16 bottom-24 z-20 items-center pointer-events-none">
-          <div className="pointer-events-auto flex flex-col gap-2 p-1.5 rounded-xl bg-black/25 border border-surface-4/50 backdrop-blur-sm shadow-lg">
+          <div className="pointer-events-auto flex flex-col gap-2 p-1.5 rounded-xl glass-subtle shadow-lg">
             {assistantMessages.map((m, i) => {
               const isActive = activeAssistantId === m.id;
               return (
@@ -368,11 +368,11 @@ export function ChatInterface({ messages, isLoading, onSend, onEditMessage, onRe
       )}
 
       {/* ── Input Area ─────────────────────────────────────────────── */}
-      <div className="border-t border-surface-3/60 bg-gradient-to-t from-surface-0 via-surface-0 to-surface-0/95 px-3 sm:px-4 py-3 backdrop-blur-xl">
+      <div className="border-t border-glass-border glass-panel px-3 sm:px-4 py-3">
         <div className="max-w-3xl mx-auto">
           <FileChips files={attachedFiles} onRemove={handleRemoveFile} />
 
-          <div className="flex items-end gap-2 bg-surface-2/80 rounded-2xl border border-surface-3/60 focus-within:border-blue-500/30 focus-within:shadow-[0_0_15px_rgba(59,130,246,0.08)] transition-all duration-300 px-3 py-2">
+          <div className="flex items-end gap-2 glass-input rounded-2xl focus-within:border-blue-500/30 focus-within:shadow-[0_0_20px_rgba(45,122,255,0.1)] transition-all duration-300 px-3 py-2">
             <FileUploadButton
               onFilesSelected={handleFilesSelected}
               disabled={isLoading}
@@ -422,7 +422,7 @@ function UserBubble({ message, onEdit }: { message: Message; onEdit?: (id: strin
 
   return (
     <div className="max-w-[80%] sm:max-w-[70%] group">
-      <div className="bg-surface-3 text-slate-200 rounded-2xl rounded-br-sm px-4 py-2.5">
+      <div className="glass text-slate-200 rounded-2xl rounded-br-sm px-4 py-2.5">
         {isEditing ? (
           <div className="space-y-2">
             <textarea
@@ -503,7 +503,7 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
 
   return (
     <div className="flex items-start gap-2.5 max-w-[90%] sm:max-w-[85%] group">
-      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500/15 to-indigo-500/15 border border-blue-500/10 flex items-center justify-center shrink-0 mt-0.5">
+      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border border-blue-500/15 flex items-center justify-center shrink-0 mt-0.5 shadow-[0_0_12px_rgba(45,122,255,0.15)]">
         <Bot className="w-3.5 h-3.5 text-blue-400" />
       </div>
       <div className="space-y-2 min-w-0 flex-1">
@@ -713,7 +713,7 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
                     href={src}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="overflow-hidden rounded-xl bg-surface-2 hover:bg-surface-3 border border-surface-4 hover:border-blue-500/30 transition-all group/src min-w-0"
+                    className="overflow-hidden rounded-xl glass-subtle hover:bg-glass-medium hover:border-blue-500/30 transition-all group/src min-w-0 hover-glow"
                   >
                     {snapshotUrl && (
                       <img
@@ -821,7 +821,7 @@ function ThinkingIndicator({ modelInfo, statusMessages = [] }: { modelInfo: { na
 
   return (
     <div className="flex items-start gap-2.5 max-w-[85%]">
-      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500/15 to-indigo-500/15 border border-blue-500/10 flex items-center justify-center shrink-0 mt-0.5">
+      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border border-blue-500/15 flex items-center justify-center shrink-0 mt-0.5 shadow-[0_0_12px_rgba(45,122,255,0.15)]">
         <Bot className="w-3.5 h-3.5 text-blue-400" />
       </div>
       <div className="space-y-2.5 min-w-0">
@@ -930,7 +930,7 @@ function SmartSuggestions({ lastMessage, onSend, subject }: { lastMessage: Messa
         <button
           key={i}
           onClick={() => onSend(s)}
-          className="text-xs px-3 py-1.5 rounded-full bg-surface-2 hover:bg-surface-3 border border-surface-4 hover:border-brand-500/30 text-slate-400 hover:text-white transition-all duration-150"
+          className="text-xs px-3 py-1.5 rounded-full glass-subtle hover:bg-glass-medium hover:border-brand-500/30 text-slate-400 hover:text-white transition-all duration-150"
         >
           {s}
         </button>
@@ -1080,8 +1080,8 @@ function EmptyState({ subject, onSuggestion }: { subject: string; onSuggestion: 
         className="text-center space-y-6 w-full"
       >
         <div className="relative w-14 h-14 mx-auto">
-          <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-blue-500/20 to-indigo-500/20 blur-xl" />
-          <div className="relative w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500/15 to-indigo-500/15 border border-blue-500/20 flex items-center justify-center backdrop-blur-sm">
+          <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-blue-500/25 to-indigo-500/25 blur-xl animate-pulse-glow" />
+          <div className="relative w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border border-blue-500/25 flex items-center justify-center backdrop-blur-sm shadow-[0_0_20px_rgba(45,122,255,0.2)]">
             <Icon name="graduation-cap" className="w-7 h-7 text-blue-400" />
           </div>
         </div>
@@ -1096,7 +1096,7 @@ function EmptyState({ subject, onSuggestion }: { subject: string; onSuggestion: 
           <button
             type="button"
             onClick={reshuffleSuggestions}
-            className="mt-3 text-[11px] px-3 py-1.5 rounded-lg bg-surface-2/60 hover:bg-surface-3 border border-surface-4/60 text-slate-400 hover:text-white transition-all duration-200 hover:border-blue-500/20"
+            className="mt-3 text-[11px] px-3 py-1.5 rounded-lg glass-subtle text-slate-400 hover:text-white transition-all duration-200 hover:border-blue-500/20"
           >
             ↻ Shuffle suggestions
           </button>
@@ -1107,7 +1107,7 @@ function EmptyState({ subject, onSuggestion }: { subject: string; onSuggestion: 
             <button
               key={i}
               onClick={() => onSuggestion(suggestion)}
-              className="text-left px-4 py-3 bg-surface-2/60 hover:bg-surface-3/80 border border-surface-3/60 hover:border-blue-500/25 rounded-xl text-sm text-slate-400 hover:text-slate-200 transition-all duration-200 font-medium hover:shadow-[0_0_20px_rgba(59,130,246,0.06)]"
+              className="text-left px-4 py-3 glass-subtle hover:bg-glass-medium hover:border-blue-500/25 rounded-xl text-sm text-slate-400 hover:text-slate-200 transition-all duration-200 font-medium hover:shadow-[0_0_20px_rgba(45,122,255,0.08)] hover-glow"
             >
               {suggestion}
             </button>
