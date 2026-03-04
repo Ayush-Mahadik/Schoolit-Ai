@@ -4,28 +4,24 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Icon } from "@/components/Icons";
-import { isCloudEnabled } from "@/lib/supabase";
 import {
   cloudSaveConversation,
   cloudLoadConversations,
   cloudDeleteConversation,
   cloudClearAll,
+  type CloudConversation,
 } from "@/lib/cloud-storage";
-import {
-  getConversationList,
-  saveConversationMeta,
-  setConversationList,
-  deleteConversationById,
-  clearAllConversations as storeClearAll,
-  getConversationMessages,
-  saveConversationMessages,
-  removeConversationMessages,
-  type ConversationMeta,
-} from "@/lib/store";
 import type { Message } from "@/lib/types";
 
-// Use ConversationMeta from store as the Conversation type
-type Conversation = ConversationMeta;
+// ── Types ─────────────────────────────────────────────────────────────
+interface Conversation {
+  id: string;
+  title: string;
+  subject: string;
+  timestamp: number;
+  messageCount: number;
+  preview: string;
+}
 
 /**
  * Generate a smart, concise title from conversation messages.
@@ -139,7 +135,9 @@ function formatTimeAgo(timestamp: number): string {
 }
 
 /**
- * Grok-style conversation history sidebar with panels and navigation
+ * Cloud-only conversation history sidebar.
+ * All data is stored and retrieved from Supabase via /api/conversations.
+ * No localStorage is used.
  */
 export function ConversationHistory({
   currentMessages,
@@ -150,99 +148,117 @@ export function ConversationHistory({
   const [isOpen, setIsOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [cloudStatus, setCloudStatus] = useState<"idle" | "syncing" | "synced" | "offline">("idle");
+  const [cloudStatus, setCloudStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const { data: session, status: sessionStatus } = useSession();
   const userEmail = session?.user?.email || null;
   const isAuthenticated = sessionStatus === "authenticated";
-  const cloudEnabled = isCloudEnabled() && !!userEmail && isAuthenticated;
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const cloudCacheRef = useRef<Map<string, Message[]>>(new Map());
 
-  // Load conversations from localStorage (and cloud if authenticated)
-  useEffect(() => {
-    loadConversations();
-  }, [sessionStatus]);
+  // ── Load conversations from cloud when authenticated ────────────────
+  const loadConversations = useCallback(async () => {
+    if (!isAuthenticated || !userEmail) {
+      setConversations([]);
+      setCloudStatus("idle");
+      return;
+    }
 
-  // Auto-save current conversation
+    try {
+      setCloudStatus("syncing");
+      setIsLoadingHistory(true);
+      const cloudData = await cloudLoadConversations(userEmail);
+
+      if (cloudData && cloudData.length > 0) {
+        const entries: Conversation[] = cloudData.map((c: CloudConversation) => ({
+          id: c.id,
+          title: c.title || "Untitled Chat",
+          subject: c.subject || "general",
+          timestamp: c.timestamp,
+          messageCount: c.message_count || 0,
+          preview: c.preview || "Chat conversation",
+        }));
+
+        // Cache messages in memory for quick access
+        for (const c of cloudData) {
+          if (c.messages && c.messages.length > 0) {
+            const hydrated: Message[] = c.messages.map((m) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              timestamp: new Date(m.timestamp),
+              thinking: m.thinking || undefined,
+              sources: m.sources || undefined,
+              toolCalls: m.toolCalls || undefined,
+              model: m.model || undefined,
+              flowcharts: m.flowcharts as Message["flowcharts"],
+              manimAnimations: m.manimAnimations as Message["manimAnimations"],
+              generatedImages: m.generatedImages as Message["generatedImages"],
+              flashcardSets: m.flashcardSets as Message["flashcardSets"],
+              quizSets: m.quizSets as Message["quizSets"],
+            }));
+            cloudCacheRef.current.set(c.id, hydrated);
+          }
+        }
+
+        entries.sort((a, b) => b.timestamp - a.timestamp);
+        setConversations(entries);
+        setCloudStatus("synced");
+      } else {
+        setConversations([]);
+        setCloudStatus("synced");
+      }
+    } catch (err) {
+      console.warn("Failed to load cloud conversations:", err);
+      setCloudStatus("error");
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }, [isAuthenticated, userEmail]);
+
+  // Reload when session resolves
   useEffect(() => {
-    if (currentMessages.length > 0) {
+    if (sessionStatus !== "loading") {
+      loadConversations();
+    }
+  }, [sessionStatus, loadConversations]);
+
+  // Reload fresh data when panel opens
+  useEffect(() => {
+    if (isOpen && isAuthenticated) {
+      loadConversations();
+    }
+  }, [isOpen, isAuthenticated, loadConversations]);
+
+  // Auto-save current conversation to cloud
+  useEffect(() => {
+    if (currentMessages.length > 0 && isAuthenticated && userEmail) {
       saveCurrentConversation();
     }
-  }, [currentMessages]);
-
-  // Load from unified store first, then try cloud and merge
-  async function loadConversations() {
-    // 1. Load from unified store (fast, always available)
-    let localConversations: Conversation[] = getConversationList();
-    setConversations(localConversations.sort((a, b) => b.timestamp - a.timestamp));
-
-    // 2. Try cloud sync (async, merges with local)
-    if (cloudEnabled && userEmail) {
-      try {
-        setCloudStatus("syncing");
-        const cloudData = await cloudLoadConversations(userEmail);
-        if (cloudData && cloudData.length > 0) {
-          // Merge: cloud data takes priority for newer entries
-          const merged = new Map<string, Conversation>();
-          for (const local of localConversations) {
-            merged.set(local.id, local);
-          }
-          for (const cloud of cloudData) {
-            const existing = merged.get(cloud.id);
-            if (!existing || cloud.timestamp > existing.timestamp) {
-              merged.set(cloud.id, {
-                id: cloud.id,
-                title: cloud.title,
-                subject: cloud.subject,
-                timestamp: cloud.timestamp,
-                messageCount: cloud.message_count,
-                preview: cloud.preview,
-              });
-              // Also save cloud messages to local store for offline access
-              if (cloud.messages && cloud.messages.length > 0) {
-                try {
-                  const msgJson = JSON.stringify(cloud.messages);
-                  saveConversationMessages(cloud.id, msgJson);
-                } catch { /* ignore */ }
-              }
-            }
-          }
-          const mergedList = Array.from(merged.values()).sort((a, b) => b.timestamp - a.timestamp);
-          setConversations(mergedList);
-          setConversationList(mergedList);
-          setCloudStatus("synced");
-        } else {
-          setCloudStatus("synced");
-        }
-      } catch {
-        setCloudStatus("offline");
-      }
-    }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentMessages, isAuthenticated, userEmail]);
 
   function saveCurrentConversation() {
-    if (currentMessages.length === 0) return;
+    if (currentMessages.length === 0 || !isAuthenticated || !userEmail) return;
 
     const userMessages = currentMessages.filter((m) => m.role === "user");
     if (userMessages.length === 0) return;
 
-    // Generate smart title using AI-style heuristics
     const title = generateSmartTitle(currentMessages);
     const preview = generateConversationSummary(currentMessages);
-
     const conversationId = activeId || `conv-${Date.now()}`;
-    const subject = (currentMessages[0] as { subject?: string }).subject || "general";
+    const subject = "general";
 
     // Deduplication: skip if a very similar conversation was saved in the last 30s
-    const existingConvs = getConversationList();
-    const isDuplicate = existingConvs.some(c => {
-      if (c.id === conversationId) return false; // Same conversation, allow update
+    const isDuplicate = conversations.some(c => {
+      if (c.id === conversationId) return false;
       const timeDiff = Date.now() - c.timestamp;
-      if (timeDiff > 30_000) return false; // Only check recent saves
-      // Check if titles are very similar (same first 40 chars)
+      if (timeDiff > 30_000) return false;
       return c.title.slice(0, 40) === title.slice(0, 40) && c.messageCount === currentMessages.length;
     });
-    if (isDuplicate && !activeId) return; // Skip saving duplicate
+    if (isDuplicate && !activeId) return;
 
+    // Update local state immediately for responsiveness
     const newConv: Conversation = {
       id: conversationId,
       title,
@@ -252,65 +268,49 @@ export function ConversationHistory({
       preview,
     };
 
-    // Save metadata via unified store
-    saveConversationMeta(newConv);
-
-    // Save actual messages via unified store
-    try {
-      const serializableMessages = currentMessages.map((m) => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp,
-        thinking: m.thinking || undefined,
-        sources: m.sources || undefined,
-        toolCalls: m.toolCalls || undefined,
-        model: m.model || undefined,
-        flowcharts: m.flowcharts || undefined,
-        manimAnimations: m.manimAnimations || undefined,
-        generatedImages: m.generatedImages || undefined,
-        flashcardSets: m.flashcardSets || undefined,
-        quizSets: m.quizSets || undefined,
-        mockTests: m.mockTests || undefined,
-        questionPapers: m.questionPapers || undefined,
-        searchImages: m.searchImages || undefined,
-      }));
-      const msgJson = JSON.stringify(serializableMessages);
-      saveConversationMessages(conversationId, msgJson);
-
-      // Cloud sync — debounced to avoid excessive writes
-      if (cloudEnabled && userEmail) {
-        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = setTimeout(() => {
-          cloudSaveConversation(userEmail!, {
-            id: conversationId,
-            title,
-            subject,
-            timestamp: Date.now(),
-            messageCount: currentMessages.length,
-            preview,
-            messages: currentMessages,
-          }).then((ok) => {
-            if (ok) setCloudStatus("synced");
-          }).catch(() => {});
-        }, 2000); // Debounce 2 seconds
+    setConversations(prev => {
+      const idx = prev.findIndex(c => c.id === conversationId);
+      if (idx >= 0) {
+        const updated = [...prev];
+        updated[idx] = newConv;
+        return updated.sort((a, b) => b.timestamp - a.timestamp);
       }
-    } catch {
-      // Storage might be full — ignore
-    }
+      return [newConv, ...prev];
+    });
 
-    setConversations(getConversationList());
+    // Cache messages in memory
+    cloudCacheRef.current.set(conversationId, [...currentMessages]);
+
+    // Debounced cloud save (2s)
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      cloudSaveConversation(userEmail!, {
+        id: conversationId,
+        title,
+        subject,
+        timestamp: Date.now(),
+        messageCount: currentMessages.length,
+        preview,
+        messages: currentMessages,
+      }).then((ok) => {
+        if (ok) setCloudStatus("synced");
+      }).catch(() => {
+        setCloudStatus("error");
+      });
+    }, 2000);
+
     setActiveId(conversationId);
   }
 
   function deleteConversation(id: string, e: React.MouseEvent) {
     e.stopPropagation();
-    deleteConversationById(id);
-    // Also delete from cloud (fire-and-forget)
-    if (cloudEnabled && userEmail) {
+    setConversations(prev => prev.filter(c => c.id !== id));
+    cloudCacheRef.current.delete(id);
+
+    if (userEmail) {
       cloudDeleteConversation(userEmail, id).catch(() => {});
     }
-    setConversations(getConversationList());
+
     if (activeId === id) {
       setActiveId(null);
       onNewChat?.();
@@ -319,14 +319,62 @@ export function ConversationHistory({
 
   function clearAllConversations() {
     if (confirm("Delete all conversation history? This cannot be undone.")) {
-      storeClearAll();
-      // Also clear from cloud (fire-and-forget)
-      if (cloudEnabled && userEmail) {
+      setConversations([]);
+      cloudCacheRef.current.clear();
+      setActiveId(null);
+      if (userEmail) {
         cloudClearAll(userEmail).catch(() => {});
       }
-      setConversations([]);
-      setActiveId(null);
     }
+  }
+
+  async function loadConversationMessages(conv: Conversation) {
+    saveCurrentConversation();
+
+    // Check in-memory cache first
+    const cached = cloudCacheRef.current.get(conv.id);
+    if (cached && cached.length > 0) {
+      onLoadConversation?.(conv.id, cached);
+      setActiveId(conv.id);
+      setIsOpen(false);
+      return;
+    }
+
+    // Fallback: reload from cloud
+    if (userEmail) {
+      try {
+        const cloudData = await cloudLoadConversations(userEmail);
+        const found = cloudData?.find(c => c.id === conv.id);
+        if (found?.messages && found.messages.length > 0) {
+          const hydrated: Message[] = found.messages.map((m) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            timestamp: new Date(m.timestamp),
+            thinking: m.thinking || undefined,
+            sources: m.sources || undefined,
+            toolCalls: m.toolCalls || undefined,
+            model: m.model || undefined,
+            flowcharts: m.flowcharts as Message["flowcharts"],
+            manimAnimations: m.manimAnimations as Message["manimAnimations"],
+            generatedImages: m.generatedImages as Message["generatedImages"],
+            flashcardSets: m.flashcardSets as Message["flashcardSets"],
+            quizSets: m.quizSets as Message["quizSets"],
+          }));
+          cloudCacheRef.current.set(conv.id, hydrated);
+          onLoadConversation?.(conv.id, hydrated);
+        } else {
+          onLoadConversation?.(conv.id, []);
+        }
+      } catch {
+        onLoadConversation?.(conv.id, []);
+      }
+    } else {
+      onLoadConversation?.(conv.id, []);
+    }
+
+    setActiveId(conv.id);
+    setIsOpen(false);
   }
 
   const filteredConversations = searchQuery
@@ -391,20 +439,20 @@ export function ConversationHistory({
                   <h2 className="text-lg font-bold text-white flex items-center gap-2">
                     <Icon name="history" className="w-5 h-5 text-blue-400" />
                     History
-                    {isAuthenticated && cloudEnabled && (
+                    {isAuthenticated && (
                       <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium uppercase tracking-wide ${
                         cloudStatus === "synced" ? "bg-green-500/15 text-green-400 border border-green-500/30" :
                         cloudStatus === "syncing" ? "bg-blue-500/15 text-blue-400 border border-blue-500/30" :
-                        cloudStatus === "offline" ? "bg-yellow-500/15 text-yellow-400 border border-yellow-500/30" :
-                        "bg-surface-3/30 text-slate-500 border border-surface-4/30"
+                        cloudStatus === "error" ? "bg-yellow-500/15 text-yellow-400 border border-yellow-500/30" :
+                        "bg-blue-500/10 text-blue-400 border border-blue-500/20"
                       }`}>
-                        {cloudStatus === "synced" ? "☁️ Cloud" : cloudStatus === "syncing" ? "⟳ Syncing" : cloudStatus === "offline" ? "⚠ Retry" : "Local"}
+                        {cloudStatus === "synced" ? "☁️ Cloud" : cloudStatus === "syncing" ? "⟳ Syncing" : cloudStatus === "error" ? "⚠ Retry" : "☁️ Cloud"}
                       </span>
                     )}
                   </h2>
                   <button
                     onClick={() => setIsOpen(false)}
-                    className="p-1 hover:bg-glass-medium rounded-lg text-slate-500 hover:text-white transition-colors"
+                    className="p-1 hover:bg-glass-medium rounded-lg text-slate-400 hover:text-white transition-colors"
                   >
                     <Icon name="x" className="w-4 h-4" />
                   </button>
@@ -439,11 +487,30 @@ export function ConversationHistory({
 
               {/* Conversations List */}
               <div className="flex-1 overflow-y-auto p-2">
-                {filteredConversations.length === 0 ? (
+                {/* Not authenticated — show sign-in prompt */}
+                {!isAuthenticated ? (
+                  <div className="text-center py-12 px-4">
+                    <div className="w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mx-auto mb-4">
+                      <Icon name="cloud" className="w-7 h-7 text-blue-400" />
+                    </div>
+                    <p className="text-sm font-medium text-slate-300 mb-1">Sign in to save history</p>
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      Your conversations are stored securely in the cloud. Sign in with Google to access them across all your devices.
+                    </p>
+                  </div>
+                ) : isLoadingHistory ? (
+                  <div className="text-center py-12 px-4">
+                    <div className="w-8 h-8 border-2 border-blue-500/30 border-t-blue-400 rounded-full animate-spin mx-auto mb-3" />
+                    <p className="text-sm text-slate-400">Loading history…</p>
+                  </div>
+                ) : filteredConversations.length === 0 ? (
                   <div className="text-center py-12 px-4">
                     <Icon name="message-square" className="w-12 h-12 mx-auto mb-3 text-slate-600" />
-                    <p className="text-sm text-slate-500">
+                    <p className="text-sm text-slate-400">
                       {searchQuery ? "No matching conversations" : "No conversations yet"}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {searchQuery ? "Try a different search term" : "Start chatting to see your history here"}
                     </p>
                   </div>
                 ) : (
@@ -458,60 +525,41 @@ export function ConversationHistory({
                       };
                       return (
                         <div key={key} className="mb-4">
-                          <div className="px-2 py-1 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                          <div className="px-2 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                             {labels[key]}
                           </div>
                           <div className="space-y-1">
                             {items.map((conv) => (
                               <button
                                 key={conv.id}
-                                onClick={async () => {
-                                  // Save current conversation BEFORE switching to prevent data loss
-                                  saveCurrentConversation();
-                                  // Load actual messages from unified store (encrypted)
-                                  try {
-                                    const storedMsgs = await getConversationMessages(conv.id);
-                                    if (storedMsgs) {
-                                      const parsed = JSON.parse(storedMsgs) as Message[];
-                                      // Restore Date objects from ISO strings
-                                      const restored = parsed.map((m) => ({
-                                        ...m,
-                                        timestamp: new Date(m.timestamp),
-                                      }));
-                                      onLoadConversation?.(conv.id, restored);
-                                    } else {
-                                      onLoadConversation?.(conv.id, []);
-                                    }
-                                  } catch {
-                                    onLoadConversation?.(conv.id, []);
-                                  }
-                                  setActiveId(conv.id);
-                                  setIsOpen(false);
-                                }}
-                                className={`w-full text-left p-3 rounded-lg transition-all duration-150 group relative ${
+                                onClick={() => loadConversationMessages(conv)}
+                                className={`w-full text-left p-3 rounded-xl transition-all duration-150 group relative ${
                                   conv.id === activeId
-                                    ? "glass-accent border border-blue-500/30"
-                                    : "hover:bg-glass-medium border border-transparent"
+                                    ? "bg-blue-500/10 border border-blue-500/25 shadow-sm shadow-blue-500/5"
+                                    : "hover:bg-white/[0.04] border border-transparent hover:border-white/[0.06]"
                                 }`}
                               >
                                 <div className="flex items-start justify-between gap-2">
                                   <div className="flex-1 min-w-0">
-                                    <div className="text-sm font-medium text-white truncate mb-1">
+                                    <div className="text-[13px] font-semibold text-white/90 truncate mb-1 leading-snug">
                                       {conv.title}
                                     </div>
-                                    <div className="text-[11px] text-slate-500 line-clamp-2 mb-1.5 leading-relaxed">
+                                    <div className="text-[11px] text-slate-400 line-clamp-2 mb-1.5 leading-relaxed">
                                       {conv.preview}
                                     </div>
-                                    <div className="flex items-center gap-2 text-[10px] text-slate-600">
-                                      <span className="capitalize px-1.5 py-0.5 rounded bg-surface-3/50">{conv.subject}</span>
+                                    <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                                      <span className="capitalize px-1.5 py-0.5 rounded-md bg-white/[0.06] text-slate-400 font-medium">
+                                        {conv.subject}
+                                      </span>
+                                      <span className="text-slate-600">·</span>
                                       <span>{conv.messageCount} msgs</span>
-                                      <span>·</span>
+                                      <span className="text-slate-600">·</span>
                                       <span>{formatTimeAgo(conv.timestamp)}</span>
                                     </div>
                                   </div>
                                   <button
                                     onClick={(e) => deleteConversation(conv.id, e)}
-                                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/20 rounded text-slate-500 hover:text-red-400 transition-all"
+                                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/20 rounded-lg text-slate-500 hover:text-red-400 transition-all"
                                     title="Delete"
                                   >
                                     <Icon name="trash-2" className="w-3.5 h-3.5" />
@@ -528,11 +576,11 @@ export function ConversationHistory({
               </div>
 
               {/* Footer */}
-              {conversations.length > 0 && (
+              {conversations.length > 0 && isAuthenticated && (
                 <div className="p-3 border-t border-glass-border">
                   <button
                     onClick={clearAllConversations}
-                    className="w-full px-3 py-2 text-xs font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors flex items-center justify-center gap-2"
+                    className="w-full px-3 py-2 text-xs font-medium text-red-400/80 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors flex items-center justify-center gap-2"
                   >
                     <Icon name="trash-2" className="w-3.5 h-3.5" />
                     Clear All History

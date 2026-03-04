@@ -216,6 +216,7 @@ export function secureClearAll(): void {
   keys.forEach((k) => localStorage.removeItem(k));
   sessionStorage.removeItem("prolai-messages");
   sessionStorage.removeItem("schoolit-messages");
+  sessionStorage.removeItem("schoolit-session-messages");
   _cachedKey = null;
 }
 

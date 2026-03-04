@@ -113,7 +113,7 @@ export default function Home() {
   const restoredRef = useRef(false);
   useEffect(() => {
     try {
-      const saved = sessionStorage.getItem("prolai-messages") || sessionStorage.getItem("schoolit-messages");
+      const saved = sessionStorage.getItem("schoolit-session-messages");
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) {
@@ -127,7 +127,7 @@ export default function Home() {
   useEffect(() => {
     if (!restoredRef.current) return;
     try {
-      sessionStorage.setItem("prolai-messages", JSON.stringify(messages));
+      sessionStorage.setItem("schoolit-session-messages", JSON.stringify(messages));
     } catch { /* ignore */ }
   }, [messages]);
 
