@@ -1,5 +1,5 @@
 /**
- * PROLAI — Encrypted Client Storage Engine
+ * SchoolIT AI — Encrypted Client Storage Engine
  * ==========================================
  * Professional-grade encrypted storage using AES-GCM via Web Crypto API.
  * All user data is encrypted at rest in localStorage — no plain-text JSON.
@@ -202,7 +202,7 @@ export async function secureSetRaw(key: string, value: string): Promise<void> {
 }
 
 /**
- * Clear ALL PROLAI data from storage (logout/wipe).
+ * Clear ALL SchoolIT AI data from storage (logout/wipe).
  */
 export function secureClearAll(): void {
   if (typeof window === "undefined") return;

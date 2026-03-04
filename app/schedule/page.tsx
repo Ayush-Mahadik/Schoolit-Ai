@@ -65,7 +65,7 @@ export default function SchedulePage() {
 
   // Load from unified store first, then try cloud
   useEffect(() => {
-    runStoreMigrations(); // Migrate prolai-schedule → prolai_schedule
+    runStoreMigrations(); // Migrate schedule data
     const localItems = getScheduleItems();
     setItems(localItems);
 

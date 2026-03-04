@@ -1,5 +1,5 @@
 /**
- * Unified Data Store — PROLAI v3.0
+ * Unified Data Store — SchoolIT AI v3.0
  * ==================================
  * SINGLE SOURCE OF TRUTH for all client-side data operations.
  *

@@ -1,13 +1,13 @@
 /**
- * PROLAI — Central Configuration
+ * SchoolIT AI — Central Configuration
  * ================================
  * Single source of truth for site identity, URLs, and feature flags.
  * All branding lives here so rebranding is a one-file change.
  */
 
 // ── Identity ──────────────────────────────────────────────────────────
-export const SITE_NAME = "PROLAI";
-export const SITE_TAGLINE = "Professional AI Learning Assistant";
+export const SITE_NAME = "SchoolIT AI";
+export const SITE_TAGLINE = "AI-Powered Learning Assistant";
 export const SITE_DESCRIPTION =
   "AI-powered learning platform with multi-model intelligence, deep reasoning, and 20+ study tools.";
 export const SITE_CREATOR = "Ayush Mahadik";
@@ -82,8 +82,8 @@ export const TIERS = {
 export type TierName = keyof typeof TIERS;
 
 // ── Security Constants ────────────────────────────────────────────────
-export const CSRF_HEADER = "x-prolai-csrf";
-export const REQUEST_SIGNATURE_HEADER = "x-prolai-sig";
+export const CSRF_HEADER = "x-schoolit-csrf";
+export const REQUEST_SIGNATURE_HEADER = "x-schoolit-sig";
 export const MAX_REQUEST_BODY_SIZE = 5 * 1024 * 1024; // 5MB
 
 // ── Rate Limits ───────────────────────────────────────────────────────

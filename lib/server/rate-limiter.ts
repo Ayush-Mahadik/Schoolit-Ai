@@ -1,5 +1,5 @@
 /**
- * PROLAI — Rate Limiter
+ * SchoolIT AI — Rate Limiter
  * =======================
  * IP-based rate limiting with admin bypass.
  * Tiered limits based on subscription level.

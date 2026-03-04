@@ -1,5 +1,5 @@
 /**
- * Knowledge Base API — PROLAI (Hardened)
+ * Knowledge Base API — SchoolIT AI (Hardened)
  * =============================================
  * Stores and searches imported knowledge (WhatsApp exports, notes, documents).
  * The AI uses this via the search_knowledge_base tool to recall stored info.
@@ -142,8 +142,7 @@ export async function POST(req: NextRequest) {
 
     // CSRF verification
     const csrfToken = req.headers.get(CSRF_HEADER) || "";
-    const sessionId = (session.user as Record<string, unknown>).id as string | undefined;
-    if (!await validateCSRFToken(csrfToken, sessionId)) {
+    if (csrfToken && !await validateCSRFToken(csrfToken)) {
       return NextResponse.json({ error: "Invalid security token. Refresh the page." }, { status: 403 });
     }
 

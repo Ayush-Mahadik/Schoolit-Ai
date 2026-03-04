@@ -1,5 +1,5 @@
 /**
- * Health Check API Route — PROLAI
+ * Health Check API Route — SchoolIT AI
  */
 
 import { NextResponse } from "next/server";

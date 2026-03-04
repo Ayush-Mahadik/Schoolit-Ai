@@ -44,7 +44,7 @@ export function Sidebar({
             <GraduationCap className="w-4 h-4 text-white" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-white leading-tight tracking-wide">PROLAI</h2>
+            <h2 className="text-sm font-bold text-white leading-tight tracking-wide">SchoolIT AI</h2>
             <p className="text-[10px] text-blue-400/50 font-medium">v3.0</p>
           </div>
         </div>

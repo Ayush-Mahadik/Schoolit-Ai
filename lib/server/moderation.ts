@@ -1,5 +1,5 @@
 /**
- * PROLAI — Content Moderation & Ban System
+ * SchoolIT AI — Content Moderation & Ban System
  * ==========================================
  * IP/email banning, harassment detection, input sanitization.
  * Currently in-memory; designed for easy Supabase migration.

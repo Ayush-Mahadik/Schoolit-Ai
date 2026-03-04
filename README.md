@@ -1,8 +1,8 @@
-# PROLAI (formerly SchoolIT AI)
+# SchoolIT AI
 
 An intelligent AI-powered school assistant built with Next.js, featuring multi-model support, real-time tool usage, and a modern Grok-inspired dark interface.
 
-![PROLAI](https://img.shields.io/badge/PROLAI-AI-blue?style=for-the-badge)
+![SchoolIT AI](https://img.shields.io/badge/SchoolIT_AI-blue?style=for-the-badge)
 ![Next.js](https://img.shields.io/badge/Next.js-14-black?style=flat-square&logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue?style=flat-square&logo=typescript)
 ![Vercel](https://img.shields.io/badge/Deployed-Vercel-black?style=flat-square&logo=vercel)

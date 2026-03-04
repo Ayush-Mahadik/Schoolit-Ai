@@ -1,5 +1,5 @@
 /**
- * NextAuth Configuration — PROLAI
+ * NextAuth Configuration — SchoolIT AI
  * ================================
  * Google OAuth only (no guest access).
  * Admin detection via ADMIN_EMAILS env var.

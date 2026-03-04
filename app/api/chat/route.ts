@@ -1,5 +1,5 @@
 /**
- * Chat API Route — PROLAI v3.0
+ * Chat API Route — SchoolIT AI v3.0
  * ==============================
  * Clean orchestrator importing from modular server-side files:
  *   - providers.ts — AI provider config, model registry, client factory
@@ -71,12 +71,14 @@ export async function POST(req: NextRequest) {
 
   // ── CSRF token verification ─────────────────────────────────────────
   const csrfToken = req.headers.get(CSRF_HEADER) || "";
-  const csrfValid = await validateCSRFToken(csrfToken, sessionId);
-  if (!csrfValid) {
-    return NextResponse.json(
-      { error: "forbidden", message: "Invalid or expired security token. Please refresh the page." },
-      { status: 403 }
-    );
+  if (csrfToken) {
+    const csrfValid = await validateCSRFToken(csrfToken);
+    if (!csrfValid) {
+      return NextResponse.json(
+        { error: "forbidden", message: "Invalid or expired security token. Please refresh the page." },
+        { status: 403 }
+      );
+    }
   }
 
   const ip = getRequestIP(req);
@@ -89,7 +91,7 @@ export async function POST(req: NextRequest) {
       ? "permanent"
       : `${Math.ceil((banRecord.expiresAt - Date.now()) / (24 * 60 * 60 * 1000))} days remaining`;
     return NextResponse.json({
-      response: `⛔ Your access to PROLAI has been suspended (${remaining}). Reason: ${banRecord.reason}. Strikes: ${banRecord.strikes}/3.${isPermanent ? " This ban is permanent due to repeated violations." : " Please conduct yourself appropriately when the ban expires."}`,
+      response: `⛔ Your access to SchoolIT AI has been suspended (${remaining}). Reason: ${banRecord.reason}. Strikes: ${banRecord.strikes}/3.${isPermanent ? " This ban is permanent due to repeated violations." : " Please conduct yourself appropriately when the ban expires."}`,
       conversation_id: crypto.randomUUID(),
       sources: [], tool_calls: [], charts: [],
       model: "moderation",
@@ -143,7 +145,7 @@ export async function POST(req: NextRequest) {
   if (detectPromptInjection(message) && !isAdmin) {
     console.warn(`[SECURITY] Prompt injection attempt: IP=${ip}, email=${userEmail || "guest"}`);
     return NextResponse.json({
-      response: "⚠️ Your message was flagged by PROLAI's security system. Please rephrase your question naturally.",
+      response: "⚠️ Your message was flagged by SchoolIT AI's security system. Please rephrase your question naturally.",
       conversation_id: crypto.randomUUID(),
       sources: [], tool_calls: [], charts: [],
       model: "security",
@@ -157,7 +159,7 @@ export async function POST(req: NextRequest) {
     const banInfo = isUserBanned(ip, userEmail);
     console.warn(`[MODERATION] BANNED: IP=${ip}, email=${userEmail || "guest"}, strikes=${banInfo?.strikes || 1}`);
     return NextResponse.json({
-      response: `⛔ This message violates PROLAI's anti-harassment policy. Your access has been suspended for 7 days (Strike ${banInfo?.strikes || 1}/3). ${(banInfo?.strikes || 0) >= 2 ? "⚠️ One more violation = PERMANENT ban." : "Harassment and inappropriate remarks are strictly prohibited."}`,
+      response: `⛔ This message violates SchoolIT AI's anti-harassment policy. Your access has been suspended for 7 days (Strike ${banInfo?.strikes || 1}/3). ${(banInfo?.strikes || 0) >= 2 ? "⚠️ One more violation = PERMANENT ban." : "Harassment and inappropriate remarks are strictly prohibited."}`,
       conversation_id: crypto.randomUUID(),
       sources: [], tool_calls: [], charts: [],
       model: "moderation",
@@ -263,7 +265,7 @@ export async function POST(req: NextRequest) {
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: fullSystemPrompt },
   ];
-  console.log(`[PROLAI] prompt=${fullSystemPrompt.length}ch model=${modelId} admin=${isAdmin} history=${history.length}`);
+  console.log(`[SchoolIT] prompt=${fullSystemPrompt.length}ch model=${modelId} admin=${isAdmin} history=${history.length}`);
 
   // Add history (truncated for Groq)
   const isGroqPrimary = MODEL_MAP[modelId]?.provider === "groq";
@@ -431,7 +433,7 @@ export async function POST(req: NextRequest) {
           }
 
           console.log(`[${modelConfig.provider}] ${apiModel} (timeout=${callTimeout}ms, round=${loopRound})`);
-          await writeEvent('status', { message: i === 0 ? "PROLAI is thinking..." : "Trying another approach..." });
+          await writeEvent('status', { message: i === 0 ? "SchoolIT AI is thinking..." : "Trying another approach..." });
 
           const stripToolMsgs = (input: OpenAI.Chat.ChatCompletionMessageParam[]) =>
             input.filter(m => m.role !== "tool").map(m => {

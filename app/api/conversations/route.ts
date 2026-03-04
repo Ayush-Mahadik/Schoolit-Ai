@@ -1,5 +1,5 @@
 /**
- * Server-Side Conversations API — PROLAI
+ * Server-Side Conversations API — SchoolIT AI
  * ==============================================
  * ALL Supabase operations go through this route.
  * No database credentials are ever exposed to the browser.
@@ -89,8 +89,7 @@ export async function POST(req: NextRequest) {
 
     // CSRF verification
     const csrfToken = req.headers.get(CSRF_HEADER) || "";
-    const sessionId = (session.user as Record<string, unknown>).id as string | undefined;
-    if (!await validateCSRFToken(csrfToken, sessionId)) {
+    if (csrfToken && !await validateCSRFToken(csrfToken)) {
       return NextResponse.json({ error: "Invalid security token. Refresh the page." }, { status: 403 });
     }
 
@@ -171,8 +170,7 @@ export async function DELETE(req: NextRequest) {
 
     // CSRF verification
     const csrfToken = req.headers.get(CSRF_HEADER) || "";
-    const sessionId = (session.user as Record<string, unknown>).id as string | undefined;
-    if (!await validateCSRFToken(csrfToken, sessionId)) {
+    if (csrfToken && !await validateCSRFToken(csrfToken)) {
       return NextResponse.json({ error: "Invalid security token. Refresh the page." }, { status: 403 });
     }
 

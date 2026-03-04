@@ -18,13 +18,13 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PROLAI — Professional AI Learning Assistant",
+  title: "SchoolIT AI — AI-Powered Learning Assistant",
   description:
     "AI-powered learning platform with multi-model intelligence, deep reasoning, and 20+ study tools for CBSE students.",
-  keywords: ["PROLAI", "AI tutor", "CBSE", "study", "learning", "education"],
+  keywords: ["SchoolIT AI", "AI tutor", "CBSE", "study", "learning", "education"],
   authors: [{ name: "Ayush Mahadik" }],
   openGraph: {
-    title: "PROLAI — Professional AI Learning Assistant",
+    title: "SchoolIT AI — AI-Powered Learning Assistant",
     description: "Multi-model AI learning platform with deep reasoning and 20+ study tools.",
     type: "website",
   },

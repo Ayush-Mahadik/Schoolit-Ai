@@ -1,5 +1,5 @@
 /**
- * PROLAI — Security Utilities
+ * SchoolIT AI — Security Utilities
  * =============================
  * CSRF token generation/validation, origin checking, request signing.
  * Provides defense-in-depth against common web attacks.
@@ -12,7 +12,7 @@ import { CSRF_HEADER } from "@/lib/config";
 // Server-generated tokens validated on every mutating request.
 // Tokens are short-lived and bound to the user session.
 
-const CSRF_SECRET = process.env.CSRF_SECRET || process.env.NEXTAUTH_SECRET || "prolai-csrf-fallback-secret";
+const CSRF_SECRET = process.env.CSRF_SECRET || process.env.NEXTAUTH_SECRET || "schoolit-csrf-fallback-secret";
 const CSRF_TOKEN_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
 
 /**
@@ -136,7 +136,7 @@ export function rateLimitedResponse(retryAfter?: number): NextResponse {
   );
 }
 
-// ── API Key Validation (for self-hosted LLM endpoints) ────────────────
+// ── API Key Validation ──────────────────────────────────────────────────
 export function validateAPIKey(req: NextRequest, expectedKey: string): boolean {
   const authHeader = req.headers.get("authorization");
   if (!authHeader) return false;

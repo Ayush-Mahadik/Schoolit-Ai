@@ -1,5 +1,5 @@
 /**
- * Server-Side Schedule API — PROLAI
+ * Server-Side Schedule API — SchoolIT AI
  * =========================================
  * Syncs schedule items to Supabase.
  * Falls back to localStorage if Supabase is unavailable.

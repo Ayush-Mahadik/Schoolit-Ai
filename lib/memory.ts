@@ -1,5 +1,5 @@
 /**
- * Admin Memory System — PROLAI v3.0
+ * Admin Memory System — SchoolIT AI v3.0
  * ====================================
  * Persists conversation history, key facts, and user data
  * for admin accounts ONLY (configured via ADMIN_EMAILS env var).

@@ -1,14 +1,14 @@
 /**
- * PROLAI — AI Provider Configuration & Client Factory
+ * SchoolIT AI — AI Provider Configuration & Client Factory
  * =====================================================
- * Manages multi-provider setup: Self-hosted → GitHub → Groq → Gemini
+ * Manages multi-provider setup: GitHub → Groq → Gemini
  * Handles provider cooldowns, client caching, and model configuration.
  */
 
 import OpenAI from "openai";
 
 // ── Provider Types ────────────────────────────────────────────────────
-export type ProviderName = "github" | "groq" | "gemini" | "selfhosted";
+export type ProviderName = "github" | "groq" | "gemini";
 
 export interface ProviderConfig {
   name: ProviderName;
@@ -40,11 +40,6 @@ export const PROVIDERS: Record<ProviderName, ProviderConfig> = {
     baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
     getApiKey: () => process.env.GEMINI_API_KEY?.trim(),
   },
-  selfhosted: {
-    name: "selfhosted",
-    baseURL: process.env.SELF_HOSTED_LLM_URL?.trim() || "",
-    getApiKey: () => process.env.SELF_HOSTED_LLM_API_KEY?.trim() || "prolai-selfhosted",
-  },
 };
 
 // ── Model Registry ────────────────────────────────────────────────────
@@ -55,11 +50,10 @@ export const MODEL_MAP: Record<string, ModelConfig> = {
   "llama-3.1-8b":     { provider: "groq",       apiModel: "llama-3.1-8b-instant",       supportsTools: true,  supportsVision: false },
   "gemini-2.0-flash": { provider: "gemini",     apiModel: "gemini-2.0-flash",           supportsTools: true,  supportsVision: true  },
   "gemini-1.5-flash": { provider: "gemini",     apiModel: "gemini-1.5-flash",           supportsTools: true,  supportsVision: true  },
-  "prolai-llm":       { provider: "selfhosted", apiModel: process.env.SELF_HOSTED_LLM_MODEL_ID?.trim() || "prolai-llm", supportsTools: false, supportsVision: false },
 };
 
 export const ALL_MODEL_IDS = [
-  "prolai-llm", "gpt-4o", "gpt-4.1",
+  "gpt-4o", "gpt-4.1",
   "llama-3.3-70b", "llama-3.1-8b",
   "gemini-2.0-flash", "gemini-1.5-flash",
 ];
@@ -71,7 +65,6 @@ export const MODEL_NAMES: Record<string, string> = {
   "llama-3.1-8b": "Llama 3.1 8B",
   "gemini-2.0-flash": "Gemini 2.0 Flash",
   "gemini-1.5-flash": "Gemini 1.5 Flash",
-  "prolai-llm": "PROLAI LLM",
 };
 
 // Models that require max_completion_tokens instead of max_tokens
@@ -88,7 +81,6 @@ export const MODEL_COMPLETION_CAPS: Record<string, number> = {
   "gpt-4.1": 8192,
   "gemini-2.0-flash": 8192,
   "gemini-1.5-flash": 8192,
-  "prolai-llm": 4096,
 };
 
 // Token limits per thinking mode
@@ -100,9 +92,9 @@ export const THINKING_MODE_TOKENS: Record<string, number> = {
 
 // Thinking-mode model priority lists
 export const THINKING_MODE_MODEL_PRIORITY: Record<string, string[]> = {
-  fast:     ["prolai-llm", "gpt-4o", "gemini-2.0-flash", "llama-3.1-8b", "gpt-4.1", "gemini-1.5-flash", "llama-3.3-70b"],
-  balanced: ["prolai-llm", "gpt-4.1", "gemini-2.0-flash", "gpt-4o", "llama-3.1-8b", "gemini-1.5-flash", "llama-3.3-70b"],
-  deep:     ["prolai-llm", "gpt-4.1", "gpt-4o", "gemini-2.0-flash", "llama-3.3-70b", "gemini-1.5-flash", "llama-3.1-8b"],
+  fast:     ["gpt-4o", "gemini-2.0-flash", "llama-3.1-8b", "gpt-4.1", "gemini-1.5-flash", "llama-3.3-70b"],
+  balanced: ["gpt-4.1", "gemini-2.0-flash", "gpt-4o", "llama-3.1-8b", "gemini-1.5-flash", "llama-3.3-70b"],
+  deep:     ["gpt-4.1", "gpt-4o", "gemini-2.0-flash", "llama-3.3-70b", "gemini-1.5-flash", "llama-3.1-8b"],
 };
 
 // Tool status labels
@@ -131,7 +123,6 @@ const COOLDOWN_MS: Record<ProviderName, number> = {
   github: 30_000,
   groq: 90_000,
   gemini: 30_000,
-  selfhosted: 10_000,
 };
 
 export function isProviderCoolingDown(provider: ProviderName): boolean {
