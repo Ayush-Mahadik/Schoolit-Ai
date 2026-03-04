@@ -40,11 +40,14 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
     function: {
       name: "generate_chart",
       description:
-        "Generate a visual chart or graph to help the student understand data or relationships. " +
-        "Use this tool PROACTIVELY whenever data visualization would aid comprehension. " +
+        "Generate a professional SVG chart or graph rendered in the student's browser. " +
+        "The chart is rendered as an interactive, visual SVG — NOT as text or ASCII art. " +
+        "You MUST use this tool whenever ANY quantitative data, graphs, or visualizations are needed. " +
+        "NEVER describe charts textually — ALWAYS call this tool instead. " +
         "Supported types: line, bar, pie, area, scatter. " +
-        "ALWAYS use this for: plotting mathematical functions, showing physics graphs (v-t, s-t, a-t), " +
-        "comparing data, showing distributions, illustrating trends, or any quantitative relationship.",
+        "MANDATORY for: plotting functions (y=f(x)), physics graphs (v-t, s-t, a-t, F-x), " +
+        "data comparisons, distributions, trends, economics data, statistical charts, or ANY numeric relationship. " +
+        "Generate at least 10-20 data points for smooth curves.",
       parameters: {
         type: "object",
         properties: {

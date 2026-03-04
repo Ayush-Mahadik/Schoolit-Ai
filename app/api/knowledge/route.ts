@@ -25,6 +25,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { validateCSRFToken } from "@/lib/server/security";
+import { CSRF_HEADER } from "@/lib/config";
 import {
   parseWhatsAppExport,
   chunkMessages,
@@ -137,6 +139,13 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) return unauthorized();
     const userEmail = session.user.email;
+
+    // CSRF verification
+    const csrfToken = req.headers.get(CSRF_HEADER) || "";
+    const sessionId = (session.user as Record<string, unknown>).id as string | undefined;
+    if (!await validateCSRFToken(csrfToken, sessionId)) {
+      return NextResponse.json({ error: "Invalid security token. Refresh the page." }, { status: 403 });
+    }
 
     // Rate limit check
     if (!checkKnowledgeRateLimit(userEmail)) return rateLimited();

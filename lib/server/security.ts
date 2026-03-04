@@ -85,10 +85,7 @@ function normalizeOrigin(url: string | undefined | null): string {
   return url.replace(/\/$/, "");
 }
 
-const PRIMARY_ORIGIN = normalizeOrigin(process.env.NEXT_PUBLIC_SITE_URL) || "https://prolai.me";
-const LEGACY_ORIGIN =
-  normalizeOrigin(process.env.NEXT_PUBLIC_OLD_SITE_URL) ||
-  "https://schoolit-ai.vercel.app";
+const PRIMARY_ORIGIN = normalizeOrigin(process.env.NEXT_PUBLIC_SITE_URL) || "https://schoolit-ai.vercel.app";
 
 export function validateOrigin(req: NextRequest): boolean {
   const origin = req.headers.get("origin") || "";
@@ -99,9 +96,7 @@ export function validateOrigin(req: NextRequest): boolean {
 
   const allowed = [
     PRIMARY_ORIGIN,
-    "https://prolai.me",
-    "https://www.prolai.me",
-    LEGACY_ORIGIN,
+    "https://schoolit-ai.vercel.app",
     "https://frontend-", // Vercel preview deployments
     "https://schoolit-", // Any fallback Vercel branch
     "http://localhost:3000",

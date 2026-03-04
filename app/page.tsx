@@ -22,7 +22,7 @@ import {
 import { Icon, Menu, Globe } from "@/components/Icons";
 import type { Message, Persona, Subject, ChatSettings, ThinkingMode, ScheduleItem, MockTestData, QuestionPaperData } from "@/lib/types";
 import type { FileAttachment } from "@/components/FileUploadButton";
-import { SITE_NAME, OLD_SITE_URL, SITE_URL } from "@/lib/config";
+import { SITE_NAME, SITE_URL } from "@/lib/config";
 
 // ── Subject definitions (now with Lucide icon names) ─────────────────
 const SUBJECTS: Subject[] = [
@@ -55,22 +55,6 @@ export default function Home() {
   const [thinkingStatus, setThinkingStatus] = useState<string[]>([]);
   const [guestMessageCount, setGuestMessageCount] = useState(0);
   const [showAuthWall, setShowAuthWall] = useState(false);
-  const [showDomainBanner, setShowDomainBanner] = useState(false);
-
-  // ── Detect legacy domain and show pointer to new PROLAI domain ───────────────
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const currentOrigin = window.location.origin.replace(/\/$/, "");
-      const primary = SITE_URL.replace(/\/$/, "");
-      const legacy = OLD_SITE_URL.replace(/\/$/, "");
-      if (legacy && currentOrigin === legacy && primary && primary !== legacy) {
-        setShowDomainBanner(true);
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
 
   // ── Load saved settings & personas on mount ─────────────────────────
   useEffect(() => {
@@ -555,24 +539,6 @@ export default function Home() {
             </div>
           )}
         </AnimatePresence>
-
-        {/* ── Domain pointer banner for legacy deployments ─────── */}
-        {showDomainBanner && (
-          <div className="px-3 sm:px-5 py-2 bg-amber-950/70 border-b border-amber-500/40 text-xs text-amber-100 flex items-center justify-between gap-2">
-            <span className="truncate">
-              SchoolIT AI has been rebranded to <strong>PROLAI</strong>. Visit us at{" "}
-              <a
-                href={SITE_URL}
-                className="underline font-semibold"
-                target="_blank"
-                rel="noreferrer"
-              >
-                {SITE_URL.replace(/^https?:\/\//, "")}
-              </a>
-              .
-            </span>
-          </div>
-        )}
 
         {/* ── Chat + Schedule ──────────────────────────────────── */}
         <div className="flex-1 flex min-h-0">

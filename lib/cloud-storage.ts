@@ -12,6 +12,27 @@
  */
 
 import type { Message } from "./types";
+import { CSRF_HEADER } from "@/lib/config";
+
+// ── CSRF Token ────────────────────────────────────────────────────────
+let _csrfToken: string | null = null;
+let _csrfFetchedAt = 0;
+const CSRF_TTL_MS = 3 * 60 * 60 * 1000;
+
+async function getCSRFToken(): Promise<string> {
+  const now = Date.now();
+  if (_csrfToken && now - _csrfFetchedAt < CSRF_TTL_MS) return _csrfToken;
+  try {
+    const res = await fetch("/api/csrf", { credentials: "same-origin" });
+    if (res.ok) {
+      const data = await res.json();
+      _csrfToken = data.token || "";
+      _csrfFetchedAt = now;
+      return _csrfToken!;
+    }
+  } catch { /* ignore */ }
+  return _csrfToken || "";
+}
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -85,9 +106,14 @@ export async function cloudSaveConversation(
   if (!userEmail) return false;
 
   try {
+    const csrfToken = await getCSRFToken();
     const res = await fetch("/api/conversations", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        [CSRF_HEADER]: csrfToken,
+      },
+      credentials: "same-origin",
       body: JSON.stringify({
         id: conv.id,
         title: conv.title.slice(0, 200),
@@ -144,8 +170,11 @@ export async function cloudDeleteConversation(
   if (!userEmail) return false;
 
   try {
+    const csrfToken = await getCSRFToken();
     const res = await fetch(`/api/conversations?id=${encodeURIComponent(convId)}`, {
       method: "DELETE",
+      headers: { [CSRF_HEADER]: csrfToken },
+      credentials: "same-origin",
     });
 
     if (!res.ok) {
@@ -166,8 +195,11 @@ export async function cloudClearAll(userEmail: string): Promise<boolean> {
   if (!userEmail) return false;
 
   try {
+    const csrfToken = await getCSRFToken();
     const res = await fetch("/api/conversations?clear_all=true", {
       method: "DELETE",
+      headers: { [CSRF_HEADER]: csrfToken },
+      credentials: "same-origin",
     });
 
     if (!res.ok) {

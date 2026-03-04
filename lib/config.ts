@@ -15,10 +15,7 @@ export const SITE_VERSION = "3.0.0";
 
 // ── URLs ──────────────────────────────────────────────────────────────
 export const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "https://prolai.me";
-export const OLD_SITE_URL =
-  process.env.NEXT_PUBLIC_OLD_SITE_URL?.replace(/\/$/, "") ||
-  "https://schoolit-ai.vercel.app";
+  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "https://schoolit-ai.vercel.app";
 
 // ── Subscription Tiers ────────────────────────────────────────────────
 export const TIERS = {

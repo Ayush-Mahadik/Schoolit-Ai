@@ -10,3 +10,5 @@ next-env.d.ts
 supabase/.temp/
 *.bak
 commits.json
+
+.env.vercel.local

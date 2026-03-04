@@ -27,7 +27,8 @@ import {
   banUser, isUserBanned, isHarassment, sanitizeString, detectPromptInjection,
 } from "@/lib/server/moderation";
 import { checkRateLimit } from "@/lib/server/rate-limiter";
-import { validateOrigin, getRequestIP } from "@/lib/server/security";
+import { validateOrigin, validateCSRFToken, getRequestIP } from "@/lib/server/security";
+import { CSRF_HEADER } from "@/lib/config";
 
 // ── Next.js route config ──────────────────────────────────────────────
 export const dynamic = "force-dynamic";
@@ -56,14 +57,26 @@ export async function POST(req: NextRequest) {
   // ── Auth & Admin ────────────────────────────────────────────────────
   let isAdmin = false;
   let userEmail = "";
+  let sessionId: string | undefined;
   try {
     const session = await getServerSession(authOptions);
     if (session?.user?.email) {
       userEmail = session.user.email;
       isAdmin = isAdminEmail(userEmail);
+      sessionId = (session.user as Record<string, unknown>).id as string | undefined;
     }
   } catch {
     // No session — treat as guest
+  }
+
+  // ── CSRF token verification ─────────────────────────────────────────
+  const csrfToken = req.headers.get(CSRF_HEADER) || "";
+  const csrfValid = await validateCSRFToken(csrfToken, sessionId);
+  if (!csrfValid) {
+    return NextResponse.json(
+      { error: "forbidden", message: "Invalid or expired security token. Please refresh the page." },
+      { status: 403 }
+    );
   }
 
   const ip = getRequestIP(req);
@@ -195,6 +208,7 @@ export async function POST(req: NextRequest) {
   const wantsCBSENews = /(cbse update|cbse notification|date sheet|exam date|syllabus change|board announcement|cbse circular|cbse news)/i.test(message);
   const hasFilesAttached = contextFiles.length > 0;
   const wantsCode = /(write|code|program|script|function|algorithm|implement|debug|fix.*code|class|html|css|javascript|python|java|c\+\+)/i.test(message);
+  const wantsChart = /(graph|plot|chart|histogram|distribution|data.*vis|compare.*data|trend|statistics|pie.*chart|bar.*chart|scatter|function.*graph|v-t|s-t|a-t|velocity.*time|distance.*time|acceleration.*time|y\s*=|f\(x\))/i.test(message);
 
   // Build tool hints
   let toolHint = "";
@@ -207,6 +221,7 @@ export async function POST(req: NextRequest) {
   if (wantsCBSENews) toolHint += "[ToolHint: Use cbse_notifications to fetch latest CBSE updates, dates, and circulars.]\n";
   if (wantsCode) toolHint += "[ToolHint: When writing code, ALWAYS use proper markdown code blocks with language tags.]\n";
   if (hasFilesAttached) toolHint += "[ToolHint: Files are attached. Use analyze_document for docs and analyze_screenshot for images.]\n";
+  if (wantsChart) toolHint += "[ToolHint: MANDATORY — Use generate_chart tool to create a proper SVG chart. Do NOT describe the chart in text. Do NOT output ASCII art. Call the generate_chart tool with proper chart_data JSON.]\n";
   const effectiveMessage = toolHint ? `${message}\n\n${toolHint.trim()}` : message;
 
   // Build file context
@@ -289,7 +304,7 @@ export async function POST(req: NextRequest) {
 
   // Build tool list
   const requestedTools = useWebSearch ? TOOL_DEFINITIONS : TOOL_DEFINITIONS.filter(t => t.function.name !== "web_search");
-  const isSimplePrompt = message.trim().split(/\s+/).length <= 2 && contextFiles.length === 0 && !toolHint;
+  const isSimplePrompt = message.trim().split(/\s+/).length <= 2 && contextFiles.length === 0 && !toolHint && !wantsChart;
   const tools = isSimplePrompt ? [] : requestedTools;
 
   // ═══════════════════════════════════════════════════════════════════

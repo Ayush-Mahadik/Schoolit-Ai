@@ -18,6 +18,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { validateCSRFToken } from "@/lib/server/security";
+import { CSRF_HEADER } from "@/lib/config";
 
 // ── Server-only Supabase client (NEVER exposed to browser) ───────────
 function getSupabase(): SupabaseClient | null {
@@ -85,6 +87,13 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) return unauthorized();
 
+    // CSRF verification
+    const csrfToken = req.headers.get(CSRF_HEADER) || "";
+    const sessionId = (session.user as Record<string, unknown>).id as string | undefined;
+    if (!await validateCSRFToken(csrfToken, sessionId)) {
+      return NextResponse.json({ error: "Invalid security token. Refresh the page." }, { status: 403 });
+    }
+
     const sb = getSupabase();
     if (!sb) return notConfigured();
 
@@ -100,15 +109,28 @@ export async function POST(req: NextRequest) {
     }
 
     // SECURITY: Always use the authenticated email — never trust client-provided email
+    // SECURITY: Validate and sanitize the messages payload before sending to Supabase
+    let sanitizedMessages: unknown[] = [];
+    if (Array.isArray(body.messages)) {
+      const MAX_MESSAGES = 200;
+      const MAX_MSG_CONTENT_LENGTH = 50_000;
+      sanitizedMessages = (body.messages as Record<string, unknown>[]).slice(0, MAX_MESSAGES).map((msg) => ({
+        id: String(msg.id || "").slice(0, 50),
+        role: ["user", "assistant", "system"].includes(String(msg.role || "")) ? String(msg.role) : "user",
+        content: String(msg.content || "").slice(0, MAX_MSG_CONTENT_LENGTH),
+        timestamp: String(msg.timestamp || new Date().toISOString()).slice(0, 50),
+      }));
+    }
+
     const row = {
       id: String(body.id),
       user_email: session.user.email,
       title: String(body.title || "Untitled").slice(0, 200),
-      subject: String(body.subject || "general"),
+      subject: String(body.subject || "general").slice(0, 50),
       timestamp: Number(body.timestamp) || Date.now(),
-      message_count: Number(body.message_count) || 0,
+      message_count: Math.min(Math.max(Number(body.message_count) || 0, 0), 10000),
       preview: String(body.preview || "").slice(0, 300),
-      messages: body.messages || [],
+      messages: sanitizedMessages,
       updated_at: Date.now(),
     };
 
@@ -146,6 +168,13 @@ export async function DELETE(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) return unauthorized();
+
+    // CSRF verification
+    const csrfToken = req.headers.get(CSRF_HEADER) || "";
+    const sessionId = (session.user as Record<string, unknown>).id as string | undefined;
+    if (!await validateCSRFToken(csrfToken, sessionId)) {
+      return NextResponse.json({ error: "Invalid security token. Refresh the page." }, { status: 403 });
+    }
 
     const sb = getSupabase();
     if (!sb) return notConfigured();

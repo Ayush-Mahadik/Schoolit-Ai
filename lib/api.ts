@@ -6,8 +6,42 @@
  */
 
 import type { ThinkingMode } from "@/lib/types";
+import { CSRF_HEADER } from "@/lib/config";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+
+// ── CSRF Token Management ────────────────────────────────────────────
+let _csrfToken: string | null = null;
+let _csrfFetchedAt = 0;
+const CSRF_TTL_MS = 3 * 60 * 60 * 1000; // refresh every 3 hours (token lives 4h)
+
+async function getCSRFToken(): Promise<string> {
+  const now = Date.now();
+  if (_csrfToken && now - _csrfFetchedAt < CSRF_TTL_MS) {
+    return _csrfToken;
+  }
+  try {
+    const res = await fetch(`${API_URL}/api/csrf`, {
+      method: "GET",
+      credentials: "same-origin",
+    });
+    if (res.ok) {
+      const data = await res.json();
+      _csrfToken = data.token || "";
+      _csrfFetchedAt = now;
+      return _csrfToken!;
+    }
+  } catch {
+    // Fall through — server may not have CSRF endpoint yet
+  }
+  return _csrfToken || "";
+}
+
+/** Force-refresh the CSRF token (call after a 403) */
+function invalidateCSRFToken() {
+  _csrfToken = null;
+  _csrfFetchedAt = 0;
+}
 
 // ── Timeout wrapper ──────────────────────────────────────────────────
 
@@ -77,11 +111,24 @@ export async function sendMessage(request: ChatRequest, onStatus?: (message: str
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     let res: Response;
     try {
+      const csrfToken = await getCSRFToken();
       res = await fetchWithTimeout(`${API_URL}/api/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          [CSRF_HEADER]: csrfToken,
+        },
+        credentials: "same-origin",
         body: JSON.stringify(request),
       });
+
+      // If CSRF token was rejected, refresh it and retry once
+      if (res.status === 403 && attempt < maxRetries - 1) {
+        invalidateCSRFToken();
+        lastErr = new Error("Security token expired. Retrying...");
+        await new Promise((r) => setTimeout(r, 500));
+        continue;
+      }
     } catch (err) {
       // Network-level failure (offline, DNS, CORS, timeout, Vercel 504)
       const msg = err instanceof Error ? err.message : "Network error";
