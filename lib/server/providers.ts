@@ -44,6 +44,8 @@ export const PROVIDERS: Record<ProviderName, ProviderConfig> = {
 
 // ── Model Registry ────────────────────────────────────────────────────
 export const MODEL_MAP: Record<string, ModelConfig> = {
+  "gpt-5":            { provider: "github",     apiModel: "gpt-5",                      supportsTools: true,  supportsVision: true  },
+  "gpt-5-mini":       { provider: "github",     apiModel: "gpt-5-mini",                  supportsTools: true,  supportsVision: true  },
   "gpt-4.1":          { provider: "github",     apiModel: "gpt-4.1",                    supportsTools: true,  supportsVision: true  },
   "gpt-4o":           { provider: "github",     apiModel: "gpt-4o",                     supportsTools: true,  supportsVision: true  },
   "llama-3.3-70b":    { provider: "groq",       apiModel: "llama-3.3-70b-versatile",    supportsTools: true,  supportsVision: false },
@@ -53,12 +55,15 @@ export const MODEL_MAP: Record<string, ModelConfig> = {
 };
 
 export const ALL_MODEL_IDS = [
+  "gpt-5", "gpt-5-mini",
   "gpt-4o", "gpt-4.1",
   "llama-3.3-70b", "llama-3.1-8b",
   "gemini-2.0-flash", "gemini-1.5-flash",
 ];
 
 export const MODEL_NAMES: Record<string, string> = {
+  "gpt-5": "GPT-5",
+  "gpt-5-mini": "GPT-5 Mini",
   "gpt-4.1": "GPT-4.1",
   "gpt-4o": "GPT-4o",
   "llama-3.3-70b": "Llama 3.3 70B",
@@ -75,6 +80,8 @@ export const HAS_REASONING_CONTENT = new Set<string>([]);
 
 // Per-model completion caps
 export const MODEL_COMPLETION_CAPS: Record<string, number> = {
+  "gpt-5": 4096,       // GitHub Models limit: 4000 out
+  "gpt-5-mini": 4096,  // GitHub Models limit: 4000 out
   "llama-3.3-70b": 8192,
   "llama-3.1-8b": 4096,
   "gpt-4o": 8192,
@@ -92,9 +99,9 @@ export const THINKING_MODE_TOKENS: Record<string, number> = {
 
 // Thinking-mode model priority lists
 export const THINKING_MODE_MODEL_PRIORITY: Record<string, string[]> = {
-  fast:     ["gpt-4o", "gemini-2.0-flash", "llama-3.1-8b", "gpt-4.1", "gemini-1.5-flash", "llama-3.3-70b"],
-  balanced: ["gpt-4.1", "gemini-2.0-flash", "gpt-4o", "llama-3.1-8b", "gemini-1.5-flash", "llama-3.3-70b"],
-  deep:     ["gpt-4.1", "gpt-4o", "gemini-2.0-flash", "llama-3.3-70b", "gemini-1.5-flash", "llama-3.1-8b"],
+  fast:     ["gpt-4o", "gpt-5-mini", "gemini-2.0-flash", "llama-3.1-8b", "gpt-4.1", "gemini-1.5-flash", "llama-3.3-70b"],
+  balanced: ["gpt-4.1", "gpt-5-mini", "gemini-2.0-flash", "gpt-4o", "llama-3.1-8b", "gemini-1.5-flash", "llama-3.3-70b"],
+  deep:     ["gpt-5", "gpt-4.1", "gpt-4o", "gemini-2.0-flash", "gpt-5-mini", "llama-3.3-70b", "gemini-1.5-flash", "llama-3.1-8b"],
 };
 
 // Tool status labels

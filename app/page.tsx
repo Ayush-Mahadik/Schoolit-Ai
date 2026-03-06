@@ -6,8 +6,8 @@ import { AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatInterface } from "@/components/ChatInterface";
 import { ThinkingModeToggle } from "@/components/ThinkingModeToggle";
-import { ConversationHistory } from "@/components/ConversationHistory";
 import { sendMessage, fetchPersonas } from "@/lib/api";
+import { compressHistory, removeRedundantContext, compressMessage } from "@/lib/compression";
 import { getUserSettings, saveUserSettings, getScheduleContext, addScheduleItems, runStoreMigrations, hydrateStore } from "@/lib/store";
 import {
   buildMemoryContext,
@@ -171,19 +171,27 @@ export default function Home() {
 
       try {
         const subjectMessages = messages[activeSubject] || [];
-        // Auto-routing picks models per thinking mode; use generous defaults
-        const recentWindow = 16;
-        const perMessageLimit = 2000;
+        // Use intelligent compression: keep recent messages in full, compress older ones
+        const compressed = compressHistory(subjectMessages, {
+          maxHistoryMessages: 16,
+          maxMessageLength: 2000,
+          removeWhitespace: true,
+          compressOldMessages: true,
+        });
 
-        // Keep only recent dialogue as structured history
-        const history = subjectMessages
-          .slice(-recentWindow)
-          .map((m) => ({ role: m.role, content: m.content.replace(/\s+/g, " ").slice(0, perMessageLimit) }));
+        // Build history for the API
+        const history = compressed.map((m) => ({
+          role: m.role,
+          content: removeRedundantContext(m.content),
+        }));
 
-        // Compress older dialogue into recall notes (long memory without huge token burn)
-        const olderMessages = subjectMessages.slice(0, -recentWindow).slice(-30);
+        // Build memory context from older messages (compressed conversation recall)
+        const olderMessages = compressed.slice(0, -16).slice(-30);
         const sessionRecall = olderMessages
-          .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content.replace(/\s+/g, " ").slice(0, 180)}`)
+          .map(
+            (m) =>
+              `${m.role === "user" ? "User" : "Assistant"}: ${compressMessage(m.content).slice(0, 180)}`
+          )
           .join("\n");
 
         const persistentMemory = isMemoryOwner() ? buildMemoryContext() : "";
@@ -444,18 +452,14 @@ export default function Home() {
 
           {/* ── Desktop Controls ────────────────────────────────── */}
           <div className="hidden md:flex items-center gap-2">
-            <ConversationHistory
-              currentMessages={currentMessages}
-              onLoadConversation={(id: string, loadedMessages: Message[]) => {
-                if (loadedMessages && loadedMessages.length > 0) {
-                  setMessages((prev) => ({ ...prev, [activeSubject]: loadedMessages }));
-                }
-              }}
-              onNewChat={() => {
-                setMessages((prev) => ({ ...prev, [activeSubject]: [] }));
-                setContextFiles((prev) => ({ ...prev, [activeSubject]: [] }));
-              }}
-            />
+            <a
+              href="/history"
+              className="p-2 rounded-lg transition-colors bg-surface-2 text-slate-400 hover:text-slate-200 hover:bg-surface-3 flex items-center gap-2"
+              title="View full conversation history"
+            >
+              <Icon name="history" className="w-4 h-4" />
+              <span className="text-sm font-medium">History</span>
+            </a>
             <ThinkingModeToggle
               activeMode={settings.thinkingMode}
               onSelect={(mode: ThinkingMode) =>
@@ -477,18 +481,13 @@ export default function Home() {
 
           {/* ── Mobile Controls ─────────────────────────────────── */}
           <div className="flex md:hidden items-center gap-1">
-            <ConversationHistory
-              currentMessages={currentMessages}
-              onLoadConversation={(id: string, loadedMessages: Message[]) => {
-                if (loadedMessages && loadedMessages.length > 0) {
-                  setMessages((prev) => ({ ...prev, [activeSubject]: loadedMessages }));
-                }
-              }}
-              onNewChat={() => {
-                setMessages((prev) => ({ ...prev, [activeSubject]: [] }));
-                setContextFiles((prev) => ({ ...prev, [activeSubject]: [] }));
-              }}
-            />
+            <a
+              href="/history"
+              className="p-2 rounded-lg transition-colors bg-surface-2 text-slate-400 hover:text-slate-200 hover:bg-surface-3"
+              title="View conversation history"
+            >
+              <Icon name="history" className="w-4 h-4" />
+            </a>
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="p-2 hover:bg-surface-3 rounded-lg transition-colors text-slate-400"

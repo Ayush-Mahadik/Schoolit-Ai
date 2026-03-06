@@ -5,6 +5,8 @@
 // ── AI Model & Thinking Mode ──────────────────────────────────────────
 
 export type AIModel =
+  | "gpt-5"
+  | "gpt-5-mini"
   | "gpt-4.1"
   | "gpt-4o"
   | "llama-3.3-70b"
@@ -27,6 +29,28 @@ export interface ModelOption {
 }
 
 export const MODEL_OPTIONS: ModelOption[] = [
+  {
+    id: "gpt-5",
+    name: "GPT-5",
+    description: "Most capable — deep reasoning, multi-step logic (8 req/day)",
+    icon: "crown",
+    speed: "slow",
+    supportsTools: true,
+    supportsVision: true,
+    hasThinking: false,
+    provider: "github",
+  },
+  {
+    id: "gpt-5-mini",
+    name: "GPT-5 Mini",
+    description: "Lightweight GPT-5 — fast with strong reasoning",
+    icon: "sparkles",
+    speed: "fast",
+    supportsTools: true,
+    supportsVision: true,
+    hasThinking: false,
+    provider: "github",
+  },
   {
     id: "gpt-4.1",
     name: "GPT-4.1",

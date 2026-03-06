@@ -1,27 +1,29 @@
 /**
- * Chat API Route — SchoolIT AI v3.0
- * ==============================
- * Clean orchestrator importing from modular server-side files:
+ * Chat API Route — SchoolIT AI v4.0
+ * ==================================
+ * Thin entry point: auth, validation, security, then delegates to orchestrator.
+ *   - fallback.ts — Multi-provider fallback engine
+ *   - orchestrator.ts — Tool loop, response assembly, deep review
  *   - providers.ts — AI provider config, model registry, client factory
- *   - moderation.ts — Ban system, harassment detection, sanitization
- *   - rate-limiter.ts — Tiered rate limiting with admin bypass
- *   - security.ts — CSRF, origin validation, request fingerprinting
+ *   - moderation.ts — Supabase-backed ban system, harassment detection
+ *   - rate-limiter.ts — Supabase-backed tiered rate limiting
+ *   - security.ts — CSRF, origin validation
  *   - prompts.ts — System prompt builder, personas
  *   - tools.ts — Tool definitions & executors
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
 import { getServerSession } from "next-auth";
+import type OpenAI from "openai";
 import { authOptions, isAdminEmail } from "@/lib/auth";
 import { buildSystemPrompt, VALID_SUBJECTS, type TeacherStyle } from "@/lib/server/prompts";
-import { TOOL_DEFINITIONS, executeTool } from "@/lib/server/tools";
+import { TOOL_DEFINITIONS } from "@/lib/server/tools";
 import {
-  MODEL_MAP, ALL_MODEL_IDS, MODEL_NAMES, MODEL_COMPLETION_CAPS,
+  MODEL_MAP, ALL_MODEL_IDS,
   THINKING_MODE_TOKENS, THINKING_MODE_MODEL_PRIORITY,
-  USES_MAX_COMPLETION_TOKENS, TOOL_LABELS,
-  getClientForModel, isProviderCoolingDown, markProviderRateLimited,
-  isGroqDailyBudgetExhausted, addGroqTokenUsage,
+  MODEL_COMPLETION_CAPS,
+  getClientForModel, isProviderCoolingDown,
+  isGroqDailyBudgetExhausted,
 } from "@/lib/server/providers";
 import {
   banUser, isUserBanned, isHarassment, sanitizeString, detectPromptInjection,
@@ -29,6 +31,7 @@ import {
 import { checkRateLimit } from "@/lib/server/rate-limiter";
 import { validateOrigin, validateCSRFToken, getRequestIP } from "@/lib/server/security";
 import { CSRF_HEADER } from "@/lib/config";
+import { runOrchestrator } from "@/lib/server/orchestrator";
 
 // ── Next.js route config ──────────────────────────────────────────────
 export const dynamic = "force-dynamic";
@@ -36,9 +39,13 @@ export const maxDuration = 120; // 2 minutes for complex requests
 
 // ── Constants ─────────────────────────────────────────────────────────
 const MAX_TOOL_ROUNDS = 10;
-const MAX_MESSAGE_LENGTH = 24_000;
-const MAX_HISTORY_MESSAGES = 40;
+const MAX_MESSAGE_LENGTH = 3_000;   // was 24_000 — prevents context explosion
+const MAX_HISTORY_MESSAGES = 10;    // was 40 — keeps context under control
 const VALID_PERSONAS = ["formal", "creative", "socratic", "balanced", "exam_coach"];
+
+// ── System prompt cache (TTL 60 s, no file/memory context) ───────────
+const _promptCache = new Map<string, { prompt: string; at: number }>();
+const PROMPT_CACHE_TTL = 60_000;
 
 // ══════════════════════════════════════════════════════════════════════
 //  POST /api/chat
@@ -84,7 +91,7 @@ export async function POST(req: NextRequest) {
   const ip = getRequestIP(req);
 
   // ── Ban check ───────────────────────────────────────────────────────
-  const banRecord = isUserBanned(ip, userEmail);
+  const banRecord = await isUserBanned(ip, userEmail);
   if (banRecord && !isAdmin) {
     const isPermanent = banRecord.expiresAt === 0;
     const remaining = isPermanent
@@ -92,7 +99,7 @@ export async function POST(req: NextRequest) {
       : `${Math.ceil((banRecord.expiresAt - Date.now()) / (24 * 60 * 60 * 1000))} days remaining`;
     return NextResponse.json({
       response: `⛔ Your access to SchoolIT AI has been suspended (${remaining}). Reason: ${banRecord.reason}. Strikes: ${banRecord.strikes}/3.${isPermanent ? " This ban is permanent due to repeated violations." : " Please conduct yourself appropriately when the ban expires."}`,
-      conversation_id: crypto.randomUUID(),
+      conversation_id: "banned",
       sources: [], tool_calls: [], charts: [],
       model: "moderation",
       moderation_action: "access_banned",
@@ -100,7 +107,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Rate limit (admins bypass) ──────────────────────────────────────
-  const rateCheck = checkRateLimit(ip, { isAdmin, tier: "free" });
+  const rateCheck = await checkRateLimit(ip, { isAdmin, tier: "free" });
   if (!rateCheck.allowed) {
     return NextResponse.json(
       { error: "rate_limited", message: "Too many requests. Please wait a moment and try again." },
@@ -141,12 +148,18 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // ── Stable conversation ID (accept from client or generate once) ────
+  const conversationId =
+    typeof body.conversation_id === "string" && body.conversation_id.trim()
+      ? body.conversation_id.trim()
+      : crypto.randomUUID();
+
   // ── Prompt injection detection ──────────────────────────────────────
   if (detectPromptInjection(message) && !isAdmin) {
     console.warn(`[SECURITY] Prompt injection attempt: IP=${ip}, email=${userEmail || "guest"}`);
     return NextResponse.json({
       response: "⚠️ Your message was flagged by SchoolIT AI's security system. Please rephrase your question naturally.",
-      conversation_id: crypto.randomUUID(),
+      conversation_id: conversationId,
       sources: [], tool_calls: [], charts: [],
       model: "security",
       moderation_action: "prompt_injection_blocked",
@@ -155,12 +168,12 @@ export async function POST(req: NextRequest) {
 
   // ── Anti-harassment filter ──────────────────────────────────────────
   if (isHarassment(message)) {
-    banUser(ip, userEmail, "Anti-harassment policy violation");
-    const banInfo = isUserBanned(ip, userEmail);
+    await banUser(ip, userEmail, "Anti-harassment policy violation");
+    const banInfo = await isUserBanned(ip, userEmail);
     console.warn(`[MODERATION] BANNED: IP=${ip}, email=${userEmail || "guest"}, strikes=${banInfo?.strikes || 1}`);
     return NextResponse.json({
       response: `⛔ This message violates SchoolIT AI's anti-harassment policy. Your access has been suspended for 7 days (Strike ${banInfo?.strikes || 1}/3). ${(banInfo?.strikes || 0) >= 2 ? "⚠️ One more violation = PERMANENT ban." : "Harassment and inappropriate remarks are strictly prohibited."}`,
-      conversation_id: crypto.randomUUID(),
+      conversation_id: conversationId,
       sources: [], tool_calls: [], charts: [],
       model: "moderation",
       moderation_action: "access_suspended",
@@ -224,7 +237,8 @@ export async function POST(req: NextRequest) {
   if (wantsCode) toolHint += "[ToolHint: When writing code, ALWAYS use proper markdown code blocks with language tags.]\n";
   if (hasFilesAttached) toolHint += "[ToolHint: Files are attached. Use analyze_document for docs and analyze_screenshot for images.]\n";
   if (wantsChart) toolHint += "[ToolHint: MANDATORY — Use generate_chart tool to create a proper SVG chart. Do NOT describe the chart in text. Do NOT output ASCII art. Call the generate_chart tool with proper chart_data JSON.]\n";
-  const effectiveMessage = toolHint ? `${message}\n\n${toolHint.trim()}` : message;
+  // toolHint is now injected into the system prompt, NOT the user message
+  const effectiveMessage = message;
 
   // Build file context
   let fileContext: string | undefined;
@@ -241,11 +255,23 @@ export async function POST(req: NextRequest) {
     fileContext = parts.join("\n\n");
   }
 
-  // Build system prompt
-  const systemPrompt = buildSystemPrompt(persona, subject, chainOfThought, fileContext, memoryContext || undefined, isAdmin);
-  const fullSystemPrompt = scheduleContext
-    ? systemPrompt + `\n\n## Student's Current Schedule:\n${scheduleContext}\n\nUse manage_schedule to add items. Reference existing schedule when relevant.`
-    : systemPrompt;
+  // Build system prompt (cached when no file/memory context)
+  const _cacheKey = `${persona}|${subject}|${chainOfThought}|${isAdmin}`;
+  const _cached = _promptCache.get(_cacheKey);
+  const usePromptCache = !fileContext && !memoryContext && _cached && Date.now() - _cached.at < PROMPT_CACHE_TTL;
+  const systemPrompt = usePromptCache
+    ? _cached.prompt
+    : buildSystemPrompt(persona, subject, chainOfThought, fileContext, memoryContext || undefined, isAdmin);
+  if (!fileContext && !memoryContext) {
+    _promptCache.set(_cacheKey, { prompt: systemPrompt, at: Date.now() });
+  }
+  let fullSystemPrompt = systemPrompt;
+  if (scheduleContext) {
+    fullSystemPrompt += `\n\n## Student's Current Schedule:\n${scheduleContext}\n\nUse manage_schedule to add items. Reference existing schedule when relevant.`;
+  }
+  if (toolHint) {
+    fullSystemPrompt += `\n\n## Tool Usage Hints (this turn only):\n${toolHint.trim()}`;
+  }
 
   // Check at least one provider
   const primarySetup = getClientForModel(modelId);
@@ -254,7 +280,7 @@ export async function POST(req: NextRequest) {
     if (!anyAvailable) {
       return NextResponse.json({
         response: "The AI service is not configured. Please set at least one API key.",
-        conversation_id: crypto.randomUUID(),
+        conversation_id: conversationId,
         error: "No AI providers configured",
         sources: [], tool_calls: [], charts: [], model: modelId,
       });
@@ -270,7 +296,7 @@ export async function POST(req: NextRequest) {
   // Add history (truncated for Groq)
   const isGroqPrimary = MODEL_MAP[modelId]?.provider === "groq";
   const maxHistoryMsgs = isGroqPrimary ? 6 : MAX_HISTORY_MESSAGES;
-  const maxMsgLen = isGroqPrimary ? 2000 : MAX_MESSAGE_LENGTH;
+  const maxMsgLen = isGroqPrimary ? 1500 : MAX_MESSAGE_LENGTH;
   for (const msg of history.slice(-maxHistoryMsgs)) {
     const role = String(msg.role || "");
     if (role === "user" || role === "assistant") {
@@ -320,20 +346,6 @@ export async function POST(req: NextRequest) {
   };
 
   (async () => {
-  // Tracking collections
-  const sources: string[] = [];
-  const toolCallsLog: string[] = [];
-  const charts: unknown[] = [];
-  const flowcharts: { mermaidCode: string; title?: string; explanation?: string }[] = [];
-  const manimAnimations: { code: string; sceneName: string; explanation: string }[] = [];
-  const generatedImages: { prompt: string; style: string; subject?: string; url?: string }[] = [];
-  const flashcardSets: { topic: string; cards: { front: string; back: string }[] }[] = [];
-  const quizSets: { topic: string; questions: { question: string; options: string[]; correct: number; explanation: string }[]; difficulty?: string }[] = [];
-  const scheduleActions: unknown[] = [];
-  const mockTests: unknown[] = [];
-  const questionPapers: unknown[] = [];
-  const searchImages: { url: string; thumbnail: string; title: string; source: string }[] = [];
-
   try {
     let activeModelId = modelId;
 
@@ -344,371 +356,16 @@ export async function POST(req: NextRequest) {
       if (replacement) activeModelId = replacement;
     }
 
-    let loopRound = 0;
-    const wallClockStart = Date.now();
-
-    // ── Multi-provider fallback ───────────────────────────────────────
-    const callWithFallback = async (msgs: OpenAI.Chat.ChatCompletionMessageParam[]) => {
-      const priorityModels = (THINKING_MODE_MODEL_PRIORITY[thinkingMode] || THINKING_MODE_MODEL_PRIORITY.balanced)
-        .filter(m => getClientForModel(m) !== null);
-      const modelsFromPriority = activeModelId !== priorityModels[0]
-        ? [activeModelId, ...priorityModels.filter(m => m !== activeModelId)]
-        : priorityModels;
-      const otherModels = ALL_MODEL_IDS.filter(m => !modelsFromPriority.includes(m) && getClientForModel(m) !== null);
-      let modelsToTry = [...modelsFromPriority, ...otherModels];
-
-      // Sort: penalize rate-limited and budget-exhausted providers
-      modelsToTry.sort((a, b) => {
-        const aCost = (isProviderCoolingDown(MODEL_MAP[a]?.provider) ? 1 : 0) + (MODEL_MAP[a]?.provider === "groq" && isGroqDailyBudgetExhausted() ? 2 : 0);
-        const bCost = (isProviderCoolingDown(MODEL_MAP[b]?.provider) ? 1 : 0) + (MODEL_MAP[b]?.provider === "groq" && isGroqDailyBudgetExhausted() ? 2 : 0);
-        return aCost - bCost;
-      });
-
-      // Prioritize vision models when images attached
-      if (imageFiles.length > 0) {
-        modelsToTry.sort((a, b) => (MODEL_MAP[b]?.supportsVision ? 1 : 0) - (MODEL_MAP[a]?.supportsVision ? 1 : 0));
-      }
-
-      if (modelsToTry.length === 0) throw new Error("No AI providers configured.");
-
-      let lastError: unknown = null;
-      let modelsAttempted = 0;
-
-      for (let i = 0; i < modelsToTry.length; i++) {
-        const tryModelId = modelsToTry[i];
-        const setup = getClientForModel(tryModelId);
-        if (!setup) continue;
-        const { client: modelClient, apiModel, config: modelConfig } = setup;
-
-        // Dynamic timeout
-        const elapsed = Date.now() - wallClockStart;
-        const remaining = Math.max(54_000 - elapsed, 8_000);
-        const callTimeout = i === 0
-          ? Math.min(Math.floor(remaining * 0.6), 35_000)
-          : Math.max(Math.floor((remaining - 2_000) / (modelsToTry.length - i)), 8_000);
-
-        if (remaining < 6_000 && i > 0) break;
-
-        try {
-          const useTools = modelConfig.supportsTools && tools.length > 0;
-          let filteredMsgs = msgs;
-
-          // Groq truncation
-          if (modelConfig.provider === "groq") {
-            filteredMsgs = filteredMsgs.map(m => {
-              if (m.role === "system" && typeof m.content === "string" && m.content.length > 4000)
-                return { ...m, content: m.content.slice(0, 4000) + "\n\n[Truncated]" };
-              if ((m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.length > 2000)
-                return { ...m, content: m.content.slice(0, 2000) + "..." };
-              return m;
-            });
-            const sys = filteredMsgs.filter(m => m.role === "system");
-            const tl = filteredMsgs.filter(m => m.role === "tool");
-            const cv = filteredMsgs.filter(m => m.role === "user" || m.role === "assistant");
-            filteredMsgs = [...sys, ...cv.slice(-6), ...tl.slice(-4)];
-          }
-
-          // Strip tool messages for non-tool models
-          if (!modelConfig.supportsTools) {
-            filteredMsgs = msgs.filter(m => m.role !== "tool").map(m => {
-              if (m.role === "assistant" && "tool_calls" in m) {
-                const { tool_calls: _tc, ...rest } = m as unknown as Record<string, unknown>;
-                return rest as unknown as OpenAI.Chat.ChatCompletionMessageParam;
-              }
-              return m;
-            });
-          }
-
-          // Strip images for non-vision models
-          if (!modelConfig.supportsVision) {
-            filteredMsgs = filteredMsgs.map(m => {
-              if (m.role === "user" && Array.isArray(m.content)) {
-                const texts = (m.content as OpenAI.Chat.ChatCompletionContentPart[])
-                  .filter(p => p.type === "text")
-                  .map(p => (p as { type: "text"; text: string }).text);
-                return { ...m, content: texts.join("\n") || "Analyze the attached content" };
-              }
-              return m;
-            });
-          }
-
-          console.log(`[${modelConfig.provider}] ${apiModel} (timeout=${callTimeout}ms, round=${loopRound})`);
-          await writeEvent('status', { message: i === 0 ? "SchoolIT AI is thinking..." : "Trying another approach..." });
-
-          const stripToolMsgs = (input: OpenAI.Chat.ChatCompletionMessageParam[]) =>
-            input.filter(m => m.role !== "tool").map(m => {
-              if (m.role === "assistant" && "tool_calls" in m) {
-                const { tool_calls: _tc, ...rest } = m as unknown as Record<string, unknown>;
-                return rest as unknown as OpenAI.Chat.ChatCompletionMessageParam;
-              }
-              return m;
-            });
-
-          const modelMaxTokens = Math.min(thinkingModeMax, MODEL_COMPLETION_CAPS[tryModelId] || thinkingModeMax);
-          const tokenParam = USES_MAX_COMPLETION_TOKENS.has(tryModelId)
-            ? { max_completion_tokens: modelMaxTokens }
-            : { max_tokens: modelMaxTokens };
-
-          const invoke = async (input: OpenAI.Chat.ChatCompletionMessageParam[], allowTools: boolean) =>
-            Promise.race([
-              modelClient.chat.completions.create({
-                model: apiModel, ...tokenParam, messages: input,
-                tools: allowTools ? tools : undefined,
-                tool_choice: allowTools ? "auto" : undefined,
-              }),
-              new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`${apiModel} timed out`)), callTimeout)),
-            ]);
-
-          let response: OpenAI.Chat.ChatCompletion;
-          try {
-            response = await invoke(filteredMsgs, useTools);
-          } catch (firstErr: unknown) {
-            const st = (firstErr as { status?: number })?.status;
-            const em = firstErr instanceof Error ? firstErr.message.toLowerCase() : "";
-            if (useTools && (st === 400 || em.includes("bad request") || em.includes("invalid"))) {
-              await writeEvent("status", { message: "Retrying in lightweight mode..." });
-              response = await invoke(stripToolMsgs(filteredMsgs), false);
-            } else throw firstErr;
-          }
-
-          if (tryModelId !== activeModelId) {
-            console.log(`Fallback: ${activeModelId} → ${tryModelId}`);
-            activeModelId = tryModelId;
-          }
-          if (modelConfig.provider === "groq" && response.usage)
-            addGroqTokenUsage((response.usage.prompt_tokens || 0) + (response.usage.completion_tokens || 0));
-
-          return response;
-        } catch (err: unknown) {
-          const st = (err as { status?: number })?.status;
-          const em = err instanceof Error ? err.message.toLowerCase() : "";
-          const isLast = i === modelsToTry.length - 1;
-          console.warn(`[${modelConfig.provider}] ${apiModel} failed (${st}): ${(err instanceof Error ? err.message : "").slice(0, 120)}`);
-          lastError = err;
-          modelsAttempted++;
-
-          if (st === 429 || em.includes("rate limit")) {
-            markProviderRateLimited(modelConfig.provider);
-            if (modelConfig.provider === "groq" && em.includes("tokens per day")) addGroqTokenUsage(85_000);
-          }
-
-          if (isLast) throw err;
-          if (!em.includes("rate limit") && modelsAttempted >= 5) throw err;
-          await new Promise(r => setTimeout(r, em.includes("rate limit") ? 100 : 150));
-        }
-      }
-      throw lastError;
-    };
-
-    // ── Main tool loop ────────────────────────────────────────────────
-    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      if (Date.now() - wallClockStart > 52_000) {
-        let partial = "I found some information but ran out of time:\n\n";
-        if (flashcardSets.length > 0) partial = "";
-        for (const c of charts) partial += `\n\n\`\`\`chart\n${JSON.stringify(c)}\n\`\`\``;
-        for (const f of flowcharts) partial += `\n\n\`\`\`mermaid\n${f.mermaidCode}\n\`\`\``;
-        await writeEvent('status', { message: 'Time limit reached...' });
-        await writeEvent('result', { data: {
-          response: partial || "Request took too long. Try a simpler query.",
-          conversation_id: crypto.randomUUID(), thinking: null, animation_url: null,
-          model: activeModelId, tool_calls: toolCallsLog, sources: Array.from(new Set(sources)),
-          charts, flowcharts, flashcard_sets: flashcardSets, quiz_sets: quizSets,
-          mock_tests: mockTests.length > 0 ? mockTests : undefined,
-          question_papers: questionPapers.length > 0 ? questionPapers : undefined,
-          manim_animations: manimAnimations, generated_images: generatedImages,
-          schedule_actions: scheduleActions,
-          search_images: searchImages.length > 0 ? searchImages : undefined, error: null,
-        }});
-        return;
-      }
-
-      loopRound = round;
-      const response = await callWithFallback(messages);
-      const assistantMsg = response.choices[0].message;
-
-      // ── Tool calls ──────────────────────────────────────────────────
-      if (assistantMsg.tool_calls?.length) {
-        messages.push({
-          role: "assistant", content: assistantMsg.content || "",
-          tool_calls: assistantMsg.tool_calls.map(tc => ({
-            id: tc.id, type: "function" as const,
-            function: { name: tc.function.name, arguments: tc.function.arguments },
-          })),
-        });
-
-        for (const tc of assistantMsg.tool_calls)
-          await writeEvent('status', { message: TOOL_LABELS[tc.function.name] || `Using ${tc.function.name.replace(/_/g, ' ')}...` });
-
-        const results = await Promise.allSettled(
-          assistantMsg.tool_calls.map(async tc => {
-            const name = tc.function.name;
-            let input: Record<string, unknown> = {};
-            try { input = JSON.parse(tc.function.arguments); } catch { input = {}; }
-            toolCallsLog.push(name);
-
-            if (name === "analyze_document" && fileContext && !input.content) input.content = fileContext;
-            if (name === "analyze_screenshot" && fileContext && !input.description) input.description = `Uploaded:\n${fileContext.slice(0, 5000)}`;
-            if (name === "search_knowledge_base") input._user_email = userEmail;
-
-            try {
-              return { tc, name, result: await executeTool(name, input), error: null };
-            } catch (e) {
-              console.error(`Tool ${name} failed:`, e);
-              return { tc, name, result: null, error: e };
-            }
-          })
-        );
-
-        for (const settled of results) {
-          if (settled.status === "rejected") continue;
-          const { tc, name, result: toolResult, error: toolErr } = settled.value;
-          if (toolErr || !toolResult) {
-            messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify({ error: `Tool "${name}" failed.` }) });
-            continue;
-          }
-
-          if (toolResult.sources) sources.push(...toolResult.sources);
-          if (toolResult.chartData) charts.push(toolResult.chartData);
-          if (toolResult.flowchartData) flowcharts.push(toolResult.flowchartData as typeof flowcharts[0]);
-          if (toolResult.manimData) manimAnimations.push(toolResult.manimData as typeof manimAnimations[0]);
-          if (toolResult.imageData) generatedImages.push(toolResult.imageData as typeof generatedImages[0]);
-          if (toolResult.flashcardData) flashcardSets.push(toolResult.flashcardData as typeof flashcardSets[0]);
-          if (toolResult.quizData) quizSets.push(toolResult.quizData as typeof quizSets[0]);
-          if (toolResult.mockTestData) mockTests.push(toolResult.mockTestData);
-          if (toolResult.questionPaperData) questionPapers.push(toolResult.questionPaperData);
-          if (toolResult.scheduleData) scheduleActions.push(toolResult.scheduleData);
-
-          const rObj = toolResult.result as Record<string, unknown>;
-          if (rObj?.images && Array.isArray(rObj.images)) searchImages.push(...(rObj.images as typeof searchImages));
-
-          const str = JSON.stringify(toolResult.result);
-          messages.push({ role: "tool", tool_call_id: tc.id, content: str.length > 25000 ? str.slice(0, 25000) : str });
-        }
-        continue;
-      }
-
-      // ── Final response ──────────────────────────────────────────────
-      let finalText = assistantMsg.content || "";
-
-      // Strip hallucinated images
-      finalText = finalText.replace(/!\[([^\]]*)\]\((?!https:\/\/image\.pollinations\.ai)[^)]+\)/g, "**$1**");
-
-      // Extract thinking content
-      let thinkingContent: string | null = null;
-      const rawMsg = assistantMsg as unknown as Record<string, unknown>;
-      if (rawMsg.reasoning_content && typeof rawMsg.reasoning_content === "string")
-        thinkingContent = String(rawMsg.reasoning_content).trim();
-
-      const thinkMatch = finalText.match(/<think>([\s\S]*?)<\/think>/);
-      if (thinkMatch) {
-        if (!thinkingContent) thinkingContent = thinkMatch[1].trim();
-        finalText = finalText.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
-      }
-      if (finalText.includes("<think>")) {
-        const idx = finalText.indexOf("<think>");
-        const end = finalText.indexOf("</think>", idx);
-        if (end === -1) {
-          if (!thinkingContent) thinkingContent = finalText.slice(idx + 7).trim();
-          finalText = finalText.slice(0, idx).trim();
-        }
-      }
-
-      // Append rich blocks
-      for (const c of charts) finalText += `\n\n\`\`\`chart\n${JSON.stringify(c)}\n\`\`\``;
-      for (const f of flowcharts) finalText += `\n\n\`\`\`mermaid\n${f.mermaidCode}\n\`\`\``;
-      for (const a of manimAnimations) finalText += `\n\n\`\`\`manim\n${a.code}\n\`\`\``;
-
-      // Auto-generate visual
-      if (wantsVisual && generatedImages.length === 0) {
-        try {
-          const v = await executeTool("generate_image", { prompt: message.slice(0, 300), style: "diagram", subject });
-          if (v.imageData) { generatedImages.push(v.imageData as typeof generatedImages[0]); toolCallsLog.push("generate_image(auto)"); }
-        } catch { /* best-effort */ }
-      }
-      for (const img of generatedImages) finalText += `\n\n\`\`\`image\n${JSON.stringify(img)}\n\`\`\``;
-
-      await writeEvent('status', { message: 'Composing final answer...' });
-
-      // ── Deep Mode: Multi-Model Review ───────────────────────────────
-      let reviewModelUsed: string | null = null;
-      if (thinkingMode === "deep" && finalText.length > 100) {
-        const timeLeft = 54_000 - (Date.now() - wallClockStart);
-        if (timeLeft > 12_000) {
-          const primaryProvider = MODEL_MAP[activeModelId]?.provider;
-          const candidates = priorityList.filter(m => {
-            const cfg = MODEL_MAP[m];
-            return cfg && cfg.provider !== primaryProvider && cfg.supportsTools && getClientForModel(m) !== null && !isProviderCoolingDown(cfg.provider);
-          });
-          const allCandidates = candidates.length > 0 ? candidates : ALL_MODEL_IDS.filter(m => m !== activeModelId && getClientForModel(m) !== null);
-
-          if (allCandidates.length > 0) {
-            const revId = allCandidates[0];
-            const revSetup = getClientForModel(revId);
-            if (revSetup) {
-              try {
-                await writeEvent('status', { message: 'Cross-checking with second AI...' });
-                const revTimeout = Math.min(timeLeft - 3_000, 20_000);
-                const revResp = await Promise.race([
-                  revSetup.client.chat.completions.create({
-                    model: revSetup.apiModel,
-                    max_tokens: Math.min(maxTokens, MODEL_COMPLETION_CAPS[revId] || 8192),
-                    messages: [
-                      { role: "system", content: "You are a senior academic reviewer. Check for errors, improve clarity, preserve all formatting blocks. Output the improved answer directly." },
-                      { role: "user", content: `Question: ${message}\n\n---\n\nResponse to review:\n${finalText.slice(0, 12000)}` },
-                    ],
-                  }),
-                  new Promise<never>((_, rej) => setTimeout(() => rej(new Error("Review timeout")), revTimeout)),
-                ]);
-                const revText = revResp.choices[0]?.message?.content?.trim();
-                if (revText && revText.length > 80) {
-                  const cleaned = revText.replace(/^(The original|Here is|I've reviewed|After reviewing)[\s\S]*?\n\n/i, "").trim();
-                  if (cleaned.length > finalText.length * 0.3) {
-                    finalText = cleaned;
-                    reviewModelUsed = revId;
-                    console.log(`Deep review: ${activeModelId} → ${revId}`);
-                  }
-                }
-              } catch (e) {
-                console.warn("Deep review failed:", e instanceof Error ? e.message : e);
-              }
-            }
-          }
-        }
-      }
-
-      const modelsUsed = reviewModelUsed
-        ? `${MODEL_NAMES[activeModelId] || activeModelId} + ${MODEL_NAMES[reviewModelUsed] || reviewModelUsed}`
-        : MODEL_NAMES[activeModelId] || activeModelId;
-
-      await writeEvent('result', { data: {
-        response: finalText,
-        conversation_id: crypto.randomUUID(),
-        thinking: thinkingContent, animation_url: null,
-        sources: Array.from(new Set(sources)), tool_calls: toolCallsLog,
-        charts, flowcharts, manim_animations: manimAnimations,
-        generated_images: generatedImages, flashcard_sets: flashcardSets,
-        quiz_sets: quizSets,
-        mock_tests: mockTests.length > 0 ? mockTests : undefined,
-        question_papers: questionPapers.length > 0 ? questionPapers : undefined,
-        schedule_actions: scheduleActions,
-        search_images: searchImages.length > 0 ? searchImages : undefined,
-        error: null, model: modelsUsed,
-        rate_limit_remaining: rateCheck.remaining,
-      }});
-      return;
-    }
-
-    // Max rounds exceeded
-    await writeEvent('result', { data: {
-      response: "Multiple research steps completed but couldn't fully resolve. Please rephrase.",
-      conversation_id: crypto.randomUUID(),
-      sources: Array.from(new Set(sources)), tool_calls: toolCallsLog,
-      charts, flowcharts, manim_animations: manimAnimations,
-      generated_images: generatedImages, flashcard_sets: flashcardSets, quiz_sets: quizSets,
-      mock_tests: mockTests.length > 0 ? mockTests : undefined,
-      question_papers: questionPapers.length > 0 ? questionPapers : undefined,
-      schedule_actions: scheduleActions, error: null, model: activeModelId,
-    }});
+    // Delegate to orchestrator (tool loop + fallback + response assembly)
+    await runOrchestrator({
+      messages, tools, activeModelId, thinkingMode, thinkingModeMax, maxTokens,
+      maxToolRounds: MAX_TOOL_ROUNDS,
+      hasImageFiles: imageFiles.length > 0,
+      wantsVisual, message, subject, userEmail,
+      fileContext, conversationId,
+      rateRemaining: rateCheck.remaining,
+      writeEvent,
+    });
   } catch (error: unknown) {
     console.error("Chat API error:", error);
     const apiErr = error as { status?: number; code?: string };
@@ -732,25 +389,11 @@ export async function POST(req: NextRequest) {
 
     console.error(`[${hint || "unknown"}] ${rawMsg.slice(0, 200)}`);
 
-    const hasData = [charts, flowcharts, generatedImages, flashcardSets, quizSets, mockTests, questionPapers, searchImages].some(a => (a?.length || 0) > 0);
-    let resp = userError;
-    if (hasData) {
-      resp = "Model error but results prepared below.";
-      for (const c of charts) resp += `\n\n\`\`\`chart\n${JSON.stringify(c)}\n\`\`\``;
-      for (const f of flowcharts) resp += `\n\n\`\`\`mermaid\n${f.mermaidCode}\n\`\`\``;
-      for (const img of generatedImages) resp += `\n\n\`\`\`image\n${JSON.stringify(img)}\n\`\`\``;
-    }
-
     await writeEvent('result', { data: {
-      response: resp, conversation_id: crypto.randomUUID(),
-      error: hasData ? null : (hint || "unknown_error"),
-      sources: Array.from(new Set(sources || [])), tool_calls: toolCallsLog || [],
-      charts: charts || [], flowcharts: flowcharts || [],
-      generated_images: generatedImages || [], flashcard_sets: flashcardSets || [],
-      quiz_sets: quizSets || [],
-      mock_tests: (mockTests?.length || 0) > 0 ? mockTests : undefined,
-      question_papers: (questionPapers?.length || 0) > 0 ? questionPapers : undefined,
-      search_images: searchImages.length > 0 ? searchImages : undefined,
+      response: userError, conversation_id: conversationId,
+      error: hint || "unknown_error",
+      sources: [], tool_calls: [], charts: [], flowcharts: [],
+      generated_images: [], flashcard_sets: [], quiz_sets: [],
       model: modelId,
     }});
   }
@@ -767,7 +410,7 @@ export async function POST(req: NextRequest) {
     console.error("FATAL:", fatal);
     return NextResponse.json({
       response: "An unexpected error occurred. Please try again.",
-      conversation_id: crypto.randomUUID(),
+      conversation_id: "fatal-" + Date.now(),
       error: "internal_error",
       sources: [], tool_calls: [], charts: [], model: "unknown",
     }, { status: 200 });

@@ -13,6 +13,7 @@
 
 import type { Message } from "./types";
 import { CSRF_HEADER } from "@/lib/config";
+import { conversationCache, getCacheKey, invalidateConversationCache } from "@/lib/cache";
 
 // ── CSRF Token ────────────────────────────────────────────────────────
 let _csrfToken: string | null = null;
@@ -129,6 +130,9 @@ export async function cloudSaveConversation(
       console.warn("Cloud save failed:", res.status);
       return false;
     }
+
+    // Invalidate cache after save
+    invalidateConversationCache(userEmail);
     return true;
   } catch (err) {
     console.warn("Cloud save error:", err);
@@ -138,6 +142,7 @@ export async function cloudSaveConversation(
 
 /**
  * Load all conversations for the current user from the cloud.
+ * Uses LRU cache with 5-minute TTL and request deduplication.
  * Returns null if unavailable (caller falls back to localStorage).
  */
 export async function cloudLoadConversations(
@@ -145,15 +150,23 @@ export async function cloudLoadConversations(
 ): Promise<CloudConversation[] | null> {
   if (!userEmail) return null;
 
-  try {
-    const res = await fetch("/api/conversations");
-    if (!res.ok) {
-      console.warn("Cloud load failed:", res.status);
-      return null;
-    }
+  const cacheKey = getCacheKey("conversations", userEmail);
 
-    const data = await res.json();
-    return (data.conversations as CloudConversation[]) || null;
+  try {
+    return await conversationCache.get(
+      cacheKey,
+      async () => {
+        const res = await fetch("/api/conversations");
+        if (!res.ok) {
+          console.warn("Cloud load failed:", res.status);
+          return null;
+        }
+
+        const data = await res.json();
+        return (data.conversations as CloudConversation[]) || null;
+      },
+      5 * 60 * 1000 // 5 minute TTL
+    );
   } catch (err) {
     console.warn("Cloud load error:", err);
     return null;
@@ -162,6 +175,7 @@ export async function cloudLoadConversations(
 
 /**
  * Delete a conversation from the cloud.
+ * Invalidates cache after deletion.
  */
 export async function cloudDeleteConversation(
   userEmail: string,
@@ -181,6 +195,9 @@ export async function cloudDeleteConversation(
       console.warn("Cloud delete failed:", res.status);
       return false;
     }
+
+    // Invalidate cache after delete
+    invalidateConversationCache(userEmail);
     return true;
   } catch (err) {
     console.warn("Cloud delete error:", err);
@@ -190,6 +207,7 @@ export async function cloudDeleteConversation(
 
 /**
  * Clear all conversations for the current user from the cloud.
+ * Invalidates cache after deletion.
  */
 export async function cloudClearAll(userEmail: string): Promise<boolean> {
   if (!userEmail) return false;
@@ -206,6 +224,9 @@ export async function cloudClearAll(userEmail: string): Promise<boolean> {
       console.warn("Cloud clear failed:", res.status);
       return false;
     }
+
+    // Invalidate cache after clear
+    invalidateConversationCache(userEmail);
     return true;
   } catch (err) {
     console.warn("Cloud clear error:", err);
