@@ -324,7 +324,7 @@ export async function POST(req: NextRequest) {
 
   // Add history (truncated for Groq)
   const isGroqPrimary = MODEL_MAP[modelId]?.provider === "groq";
-  const maxHistoryMsgs = isGroqPrimary ? 6 : MAX_HISTORY_MESSAGES;
+  const maxHistoryMsgs = isGroqPrimary ? 4 : MAX_HISTORY_MESSAGES;
   const maxMsgLen = isGroqPrimary ? 1500 : MAX_MESSAGE_LENGTH;
   for (const msg of history.slice(-maxHistoryMsgs)) {
     const role = String(msg.role || "");
@@ -440,7 +440,7 @@ export async function POST(req: NextRequest) {
     console.error("FATAL:", fatal);
     return NextResponse.json({
       response: "An unexpected error occurred. Please try again.",
-      conversation_id: "fatal-" + Date.now(),
+      conversation_id: conversationId,
       error: "internal_error",
       sources: [], tool_calls: [], charts: [], model: "unknown",
     }, { status: 200 });

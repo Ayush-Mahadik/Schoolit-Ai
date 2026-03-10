@@ -272,6 +272,7 @@ export function buildSystemPrompt(
   const persona = PERSONAS[style] || PERSONAS.balanced;
   parts.push(`\n## Teaching Style — ${persona.name}:\n${persona.promptModifier}`);
 
+  // Only inject deep reasoning mode in deep thinking mode
   if (chainOfThought) {
     parts.push(CHAIN_OF_THOUGHT_ADDENDUM);
   }

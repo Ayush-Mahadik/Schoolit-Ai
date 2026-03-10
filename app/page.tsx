@@ -49,6 +49,7 @@ export default function Home() {
     thinkingMode: "balanced",
   });
   const [contextFiles, setContextFiles] = useState<Record<string, FileAttachment[]>>({});
+  const [conversationIds, setConversationIds] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -93,6 +94,7 @@ export default function Home() {
         e.preventDefault();
         setMessages((prev) => ({ ...prev, [activeSubject]: [] }));
         setContextFiles((prev) => ({ ...prev, [activeSubject]: [] }));
+        setConversationIds((prev) => ({ ...prev, [activeSubject]: undefined as unknown as string }));
       }
       // Ctrl+/ → Toggle web search
       if ((e.ctrlKey || e.metaKey) && e.key === "/") {
@@ -216,6 +218,7 @@ export default function Home() {
           message: text,
           subject: activeSubject,
           persona: settings.persona,
+          conversation_id: conversationIds[activeSubject], // Pass existing ID or undefined
           use_web_search: settings.useWebSearch,
           chain_of_thought: settings.thinkingMode === "deep",
           thinking_mode: settings.thinkingMode,
@@ -226,6 +229,11 @@ export default function Home() {
         }, (status: string) => {
           setThinkingStatus((prev) => [...prev, status]);
         });
+
+        // Update conversation ID from response
+        if (response.conversation_id) {
+          setConversationIds((prev) => ({ ...prev, [activeSubject]: response.conversation_id }));
+        }
 
         // Process schedule actions from AI (add items via unified store)
         if (response.schedule_actions && response.schedule_actions.length > 0) {

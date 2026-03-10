@@ -525,12 +525,14 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
         {/* AI Thinking / Reasoning — Grok-style */}
         {message.thinking && (
           <details className="thinking-block" open={message.thinking.length < 500}>
-            <summary className="flex items-center gap-1.5">
+            <summary className="flex items-center gap-1.5 relative">
               <Brain className="w-3.5 h-3.5" />
               <span>AI Thinking</span>
-              <span className="text-[10px] text-slate-600 font-normal normal-case tracking-normal ml-1">
-                {message.thinking.length > 200 ? `${Math.ceil(message.thinking.length / 4)} tokens` : ""}
-              </span>
+              {message.thinking.length > 200 && (
+                <span className="absolute right-0 text-[10px] text-[#3a3a3a] font-mono mt-1">
+                  {Math.ceil(message.thinking.length / 4)} tokens
+                </span>
+              )}
             </summary>
             <div className="mt-2 prose-chat text-xs leading-relaxed text-slate-400">
               <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
