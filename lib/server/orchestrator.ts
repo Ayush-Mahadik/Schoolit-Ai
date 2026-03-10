@@ -19,7 +19,7 @@ export interface OrchestratorParams {
   messages: OpenAI.Chat.ChatCompletionMessageParam[];
   tools: OpenAI.Chat.ChatCompletionTool[];
   activeModelId: string;
-  thinkingMode: string;
+  thinkingMode: "fast" | "balanced" | "deep";
   thinkingModeMax: number;
   maxTokens: number;
   maxToolRounds: number;

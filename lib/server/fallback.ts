@@ -36,7 +36,7 @@ export function isSarvamSafe(flags: SarvamSafetyFlags): boolean {
 export interface FallbackParams {
   messages: OpenAI.Chat.ChatCompletionMessageParam[];
   activeModelId: string;
-  thinkingMode: string;
+  thinkingMode: "fast" | "balanced" | "deep";
   thinkingModeMax: number;
   tools: OpenAI.Chat.ChatCompletionTool[];
   sarvamFlags: SarvamSafetyFlags;
@@ -117,8 +117,12 @@ export async function callWithFallback(params: FallbackParams): Promise<Fallback
       const useTools = modelConfig.supportsTools && tools.length > 0;
       let filteredMsgs = msgs;
 
-      // Groq truncation
-      if (modelConfig.provider === "groq") {
+      // Groq truncation (except Qwen3/QwQ with 128K context)
+      const needsGroqTruncation = 
+        modelConfig.provider === "groq" && 
+        !["qwen3-32b", "qwq-32b"].includes(tryModelId);
+      
+      if (needsGroqTruncation) {
         filteredMsgs = filteredMsgs.map(m => {
           if (m.role === "system" && typeof m.content === "string" && m.content.length > 4000)
             return { ...m, content: m.content.slice(0, 4000) + "\n\n[Truncated]" };
@@ -158,12 +162,20 @@ export async function callWithFallback(params: FallbackParams): Promise<Fallback
         ? { max_completion_tokens: modelMaxTokens }
         : { max_tokens: modelMaxTokens };
 
+      // Reasoning effort for Qwen models
+      const isQwen = ["qwen3-32b", "qwq-32b"].includes(tryModelId);
+      const reasoningEffortParam = isQwen && thinkingMode !== "deep" ? (
+        thinkingMode === "fast" ? { reasoning_effort: "low" as const } :
+        { reasoning_effort: "medium" as const }
+      ) : {};
+
       const invoke = async (input: OpenAI.Chat.ChatCompletionMessageParam[], allowTools: boolean) =>
         Promise.race([
           modelClient.chat.completions.create({
             model: apiModel, ...tokenParam, messages: input,
             tools: allowTools ? tools : undefined,
             tool_choice: allowTools ? "auto" : undefined,
+            ...reasoningEffortParam,
           }),
           new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`${apiModel} timed out`)), callTimeout)),
         ]);

@@ -194,9 +194,9 @@ export async function POST(req: NextRequest) {
     : "balanced";
   const useWebSearch = body.use_web_search !== false;
 
-  const thinkingMode = ["fast", "balanced", "deep"].includes(String(body.thinking_mode || ""))
+  const thinkingMode = (["fast", "balanced", "deep"].includes(String(body.thinking_mode || ""))
     ? String(body.thinking_mode)
-    : "balanced";
+    : "balanced") as "fast" | "balanced" | "deep";
   const chainOfThought = thinkingMode === "deep" || body.chain_of_thought === true;
   const thinkingModeMax = THINKING_MODE_TOKENS[thinkingMode] || 4096;
 
@@ -381,7 +381,7 @@ export async function POST(req: NextRequest) {
     // Swap to tool-reliable model if needed
     const taskNeedsReliableTools = hasFilesAttached || imageFiles.length > 0 || hasYouTubeUrl || wantsFlowchart || wantsFlashcards || wantsQuiz || wantsQuestionPaper || wantsMockTest;
     if (taskNeedsReliableTools && !MODEL_MAP[activeModelId]?.supportsTools) {
-      const replacement = ["gpt-4o", "gpt-4.1", "llama-3.1-8b", "llama-3.3-70b", "gemini-2.0-flash"].find(m => getClientForModel(m) !== null);
+      const replacement = ["gpt-4o", "gpt-4.1", "qwen3-32b", "llama-3.1-8b", "gemini-2.0-flash"].find(m => getClientForModel(m) !== null);
       if (replacement) activeModelId = replacement;
     }
 
