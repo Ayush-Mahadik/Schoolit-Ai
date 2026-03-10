@@ -7,6 +7,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer,
 } from "recharts";
+import type { TooltipProps } from "recharts";
 
 // ── Types ─────────────────────────────────────────────────────────────
 export interface ChartDataset {
@@ -23,12 +24,45 @@ export interface ChartSpec {
   datasets: ChartDataset[];
 }
 
+// ── Dark Theme Constants ──────────────────────────────────────────────
+const GRID         = "#1e1e1e";
+const TICK         = "#666";
+const LABEL        = "#888";
+const TOOLTIP_BG   = "#1a1a1a";
+const TOOLTIP_BORDER = "#2a2a2a";
+
 // ── Color Palette ─────────────────────────────────────────────────────
 const COLORS = [
   "#3b82f6", "#ef4444", "#10b981", "#f59e0b",
   "#8b5cf6", "#ec4899", "#06b6d4", "#f97316",
-  "#84cc16", "#a855f7", "#14b8a6", "#e11d48",
 ];
+
+// ── Shared axis props ─────────────────────────────────────────────────
+const axisStyle = { fill: TICK, fontSize: 11 } as const;
+
+// ── Dark Tooltip component ────────────────────────────────────────────
+const DarkTooltip = ({ active, payload, label }: TooltipProps<number, string>) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{
+      background: TOOLTIP_BG,
+      border: `1px solid ${TOOLTIP_BORDER}`,
+      borderRadius: "6px",
+      padding: "8px 12px",
+      fontSize: "12px",
+      fontFamily: "monospace",
+    }}>
+      {label != null && (
+        <p style={{ color: "#aaa", fontSize: "11px", marginBottom: "4px" }}>{label}</p>
+      )}
+      {payload.map((e, i) => (
+        <p key={i} style={{ color: e.color, margin: "2px 0" }}>
+          {e.name}: <b>{e.value}</b>
+        </p>
+      ))}
+    </div>
+  );
+};
 
 // ── Main Chart Renderer ───────────────────────────────────────────────
 export function ChartRenderer({ data }: { data: ChartSpec }) {
@@ -37,14 +71,12 @@ export function ChartRenderer({ data }: { data: ChartSpec }) {
   // Transform data for Recharts
   const chartData = useMemo(() => {
     if (type === "pie") {
-      // Pie chart uses { name, value } format
       return (datasets[0]?.data || []).map((d) => ({
         name: d.name || String(d.x || ""),
         value: d.value ?? d.y ?? 0,
       }));
     }
 
-    // For cartesian charts, merge all datasets by x value
     const xValues = new Set<number | string>();
     for (const ds of datasets) {
       for (const pt of ds.data) {
@@ -78,26 +110,25 @@ export function ChartRenderer({ data }: { data: ChartSpec }) {
       {title && (
         <h4 className="text-sm font-semibold text-white text-center mb-3">{title}</h4>
       )}
-      <ResponsiveContainer width="100%" height={300}>
+      <ResponsiveContainer width="100%" height={320}>
         {type === "line" ? (
           <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#2d2d3d" />
+            <CartesianGrid stroke={GRID} strokeDasharray="3 3" />
             <XAxis
               dataKey="x"
-              stroke="#94a3b8"
-              fontSize={11}
-              label={xLabel ? { value: xLabel, position: "insideBottom", offset: -5, fill: "#94a3b8", fontSize: 11 } : undefined}
+              tick={axisStyle}
+              tickLine={false}
+              axisLine={false}
+              label={xLabel ? { value: xLabel, position: "insideBottom", offset: -5, fill: LABEL, fontSize: 11 } : undefined}
             />
             <YAxis
-              stroke="#94a3b8"
-              fontSize={11}
-              label={yLabel ? { value: yLabel, angle: -90, position: "insideLeft", fill: "#94a3b8", fontSize: 11 } : undefined}
+              tick={axisStyle}
+              tickLine={false}
+              axisLine={false}
+              label={yLabel ? { value: yLabel, angle: -90, position: "insideLeft", fill: LABEL, fontSize: 11 } : undefined}
             />
-            <Tooltip
-              contentStyle={{ backgroundColor: "#1a1a24", border: "1px solid #2d2d3d", borderRadius: "8px", fontSize: "12px" }}
-              labelStyle={{ color: "#e2e8f0" }}
-            />
-            {seriesKeys.length > 1 && <Legend wrapperStyle={{ fontSize: "11px" }} />}
+            <Tooltip content={<DarkTooltip />} />
+            {seriesKeys.length > 1 && <Legend wrapperStyle={{ color: LABEL, fontSize: 11 }} />}
             {seriesKeys.map((key, i) => (
               <Line
                 key={key}
@@ -105,31 +136,36 @@ export function ChartRenderer({ data }: { data: ChartSpec }) {
                 dataKey={key}
                 stroke={datasets[i]?.color || COLORS[i % COLORS.length]}
                 strokeWidth={2}
-                dot={{ r: 2 }}
+                dot={false}
                 activeDot={{ r: 5 }}
               />
             ))}
           </LineChart>
         ) : type === "bar" ? (
           <BarChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#2d2d3d" />
-            <XAxis dataKey="x" stroke="#94a3b8" fontSize={11}
-              label={xLabel ? { value: xLabel, position: "insideBottom", offset: -5, fill: "#94a3b8", fontSize: 11 } : undefined}
+            <CartesianGrid stroke={GRID} strokeDasharray="3 3" />
+            <XAxis
+              dataKey="x"
+              tick={axisStyle}
+              tickLine={false}
+              axisLine={false}
+              label={xLabel ? { value: xLabel, position: "insideBottom", offset: -5, fill: LABEL, fontSize: 11 } : undefined}
             />
-            <YAxis stroke="#94a3b8" fontSize={11}
-              label={yLabel ? { value: yLabel, angle: -90, position: "insideLeft", fill: "#94a3b8", fontSize: 11 } : undefined}
+            <YAxis
+              tick={axisStyle}
+              tickLine={false}
+              axisLine={false}
+              label={yLabel ? { value: yLabel, angle: -90, position: "insideLeft", fill: LABEL, fontSize: 11 } : undefined}
             />
-            <Tooltip
-              contentStyle={{ backgroundColor: "#1a1a24", border: "1px solid #2d2d3d", borderRadius: "8px", fontSize: "12px" }}
-              labelStyle={{ color: "#e2e8f0" }}
-            />
-            {seriesKeys.length > 1 && <Legend wrapperStyle={{ fontSize: "11px" }} />}
+            <Tooltip content={<DarkTooltip />} />
+            {seriesKeys.length > 1 && <Legend wrapperStyle={{ color: LABEL, fontSize: 11 }} />}
             {seriesKeys.map((key, i) => (
               <Bar
                 key={key}
                 dataKey={key}
                 fill={datasets[i]?.color || COLORS[i % COLORS.length]}
-                radius={[4, 4, 0, 0]}
+                barSize={32}
+                radius={[3, 3, 0, 0]}
               />
             ))}
           </BarChart>
@@ -144,31 +180,33 @@ export function ChartRenderer({ data }: { data: ChartSpec }) {
               paddingAngle={3}
               dataKey="value"
               label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-              labelLine={{ stroke: "#94a3b8" }}
+              labelLine={{ stroke: TICK }}
             >
               {chartData.map((_, i) => (
-                <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                <Cell key={i} fill={COLORS[i % COLORS.length]} stroke="transparent" />
               ))}
             </Pie>
-            <Tooltip
-              contentStyle={{ backgroundColor: "#1a1a24", border: "1px solid #2d2d3d", borderRadius: "8px", fontSize: "12px" }}
-            />
-            <Legend wrapperStyle={{ fontSize: "11px" }} />
+            <Tooltip content={<DarkTooltip />} />
+            <Legend wrapperStyle={{ color: LABEL, fontSize: 11 }} />
           </PieChart>
         ) : type === "area" ? (
           <AreaChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#2d2d3d" />
-            <XAxis dataKey="x" stroke="#94a3b8" fontSize={11}
-              label={xLabel ? { value: xLabel, position: "insideBottom", offset: -5, fill: "#94a3b8", fontSize: 11 } : undefined}
+            <CartesianGrid stroke={GRID} strokeDasharray="3 3" />
+            <XAxis
+              dataKey="x"
+              tick={axisStyle}
+              tickLine={false}
+              axisLine={false}
+              label={xLabel ? { value: xLabel, position: "insideBottom", offset: -5, fill: LABEL, fontSize: 11 } : undefined}
             />
-            <YAxis stroke="#94a3b8" fontSize={11}
-              label={yLabel ? { value: yLabel, angle: -90, position: "insideLeft", fill: "#94a3b8", fontSize: 11 } : undefined}
+            <YAxis
+              tick={axisStyle}
+              tickLine={false}
+              axisLine={false}
+              label={yLabel ? { value: yLabel, angle: -90, position: "insideLeft", fill: LABEL, fontSize: 11 } : undefined}
             />
-            <Tooltip
-              contentStyle={{ backgroundColor: "#1a1a24", border: "1px solid #2d2d3d", borderRadius: "8px", fontSize: "12px" }}
-              labelStyle={{ color: "#e2e8f0" }}
-            />
-            {seriesKeys.length > 1 && <Legend wrapperStyle={{ fontSize: "11px" }} />}
+            <Tooltip content={<DarkTooltip />} />
+            {seriesKeys.length > 1 && <Legend wrapperStyle={{ color: LABEL, fontSize: 11 }} />}
             {seriesKeys.map((key, i) => (
               <Area
                 key={key}
@@ -178,23 +216,29 @@ export function ChartRenderer({ data }: { data: ChartSpec }) {
                 fill={datasets[i]?.color || COLORS[i % COLORS.length]}
                 fillOpacity={0.15}
                 strokeWidth={2}
+                dot={false}
               />
             ))}
           </AreaChart>
         ) : type === "scatter" ? (
           <ScatterChart>
-            <CartesianGrid strokeDasharray="3 3" stroke="#2d2d3d" />
-            <XAxis dataKey="x" stroke="#94a3b8" fontSize={11} type="number"
-              label={xLabel ? { value: xLabel, position: "insideBottom", offset: -5, fill: "#94a3b8", fontSize: 11 } : undefined}
+            <CartesianGrid stroke={GRID} strokeDasharray="3 3" />
+            <XAxis
+              dataKey="x"
+              tick={axisStyle}
+              tickLine={false}
+              axisLine={false}
+              type="number"
+              label={xLabel ? { value: xLabel, position: "insideBottom", offset: -5, fill: LABEL, fontSize: 11 } : undefined}
             />
-            <YAxis stroke="#94a3b8" fontSize={11}
-              label={yLabel ? { value: yLabel, angle: -90, position: "insideLeft", fill: "#94a3b8", fontSize: 11 } : undefined}
+            <YAxis
+              tick={axisStyle}
+              tickLine={false}
+              axisLine={false}
+              label={yLabel ? { value: yLabel, angle: -90, position: "insideLeft", fill: LABEL, fontSize: 11 } : undefined}
             />
-            <Tooltip
-              contentStyle={{ backgroundColor: "#1a1a24", border: "1px solid #2d2d3d", borderRadius: "8px", fontSize: "12px" }}
-              labelStyle={{ color: "#e2e8f0" }}
-            />
-            {seriesKeys.length > 1 && <Legend wrapperStyle={{ fontSize: "11px" }} />}
+            <Tooltip content={<DarkTooltip />} />
+            {seriesKeys.length > 1 && <Legend wrapperStyle={{ color: LABEL, fontSize: 11 }} />}
             {seriesKeys.map((key, i) => {
               const scatterData = datasets[i]?.data.map(d => ({ x: d.x, y: d.y })) || [];
               return (
@@ -208,9 +252,11 @@ export function ChartRenderer({ data }: { data: ChartSpec }) {
             })}
           </ScatterChart>
         ) : (
-          <div className="flex items-center justify-center h-full text-slate-400 text-sm">
-            Unsupported chart type: {type}
-          </div>
+          <BarChart data={[]}>
+            <text x="50%" y="50%" textAnchor="middle" fill={LABEL} fontSize={13}>
+              Unsupported chart type: {type}
+            </text>
+          </BarChart>
         )}
       </ResponsiveContainer>
     </div>

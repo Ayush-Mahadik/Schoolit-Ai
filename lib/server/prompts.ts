@@ -142,7 +142,7 @@ export const SUBJECT_CONTEXTS: Record<string, string> = {
 export const ADMIN_CONTEXT = `
 ## About This Student (Admin):
 - **Name**: Ayush Mahadik (creator of SchoolIT AI)
-- **Portfolio**: https://ayush-mahadik.github.io
+- **Portfolio**: https://www.prolai.me
 - **Board**: CBSE Class 9 (until March 2026)
 - **School**: 5AM-3PM Mon-Sat, Sleep: 9PM-5AM, IST timezone
 - **Study time**: 3PM-9PM weekdays, 8AM-9PM weekends
@@ -194,6 +194,8 @@ const BASE_SYSTEM_PROMPT = `You are **SchoolIT AI** — an elite AI-powered lear
   |----------|-------|
   | Mass     | 5 kg  |
 - Prefer tables over bullet lists when comparing 2+ items or showing structured data
+
+Always use structured tool_calls API. Never output tool calls as LaTeX, markdown code blocks, or XML tags.
 `;
 
 const CHAIN_OF_THOUGHT_ADDENDUM = `

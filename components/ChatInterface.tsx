@@ -33,15 +33,32 @@ interface ChatInterfaceProps {
 }
 
 function preprocessLatex(text: string): string {
-  // Convert \( ... \) to $ ... $ (inline math)
-  text = text.replace(/\\\(([\s\S]+?)\\\)/g, (_, content) => `$${content.trim()}$`);
-  // Convert \[ ... \] to $$ ... $$ (display math)
-  text = text.replace(/\\\[([\s\S]+?)\\\]/g, (_, content) => `\n$$${content.trim()}$$\n`);
-  // Fix double-escaped backslashes in common LaTeX commands
-  text = text.replace(/\\\\(frac|sqrt|sum|int|prod|lim|infty|alpha|beta|gamma|delta|theta|pi|sigma|omega|text|mathrm|mathbf|mathit|begin|end|left|right|cdot|times|div|pm|leq|geq|neq|approx|equiv|subset|supset|cap|cup|forall|exists|nabla|partial|log|ln|sin|cos|tan|sec|csc|cot|vec|hat|bar|dot|ddot|tilde|overline|underline|overbrace|underbrace|binom|choose|pmatrix|bmatrix|vmatrix|cases|aligned|matrix|array)/g, '\\$1');
-  // Ensure display math has proper newlines
+  // Protect code blocks first
+  const blocks: string[] = [];
+  text = text.replace(/```[\s\S]*?```/g, m => { blocks.push(m); return `__B${blocks.length-1}__`; });
+  const inlineCode: string[] = [];
+  text = text.replace(/`[^`]+`/g, m => { inlineCode.push(m); return `__I${inlineCode.length-1}__`; });
+
+  // Strip leaked tool syntax
+  text = text.replace(/\[ToolHint:[^\]]*\]/g, "")
+             .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "")
+             .replace(/\\text\{[^}]*\([^)]*\)[^}]*\}/g, "");
+
+  // Normalize delimiters
+  text = text.replace(/\\\(([^]*?)\\\)/g, (_, c) => `$${c.trim()}$`);
+  text = text.replace(/\\\[([^]*?)\\\]/g, (_, c) => `\n$$\n${c.trim()}\n$$\n`);
+
+  // Fix double-escaped backslashes (all common commands)
+  text = text.replace(/\\\\(frac|sqrt|sum|int|lim|infty|alpha|beta|gamma|delta|theta|pi|sigma|omega|text|mathrm|mathbf|begin|end|left|right|cdot|times|div|pm|leq|geq|neq|approx|equiv|vec|hat|bar|binom|pmatrix|bmatrix|cases|aligned|sin|cos|tan|log|ln|to|rightarrow|Rightarrow|forall|exists|partial|nabla|mathbb|mathcal)/g, '\\$1');
+
+  // Fix display math spacing
   text = text.replace(/([^\n])\$\$/g, '$1\n$$');
   text = text.replace(/\$\$([^\n])/g, '$$\n$1');
+  text = text.replace(/\\frac\s+\{/g, '\\frac{');
+
+  // Restore blocks
+  blocks.forEach((b, i) => { text = text.replace(`__B${i}__`, b); });
+  inlineCode.forEach((c, i) => { text = text.replace(`__I${i}__`, c); });
   return text;
 }
 
@@ -535,7 +552,7 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
               )}
             </summary>
             <div className="mt-2 prose-chat text-xs leading-relaxed text-slate-400">
-              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, macros: { "\\R": "\\mathbb{R}", "\\N": "\\mathbb{N}", "\\Z": "\\mathbb{Z}" } }]]}>  
                 {preprocessLatex(message.thinking)}
               </ReactMarkdown>
             </div>
@@ -547,7 +564,7 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
           <div className="prose-chat text-sm">
             <ReactMarkdown
               remarkPlugins={[remarkGfm, remarkMath]}
-              rehypePlugins={[rehypeKatex]}
+              rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, macros: { "\\R": "\\mathbb{R}", "\\N": "\\mathbb{N}", "\\Z": "\\mathbb{Z}" } }]]}  
               components={{
                 code({ className, children, ...props }) {
                   const codeStr = String(children).trim();

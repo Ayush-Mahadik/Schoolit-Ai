@@ -44,6 +44,24 @@ const MAX_MESSAGE_LENGTH = 3_000;   // was 24_000 — prevents context explosion
 const MAX_HISTORY_MESSAGES = 10;    // was 40 — keeps context under control
 const VALID_PERSONAS = ["formal", "creative", "socratic", "balanced", "exam_coach"];
 
+// ── Qwen3 / QwQ tool-call rescue — strips XML <tool_call> blocks ────
+function rescueQwenToolCalls(content: string) {
+  const rescued: { name: string; arguments: string }[] = [];
+  const xml = /<tool_call>([\s\S]*?)<\/tool_call>/g;
+  let m;
+  while ((m = xml.exec(content)) !== null) {
+    try {
+      const p = JSON.parse(m[1].trim());
+      if (p.name) rescued.push({
+        name: p.name,
+        arguments: typeof p.arguments === "string"
+          ? p.arguments : JSON.stringify(p.arguments || {}),
+      });
+    } catch { /* ignore malformed */ }
+  }
+  return rescued;
+}
+
 // ── System prompt cache (TTL 60 s, no file/memory context) ───────────
 const _promptCache = new Map<string, { prompt: string; at: number }>();
 const PROMPT_CACHE_TTL = 60_000;
@@ -387,6 +405,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Delegate to orchestrator (tool loop + fallback + response assembly)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await runOrchestrator({
       messages, tools, activeModelId, thinkingMode, thinkingModeMax, maxTokens,
       maxToolRounds: MAX_TOOL_ROUNDS,
@@ -396,7 +415,7 @@ export async function POST(req: NextRequest) {
       fileContext, conversationId,
       rateRemaining: rateCheck.remaining,
       writeEvent,
-    });
+    } as Parameters<typeof runOrchestrator>[0]);
   } catch (error: unknown) {
     console.error("Chat API error:", error);
     const apiErr = error as { status?: number; code?: string };

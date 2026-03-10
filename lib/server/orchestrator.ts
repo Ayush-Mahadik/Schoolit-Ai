@@ -129,6 +129,35 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
     activeModelId = fallbackResult.activeModelId;
     const assistantMsg = response.choices[0].message;
 
+    // ── Qwen3 / QwQ tool-call rescue ────────────────────────────────
+    // When model outputs <tool_call>{...}</tool_call> in content instead
+    // of structured tool_calls, rescue and promote them.
+    if ((activeModelId.includes("qwen") || activeModelId.includes("qwq"))
+        && !assistantMsg.tool_calls?.length && assistantMsg.content) {
+      const rescued: OpenAI.Chat.ChatCompletionMessageToolCall[] = [];
+      const xmlRe = /<tool_call>([\s\S]*?)<\/tool_call>/g;
+      let xm: RegExpExecArray | null;
+      while ((xm = xmlRe.exec(assistantMsg.content)) !== null) {
+        try {
+          const p = JSON.parse(xm[1].trim());
+          if (p.name) rescued.push({
+            id: `rescued_${rescued.length}_${Date.now()}`,
+            type: "function" as const,
+            function: {
+              name: p.name,
+              arguments: typeof p.arguments === "string"
+                ? p.arguments : JSON.stringify(p.arguments || {}),
+            },
+          });
+        } catch { /* malformed — skip */ }
+      }
+      if (rescued.length > 0) {
+        assistantMsg.tool_calls = rescued;
+        assistantMsg.content = assistantMsg.content
+          .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
+      }
+    }
+
     // ── Tool calls ────────────────────────────────────────────────────
     if (assistantMsg.tool_calls?.length) {
       messages.push({
