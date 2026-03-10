@@ -8,7 +8,7 @@
 import OpenAI from "openai";
 
 // ── Provider Types ────────────────────────────────────────────────────
-export type ProviderName = "github" | "groq" | "gemini";
+export type ProviderName = "github" | "groq" | "gemini" | "sarvam";
 
 export interface ProviderConfig {
   name: ProviderName;
@@ -40,6 +40,11 @@ export const PROVIDERS: Record<ProviderName, ProviderConfig> = {
     baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
     getApiKey: () => process.env.GEMINI_API_KEY?.trim(),
   },
+  sarvam: {
+    name: "sarvam",
+    baseURL: "https://api.sarvam.ai/v1",
+    getApiKey: () => process.env.SARVAM_API_KEY?.trim(),
+  },
 };
 
 // ── Model Registry ────────────────────────────────────────────────────
@@ -52,6 +57,7 @@ export const MODEL_MAP: Record<string, ModelConfig> = {
   "llama-3.1-8b":     { provider: "groq",       apiModel: "llama-3.1-8b-instant",       supportsTools: true,  supportsVision: false },
   "gemini-2.0-flash": { provider: "gemini",     apiModel: "gemini-2.0-flash",           supportsTools: true,  supportsVision: true  },
   "gemini-1.5-flash": { provider: "gemini",     apiModel: "gemini-1.5-flash",           supportsTools: true,  supportsVision: true  },
+  "sarvam-m":         { provider: "sarvam",     apiModel: "sarvam-m",                   supportsTools: false, supportsVision: false },
 };
 
 export const ALL_MODEL_IDS = [
@@ -59,6 +65,7 @@ export const ALL_MODEL_IDS = [
   "gpt-4o", "gpt-4.1",
   "llama-3.3-70b", "llama-3.1-8b",
   "gemini-2.0-flash", "gemini-1.5-flash",
+  "sarvam-m",
 ];
 
 export const MODEL_NAMES: Record<string, string> = {
@@ -70,6 +77,7 @@ export const MODEL_NAMES: Record<string, string> = {
   "llama-3.1-8b": "Llama 3.1 8B",
   "gemini-2.0-flash": "Gemini 2.0 Flash",
   "gemini-1.5-flash": "Gemini 1.5 Flash",
+  "sarvam-m": "Sarvam-M (India)",
 };
 
 // Models that require max_completion_tokens instead of max_tokens
@@ -88,6 +96,7 @@ export const MODEL_COMPLETION_CAPS: Record<string, number> = {
   "gpt-4.1": 8192,
   "gemini-2.0-flash": 8192,
   "gemini-1.5-flash": 8192,
+  "sarvam-m": 8192,
 };
 
 // Token limits per thinking mode
@@ -99,8 +108,8 @@ export const THINKING_MODE_TOKENS: Record<string, number> = {
 
 // Thinking-mode model priority lists
 export const THINKING_MODE_MODEL_PRIORITY: Record<string, string[]> = {
-  fast:     ["gpt-4o", "gpt-5-mini", "gemini-2.0-flash", "llama-3.1-8b", "gpt-4.1", "gemini-1.5-flash", "llama-3.3-70b"],
-  balanced: ["gpt-4.1", "gpt-5-mini", "gemini-2.0-flash", "gpt-4o", "llama-3.1-8b", "gemini-1.5-flash", "llama-3.3-70b"],
+  fast:     ["gpt-4o", "gpt-5-mini", "gemini-2.0-flash", "llama-3.1-8b", "gpt-4.1", "gemini-1.5-flash", "llama-3.3-70b", "sarvam-m"],
+  balanced: ["gpt-4.1", "gpt-5-mini", "gemini-2.0-flash", "gpt-4o", "llama-3.1-8b", "gemini-1.5-flash", "llama-3.3-70b", "sarvam-m"],
   deep:     ["gpt-5", "gpt-4.1", "gpt-4o", "gemini-2.0-flash", "gpt-5-mini", "llama-3.3-70b", "gemini-1.5-flash", "llama-3.1-8b"],
 };
 
@@ -130,6 +139,7 @@ const COOLDOWN_MS: Record<ProviderName, number> = {
   github: 30_000,
   groq: 90_000,
   gemini: 30_000,
+  sarvam: 30_000,
 };
 
 export function isProviderCoolingDown(provider: ProviderName): boolean {

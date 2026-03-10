@@ -16,6 +16,22 @@ import {
   isGroqDailyBudgetExhausted, addGroqTokenUsage,
 } from "@/lib/server/providers";
 
+export interface SarvamSafetyFlags {
+  wantsQuiz: boolean;
+  wantsFlashcards: boolean;
+  wantsMockTest: boolean;
+  wantsQuestionPaper: boolean;
+  wantsFlowchart: boolean;
+  wantsChart: boolean;
+  hasFilesAttached: boolean;
+  hasYouTubeUrl: boolean;
+  wantsCode: boolean;
+}
+
+export function isSarvamSafe(flags: SarvamSafetyFlags): boolean {
+  return !Object.values(flags).some(Boolean);
+}
+
 // ── Types ─────────────────────────────────────────────────────────────
 export interface FallbackParams {
   messages: OpenAI.Chat.ChatCompletionMessageParam[];
@@ -23,6 +39,8 @@ export interface FallbackParams {
   thinkingMode: string;
   thinkingModeMax: number;
   tools: OpenAI.Chat.ChatCompletionTool[];
+  sarvamFlags: SarvamSafetyFlags;
+  allowSarvamFallback: boolean;
   hasImageFiles: boolean;
   wallClockStart: number;
   loopRound: number;
@@ -49,15 +67,17 @@ function stripToolMsgs(input: OpenAI.Chat.ChatCompletionMessageParam[]) {
 export async function callWithFallback(params: FallbackParams): Promise<FallbackResult> {
   const {
     messages: msgs, activeModelId, thinkingMode, thinkingModeMax,
-    tools, hasImageFiles, wallClockStart, loopRound, writeEvent,
+    tools, sarvamFlags, allowSarvamFallback,
+    hasImageFiles, wallClockStart, loopRound, writeEvent,
   } = params;
+  const canUseSarvam = allowSarvamFallback && isSarvamSafe(sarvamFlags);
 
   const priorityModels = (THINKING_MODE_MODEL_PRIORITY[thinkingMode] || THINKING_MODE_MODEL_PRIORITY.balanced)
-    .filter(m => getClientForModel(m) !== null);
+    .filter(m => (m !== "sarvam-m" || canUseSarvam) && getClientForModel(m) !== null);
   const modelsFromPriority = activeModelId !== priorityModels[0]
     ? [activeModelId, ...priorityModels.filter(m => m !== activeModelId)]
     : priorityModels;
-  const otherModels = ALL_MODEL_IDS.filter(m => !modelsFromPriority.includes(m) && getClientForModel(m) !== null);
+  const otherModels = ALL_MODEL_IDS.filter(m => !modelsFromPriority.includes(m) && (m !== "sarvam-m" || canUseSarvam) && getClientForModel(m) !== null);
   let modelsToTry = [...modelsFromPriority, ...otherModels];
 
   // Sort: penalize rate-limited and budget-exhausted providers

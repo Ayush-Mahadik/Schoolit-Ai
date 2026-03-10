@@ -25,6 +25,7 @@ import {
   getClientForModel, isProviderCoolingDown,
   isGroqDailyBudgetExhausted,
 } from "@/lib/server/providers";
+import { isSarvamSafe, type SarvamSafetyFlags } from "@/lib/server/fallback";
 import {
   banUser, isUserBanned, isHarassment, sanitizeString, detectPromptInjection,
 } from "@/lib/server/moderation";
@@ -182,8 +183,11 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Validate optional fields ────────────────────────────────────────
-  const subject = VALID_SUBJECTS.includes(String(body.subject || "").toLowerCase())
-    ? String(body.subject).toLowerCase()
+  const rawSubject = typeof body.subject === "string"
+    ? body.subject.toLowerCase().trim()
+    : "";
+  const subject = VALID_SUBJECTS.includes(rawSubject)
+    ? rawSubject
     : "general";
   const persona: TeacherStyle = VALID_PERSONAS.includes(String(body.persona || ""))
     ? (String(body.persona) as TeacherStyle)
@@ -195,18 +199,6 @@ export async function POST(req: NextRequest) {
     : "balanced";
   const chainOfThought = thinkingMode === "deep" || body.chain_of_thought === true;
   const thinkingModeMax = THINKING_MODE_TOKENS[thinkingMode] || 4096;
-
-  // ── Smart Auto-Routing by Thinking Mode ─────────────────────────────
-  const priorityList = THINKING_MODE_MODEL_PRIORITY[thinkingMode] || THINKING_MODE_MODEL_PRIORITY.balanced;
-  const modelId = priorityList.find(m => {
-    const cfg = MODEL_MAP[m];
-    if (!cfg || !getClientForModel(m)) return false;
-    if (isProviderCoolingDown(cfg.provider)) return false;
-    if (cfg.provider === "groq" && isGroqDailyBudgetExhausted()) return false;
-    return true;
-  }) || priorityList.find(m => getClientForModel(m) !== null) || "gpt-4.1";
-  const maxTokens = Math.min(thinkingModeMax, MODEL_COMPLETION_CAPS[modelId] || thinkingModeMax);
-  const wantsVisual = /(\bimage\b|\bdiagram\b|\billustration\b|\bvisuali[sz]e\b|\bdraw\b|\bshow\b.*\bstructure\b|\bshow\b.*\bprocess\b)/i.test(message);
 
   const history = Array.isArray(body.history) ? body.history : [];
   const contextFiles = Array.isArray(body.context_files) ? body.context_files : [];
@@ -224,6 +216,43 @@ export async function POST(req: NextRequest) {
   const hasFilesAttached = contextFiles.length > 0;
   const wantsCode = /(write|code|program|script|function|algorithm|implement|debug|fix.*code|class|html|css|javascript|python|java|c\+\+)/i.test(message);
   const wantsChart = /(graph|plot|chart|histogram|distribution|data.*vis|compare.*data|trend|statistics|pie.*chart|bar.*chart|scatter|function.*graph|v-t|s-t|a-t|velocity.*time|distance.*time|acceleration.*time|y\s*=|f\(x\))/i.test(message);
+  const wantsVisual = /(\bimage\b|\bdiagram\b|\billustration\b|\bvisuali[sz]e\b|\bdraw\b|\bshow\b.*\bstructure\b|\bshow\b.*\bprocess\b)/i.test(message);
+  const containsDevanagari = /[\u0900-\u097F]/.test(message);
+  const sarvamFlags: SarvamSafetyFlags = {
+    wantsQuiz,
+    wantsFlashcards,
+    wantsMockTest,
+    wantsQuestionPaper,
+    wantsFlowchart,
+    wantsChart,
+    hasFilesAttached,
+    hasYouTubeUrl,
+    wantsCode,
+  };
+  const looksLikePlainTextRequest = !wantsCode && !/```|<\/?[a-z][^>]*>|https?:\/\/[^\s]+/i.test(message);
+  const sarvamSubjectEligible = ["english", "general", "sst", "social_science", "hindi"].includes(rawSubject || subject);
+  const allowSarvamFallback = (
+    ["fast", "balanced"].includes(thinkingMode) &&
+    isProviderCoolingDown("github") &&
+    isSarvamSafe(sarvamFlags) &&
+    looksLikePlainTextRequest &&
+    (sarvamSubjectEligible || containsDevanagari) &&
+    getClientForModel("sarvam-m") !== null
+  );
+
+  // ── Smart Auto-Routing by Thinking Mode ─────────────────────────────
+  const priorityList = THINKING_MODE_MODEL_PRIORITY[thinkingMode] || THINKING_MODE_MODEL_PRIORITY.balanced;
+  const modelId = allowSarvamFallback
+    ? "sarvam-m"
+    : priorityList.find(m => {
+        const cfg = MODEL_MAP[m];
+        if (m === "sarvam-m") return false;
+        if (!cfg || !getClientForModel(m)) return false;
+        if (isProviderCoolingDown(cfg.provider)) return false;
+        if (cfg.provider === "groq" && isGroqDailyBudgetExhausted()) return false;
+        return true;
+      }) || priorityList.find(m => m !== "sarvam-m" && getClientForModel(m) !== null) || "gpt-4.1";
+  const maxTokens = Math.min(thinkingModeMax, MODEL_COMPLETION_CAPS[modelId] || thinkingModeMax);
 
   // Build tool hints
   let toolHint = "";
@@ -360,6 +389,7 @@ export async function POST(req: NextRequest) {
     await runOrchestrator({
       messages, tools, activeModelId, thinkingMode, thinkingModeMax, maxTokens,
       maxToolRounds: MAX_TOOL_ROUNDS,
+      sarvamFlags, allowSarvamFallback,
       hasImageFiles: imageFiles.length > 0,
       wantsVisual, message, subject, userEmail,
       fileContext, conversationId,

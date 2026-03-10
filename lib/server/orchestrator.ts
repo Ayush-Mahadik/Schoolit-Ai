@@ -12,7 +12,7 @@ import {
   getClientForModel, isProviderCoolingDown,
 } from "@/lib/server/providers";
 import { executeTool } from "@/lib/server/tools";
-import { callWithFallback } from "@/lib/server/fallback";
+import { callWithFallback, type SarvamSafetyFlags } from "@/lib/server/fallback";
 
 // ── Types ─────────────────────────────────────────────────────────────
 export interface OrchestratorParams {
@@ -23,6 +23,8 @@ export interface OrchestratorParams {
   thinkingModeMax: number;
   maxTokens: number;
   maxToolRounds: number;
+  sarvamFlags: SarvamSafetyFlags;
+  allowSarvamFallback: boolean;
   hasImageFiles: boolean;
   wantsVisual: boolean;
   message: string;         // original user message
@@ -89,7 +91,8 @@ function buildPayload(c: Collections, extras: Record<string, unknown>): Record<s
 export async function runOrchestrator(params: OrchestratorParams): Promise<OrchestratorResult> {
   const {
     messages, tools, thinkingMode, thinkingModeMax, maxTokens,
-    maxToolRounds, hasImageFiles, wantsVisual, message,
+    maxToolRounds, sarvamFlags, allowSarvamFallback,
+    hasImageFiles, wantsVisual, message,
     subject, userEmail, fileContext, conversationId,
     rateRemaining, writeEvent,
   } = params;
@@ -119,7 +122,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
     // Call AI with fallback
     const fallbackResult = await callWithFallback({
       messages, activeModelId, thinkingMode, thinkingModeMax,
-      tools, hasImageFiles, wallClockStart, loopRound: round, writeEvent,
+      tools, sarvamFlags, allowSarvamFallback,
+      hasImageFiles, wallClockStart, loopRound: round, writeEvent,
     });
     const response = fallbackResult.response;
     activeModelId = fallbackResult.activeModelId;
