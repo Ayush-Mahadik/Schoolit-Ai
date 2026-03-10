@@ -53,6 +53,7 @@ const PROMPT_CACHE_TTL = 60_000;
 // ══════════════════════════════════════════════════════════════════════
 
 export async function POST(req: NextRequest) {
+ let conversationId = "unknown"; // Declare outside try-catch for error handler access
  try {
   // ── CSRF / Origin validation ────────────────────────────────────────
   if (!validateOrigin(req)) {
@@ -150,7 +151,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Stable conversation ID (accept from client or generate once) ────
-  const conversationId =
+  conversationId =
     typeof body.conversation_id === "string" && body.conversation_id.trim()
       ? body.conversation_id.trim()
       : crypto.randomUUID();
