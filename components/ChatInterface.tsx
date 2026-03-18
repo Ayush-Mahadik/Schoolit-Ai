@@ -19,7 +19,7 @@ import { FileUploadButton, FileChips, type FileAttachment } from "@/components/F
 import { VoiceInputButton } from "@/components/VoiceInputButton";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { Icon, Send, Upload, Bot, Wrench, ExternalLink, Brain, Paperclip, Search, BarChart3, PenLine, Loader, Clock, Check, Sparkles } from "@/components/Icons";
-import type { Message } from "@/lib/types";
+import type { Message, CodeExecutionData } from "@/lib/types";
 import { SITE_NAME } from "@/lib/config";
 
 interface ChatInterfaceProps {
@@ -133,6 +133,46 @@ function RenderedTable({ headers, rows }: { headers: string[]; rows: string[][] 
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ── Code Execution Result component ────────────────────────────────────
+function CodeExecutionResult({ execution }: { execution: CodeExecutionData }) {
+  const [showCode, setShowCode] = useState(false);
+
+  return (
+    <div className={`code-execution-result ${execution.error ? 'error' : ''}`}>
+      <div className="exec-header">
+        <span className="flex items-center gap-2">
+          <svg className="w-4 h-4 text-yellow-500" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          {execution.description}
+        </span>
+        <span className={`exec-status ${execution.success ? 'success' : 'error'}`}>
+          {execution.success ? '✓ Ran successfully' : '✗ Error'}
+        </span>
+      </div>
+      {execution.output && (
+        <pre className="exec-output">{execution.output}</pre>
+      )}
+      {execution.error && (
+        <pre className="exec-error">{execution.error}</pre>
+      )}
+      {execution.code && (
+        <>
+          <div
+            className="exec-code-toggle"
+            onClick={() => setShowCode(!showCode)}
+          >
+            {showCode ? '▼ Hide code' : '▶ Show code'}
+          </div>
+          {showCode && (
+            <pre className="exec-code-block">{execution.code}</pre>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -652,6 +692,11 @@ function AssistantBubble({ message, onRegenerate }: { message: Message; onRegene
             {/* Question papers from tool calls */}
             {message.questionPapers?.map((qp, i) => (
               <QuestionPaperRenderer key={`paper-${i}`} subject={qp.subject} subjectLabel={qp.subjectLabel} paperTypeLabel={qp.paperTypeLabel} chapters={qp.chapters} totalMarks={qp.totalMarks} includeAnswers={qp.includeAnswers} sections={qp.sections} />
+            ))}
+
+            {/* Code execution results from tool calls */}
+            {message.codeExecutions?.map((exec, i) => (
+              <CodeExecutionResult key={`exec-${i}`} execution={exec} />
             ))}
 
             {/* Fallback image renderer when backend returns generated_images without markdown block */}

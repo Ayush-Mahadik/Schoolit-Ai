@@ -6,15 +6,17 @@
  */
 
 export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } }[] = [
-  // ── 1. Web Search ───────────────────────────────────────────────────
+  // ── 1. Web Search (Tavily-powered) ──────────────────────────────────
   {
     type: "function" as const,
     function: {
       name: "web_search",
       description:
-        "Search the web for current information on any topic. " +
-        "Use this when you need facts, data, formulas, or explanations you're not 100% certain about. " +
-        "Always prefer searching over guessing. Returns extracted content from top web results.",
+        "Search the web for current information using Tavily AI search. " +
+        "Returns clean, structured results optimized for AI consumption. " +
+        "Use for: current events, CBSE notifications, latest syllabus updates, " +
+        "scientific facts needing verification, any question requiring up-to-date information. " +
+        "Always prefer searching over guessing.",
       parameters: {
         type: "object",
         properties: {
@@ -26,10 +28,46 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
           },
           max_results: {
             type: "integer",
-            description: "Number of web pages to retrieve (1-5). Default 3.",
+            description: "Number of web pages to retrieve (1-5). Default 5.",
+          },
+          deep: {
+            type: "boolean",
+            description: "Use advanced search for complex research questions. Default false.",
           },
         },
         required: ["query"],
+      },
+    },
+  },
+
+  // ── 1b. Code Execution (E2B Sandbox) ────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "execute_code",
+      description:
+        "Execute Python code in a secure sandbox and return the real output. " +
+        "Use this to: verify mathematical calculations, solve numerical problems, " +
+        "generate data for charts, process student-provided data, run physics/chemistry " +
+        "simulations, check answers programmatically. " +
+        "ALWAYS use this instead of computing math mentally for anything involving numbers, " +
+        "equations, or data processing. " +
+        "The sandbox has numpy, scipy, matplotlib, sympy, pandas pre-installed.",
+      parameters: {
+        type: "object",
+        properties: {
+          code: {
+            type: "string",
+            description:
+              "Valid Python code to execute. Use print() for all outputs you want returned. " +
+              "For math: use sympy for symbolic, numpy for numerical. Keep execution under 10 seconds.",
+          },
+          description: {
+            type: "string",
+            description: "One line: what this code computes",
+          },
+        },
+        required: ["code", "description"],
       },
     },
   },
@@ -1104,10 +1142,13 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
 export async function executeTool(
   toolName: string,
   toolInput: Record<string, unknown>
-): Promise<{ result: unknown; chartData?: unknown; flowchartData?: unknown; manimData?: unknown; imageData?: unknown; flashcardData?: unknown; quizData?: unknown; scheduleData?: unknown; mockTestData?: unknown; questionPaperData?: unknown; sources?: string[] }> {
+): Promise<{ result: unknown; chartData?: unknown; flowchartData?: unknown; manimData?: unknown; imageData?: unknown; flashcardData?: unknown; quizData?: unknown; scheduleData?: unknown; mockTestData?: unknown; questionPaperData?: unknown; codeExecutionData?: unknown; sources?: string[] }> {
   switch (toolName) {
     case "web_search":
       return await executeWebSearch(toolInput);
+
+    case "execute_code":
+      return await executeCodeExecution(toolInput);
 
     case "generate_chart":
       return executeChartGeneration(toolInput);
@@ -1486,7 +1527,7 @@ async function fetchSearchImages(
   return images;
 }
 
-// ── Web Search Implementation ─────────────────────────────────────────
+// ── Web Search Implementation (Tavily + DuckDuckGo fallback) ──────────
 
 async function executeWebSearch(
   input: Record<string, unknown>
@@ -1495,7 +1536,54 @@ async function executeWebSearch(
   if (!query) {
     return { result: { message: "Empty search query." }, sources: [] };
   }
-  const maxResults = Math.min(Number(input.max_results) || 3, 5);
+  const maxResults = Math.min(Number(input.max_results) || 5, 5);
+  const deep = Boolean(input.deep);
+
+  // ── Try Tavily first (if API key available) ────────────────────────
+  if (process.env.TAVILY_API_KEY) {
+    try {
+      const { tavily } = await import("@tavily/core");
+      const client = tavily({ apiKey: process.env.TAVILY_API_KEY });
+
+      const response = await client.search(query, {
+        searchDepth: deep ? "advanced" : "basic",
+        maxResults: maxResults,
+        includeAnswer: true,
+        includeImages: false,
+        topic: "general",
+      });
+
+      // Also fetch images in parallel for visual results
+      const searchImages = await fetchSearchImages(query).catch(() => []);
+
+      return {
+        result: {
+          answer: response.answer,
+          results: response.results.map((r: { title: string; url: string; content: string; score?: number }) => ({
+            title: r.title,
+            url: r.url,
+            content: r.content.slice(0, 500),
+            score: r.score,
+          })),
+          images: searchImages.length > 0 ? searchImages : undefined,
+          query,
+          result_count: response.results.length,
+          search_type: "tavily",
+          instructions:
+            "Use the Tavily search results and direct answer to provide an accurate response. " +
+            "The 'answer' field contains Tavily's AI-generated summary — use it as a foundation but verify with the results. " +
+            "Cite sources naturally (e.g., 'According to [source]...'). Include relevant URLs." +
+            (searchImages.length > 0 ? " Relevant images have been found and will be displayed to the user." : ""),
+        },
+        sources: response.results.map((r: { url: string }) => r.url).filter(Boolean),
+      };
+    } catch (tavilyError) {
+      console.error("Tavily search failed, falling back to DuckDuckGo:", tavilyError);
+      // Fall through to DuckDuckGo
+    }
+  }
+
+  // ── Fallback: DuckDuckGo HTML search ─────────────────────────────────
 
   try {
     // Use DuckDuckGo HTML search (POST for reliability, shorter timeout)
@@ -1676,6 +1764,104 @@ function executeChartGeneration(
     return {
       result: {
         error: `Invalid chart data format: ${e instanceof Error ? e.message : "parse error"}. Please provide valid JSON.`,
+      },
+    };
+  }
+}
+
+// ── E2B Code Execution ────────────────────────────────────────────────
+
+async function executeCodeExecution(
+  input: Record<string, unknown>
+): Promise<{ result: unknown; codeExecutionData?: unknown }> {
+  const code = String(input.code || "").trim();
+  const description = String(input.description || "Code execution");
+
+  if (!code) {
+    return {
+      result: { error: "No code provided to execute.", success: false },
+    };
+  }
+
+  // Check if E2B API key is available
+  if (!process.env.E2B_API_KEY) {
+    return {
+      result: {
+        error: "Code execution not configured. The E2B_API_KEY environment variable is missing.",
+        output: null,
+        success: false,
+        fallback_message: "I cannot execute code directly, but I can help you understand what this code would do and what output it would produce.",
+      },
+    };
+  }
+
+  try {
+    const { Sandbox } = await import("@e2b/code-interpreter");
+
+    const sandbox = await Sandbox.create({
+      apiKey: process.env.E2B_API_KEY,
+    });
+
+    try {
+      const execution = await sandbox.runCode(code, {
+        timeoutMs: 15000, // 15 second hard limit
+      });
+
+      const stdout = execution.logs.stdout.join("\n");
+      const stderr = execution.logs.stderr.join("\n").slice(0, 200);
+      const error = execution.error ? execution.error.value : null;
+      
+      // Combine text output and stdout
+      let output = "";
+      if (execution.results && execution.results.length > 0) {
+        for (const result of execution.results) {
+          if (result.text) output += result.text + "\n";
+        }
+      }
+      output = output.trim() || stdout;
+
+      return {
+        result: {
+          success: !error,
+          output: output,
+          stdout,
+          stderr,
+          description,
+          error,
+          message: error
+            ? `Code execution encountered an error: ${error}`
+            : `Code executed successfully. Output:\n${output || "(no output)"}`,
+        },
+        codeExecutionData: {
+          description,
+          output: output,
+          error,
+          success: !error,
+          code,
+        },
+      };
+    } finally {
+      // Always cleanup the sandbox to prevent leaks
+      await sandbox.kill().catch(() => {});
+    }
+  } catch (e2bError) {
+    const errorMessage = e2bError instanceof Error ? e2bError.message : String(e2bError);
+    console.error("E2B execution error:", errorMessage);
+
+    return {
+      result: {
+        success: false,
+        output: null,
+        error: errorMessage,
+        description,
+        message: `Code execution failed: ${errorMessage}. I'll analyze the code manually instead.`,
+      },
+      codeExecutionData: {
+        description,
+        output: null,
+        error: errorMessage,
+        success: false,
+        code,
       },
     };
   }

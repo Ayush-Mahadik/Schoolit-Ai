@@ -119,6 +119,7 @@ export const THINKING_MODE_MODEL_PRIORITY: Record<string, string[]> = {
 // Tool status labels
 export const TOOL_LABELS: Record<string, string> = {
   web_search: "Searching the web",
+  execute_code: "Running calculation",
   generate_chart: "Generating chart",
   generate_flowchart: "Creating flowchart",
   create_flashcards: "Creating flashcards",

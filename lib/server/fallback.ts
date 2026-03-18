@@ -26,9 +26,11 @@ export interface SarvamSafetyFlags {
   hasFilesAttached: boolean;
   hasYouTubeUrl: boolean;
   wantsCode: boolean;
+  wantsCodeExecution?: boolean;
 }
 
 export function isSarvamSafe(flags: SarvamSafetyFlags): boolean {
+  // Sarvam cannot execute code, so exclude wantsCodeExecution
   return !Object.values(flags).some(Boolean);
 }
 

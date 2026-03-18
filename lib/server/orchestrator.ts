@@ -53,6 +53,7 @@ interface Collections {
   scheduleActions: unknown[];
   mockTests: unknown[];
   questionPapers: unknown[];
+  codeExecutions: { description: string; output: string; error: string | null; success: boolean; code?: string }[];
   searchImages: { url: string; thumbnail: string; title: string; source: string }[];
 }
 
@@ -61,7 +62,7 @@ function newCollections(): Collections {
     sources: [], toolCallsLog: [], charts: [], flowcharts: [],
     manimAnimations: [], generatedImages: [], flashcardSets: [],
     quizSets: [], scheduleActions: [], mockTests: [], questionPapers: [],
-    searchImages: [],
+    codeExecutions: [], searchImages: [],
   };
 }
 
@@ -78,6 +79,7 @@ function buildPayload(c: Collections, extras: Record<string, unknown>): Record<s
     quiz_sets: c.quizSets,
     mock_tests: c.mockTests.length > 0 ? c.mockTests : undefined,
     question_papers: c.questionPapers.length > 0 ? c.questionPapers : undefined,
+    code_executions: c.codeExecutions.length > 0 ? c.codeExecutions : undefined,
     schedule_actions: c.scheduleActions,
     search_images: c.searchImages.length > 0 ? c.searchImages : undefined,
     error: null,
@@ -208,6 +210,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
         if (toolResult.quizData) c.quizSets.push(toolResult.quizData as typeof c.quizSets[0]);
         if (toolResult.mockTestData) c.mockTests.push(toolResult.mockTestData);
         if (toolResult.questionPaperData) c.questionPapers.push(toolResult.questionPaperData);
+        if (toolResult.codeExecutionData) c.codeExecutions.push(toolResult.codeExecutionData as typeof c.codeExecutions[0]);
         if (toolResult.scheduleData) c.scheduleActions.push(toolResult.scheduleData);
 
         const rObj = toolResult.result as Record<string, unknown>;

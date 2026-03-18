@@ -236,6 +236,7 @@ export async function POST(req: NextRequest) {
   const wantsCode = /(write|code|program|script|function|algorithm|implement|debug|fix.*code|class|html|css|javascript|python|java|c\+\+)/i.test(message);
   const wantsChart = /(graph|plot|chart|histogram|distribution|data.*vis|compare.*data|trend|statistics|pie.*chart|bar.*chart|scatter|function.*graph|v-t|s-t|a-t|velocity.*time|distance.*time|acceleration.*time|y\s*=|f\(x\))/i.test(message);
   const wantsVisual = /(\bimage\b|\bdiagram\b|\billustration\b|\bvisuali[sz]e\b|\bdraw\b|\bshow\b.*\bstructure\b|\bshow\b.*\bprocess\b)/i.test(message);
+  const wantsCodeExecution = /calculat|comput|simulat|verify|check.*(answer|result)|run.*code|python|numpy|solve.*equation|plot.*graph|what is \d|evaluate|^solve\b/i.test(message);
   const containsDevanagari = /[\u0900-\u097F]/.test(message);
   const sarvamFlags: SarvamSafetyFlags = {
     wantsQuiz,
@@ -247,6 +248,7 @@ export async function POST(req: NextRequest) {
     hasFilesAttached,
     hasYouTubeUrl,
     wantsCode,
+    wantsCodeExecution,
   };
   const looksLikePlainTextRequest = !wantsCode && !/```|<\/?[a-z][^>]*>|https?:\/\/[^\s]+/i.test(message);
   const sarvamSubjectEligible = ["english", "general", "sst", "social_science", "hindi"].includes(rawSubject || subject);
@@ -285,6 +287,7 @@ export async function POST(req: NextRequest) {
   if (wantsCode) toolHint += "[ToolHint: When writing code, ALWAYS use proper markdown code blocks with language tags.]\n";
   if (hasFilesAttached) toolHint += "[ToolHint: Files are attached. Use analyze_document for docs and analyze_screenshot for images.]\n";
   if (wantsChart) toolHint += "[ToolHint: MANDATORY — Use generate_chart tool to create a proper SVG chart. Do NOT describe the chart in text. Do NOT output ASCII art. Call the generate_chart tool with proper chart_data JSON.]\n";
+  if (wantsCodeExecution) toolHint += "[ToolHint: For numerical problems, use execute_code to verify answers with real Python calculations. Use sympy for symbolic math, numpy for numerical.]\n";
   // toolHint is now injected into the system prompt, NOT the user message
   const effectiveMessage = message;
 

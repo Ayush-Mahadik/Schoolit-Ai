@@ -95,6 +95,7 @@ export interface ChatResponse {
   quiz_sets?: { topic: string; questions: { question: string; options: string[]; correct: number; explanation: string }[]; difficulty?: string }[];
   mock_tests?: unknown[];
   question_papers?: unknown[];
+  code_executions?: { description: string; output: string; error: string | null; success: boolean; code?: string }[];
   search_images?: { url: string; thumbnail: string; title: string; source: string }[];
   schedule_actions?: { action: string; items?: unknown[] }[];
   error: string | null;

@@ -289,6 +289,7 @@ export default function Home() {
           quizSets: response.quiz_sets || undefined,
           mockTests: response.mock_tests as MockTestData[] || undefined,
           questionPapers: response.question_papers as QuestionPaperData[] || undefined,
+          codeExecutions: response.code_executions || undefined,
           searchImages: response.search_images || undefined,
           model: response.model || undefined,
         };

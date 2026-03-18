@@ -173,6 +173,14 @@ export const SUBJECT_ICONS: Record<string, string> = {
 
 // ── Messages ──────────────────────────────────────────────────────────
 
+export interface CodeExecutionData {
+  description: string;
+  output: string;
+  error: string | null;
+  success: boolean;
+  code?: string;
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant";
@@ -190,6 +198,7 @@ export interface Message {
   quizSets?: QuizSetData[];
   mockTests?: MockTestData[];
   questionPapers?: QuestionPaperData[];
+  codeExecutions?: CodeExecutionData[];
   searchImages?: { url: string; thumbnail: string; title: string; source: string }[];
   attachments?: FileAttachmentMeta[];
   model?: string;
