@@ -1,12 +1,14 @@
 /**
  * Speech-to-Text API Route — SchoolIT AI
  * ========================================
- * Server-side proxy to Sarvam AI's Saaras v3 STT engine.
- * Accepts audio blob from the client, forwards it to Sarvam,
- * and returns the transcript. Keeps the API key server-side only.
+ * Server-side proxy to Groq Whisper (primary) → Sarvam AI (fallback).
+ * Accepts audio blob from the client, forwards it to the best available provider,
+ * and returns the transcript. Keeps API keys server-side only.
  *
- * Fallback: If no Sarvam key is configured, returns a helpful error
- * so the client can fall back to browser-native Web Speech API.
+ * Provider Priority:
+ * 1. Groq Whisper (distil-whisper-large-v3-en) — fast, free tier
+ * 2. Sarvam AI Saaras v3 — multilingual, India-optimized
+ * 3. Browser Web Speech API (client-side fallback)
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -16,7 +18,82 @@ import { authOptions } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
+const GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 const SARVAM_API_URL = "https://api.sarvam.ai/speech-to-text";
+
+// ── Groq Whisper STT ──────────────────────────────────────────────────
+async function transcribeWithGroq(audioFile: Blob, fileName: string): Promise<{ transcript: string; provider: string } | null> {
+  const apiKey = process.env.GROQ_API_KEY?.trim();
+  if (!apiKey) return null;
+
+  try {
+    const formData = new FormData();
+    formData.append("file", audioFile, fileName);
+    formData.append("model", "distil-whisper-large-v3-en");
+    formData.append("response_format", "json");
+
+    const response = await fetch(GROQ_STT_URL, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "Unknown error");
+      console.warn(`Groq STT error (${response.status}):`, errorText);
+      return null;
+    }
+
+    const result = await response.json();
+    return {
+      transcript: result.text || "",
+      provider: "groq",
+    };
+  } catch (err) {
+    console.warn("Groq STT exception:", err);
+    return null;
+  }
+}
+
+// ── Sarvam AI STT (fallback) ──────────────────────────────────────────
+async function transcribeWithSarvam(audioFile: Blob, fileName: string, language: string): Promise<{ transcript: string; provider: string; language_code?: string } | null> {
+  const apiKey = process.env.SARVAM_API_KEY?.trim();
+  if (!apiKey) return null;
+
+  try {
+    const sarvamForm = new FormData();
+    sarvamForm.append("file", audioFile, fileName);
+    sarvamForm.append("model", "saaras:v3");
+    sarvamForm.append("language_code", language === "unknown" ? "unknown" : language);
+    sarvamForm.append("with_timestamps", "false");
+
+    const response = await fetch(SARVAM_API_URL, {
+      method: "POST",
+      headers: {
+        "api-subscription-key": apiKey,
+      },
+      body: sarvamForm,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "Unknown error");
+      console.warn(`Sarvam STT error (${response.status}):`, errorText);
+      return null;
+    }
+
+    const result = await response.json();
+    return {
+      transcript: result.transcript || "",
+      provider: "sarvam",
+      language_code: result.language_code || language,
+    };
+  } catch (err) {
+    console.warn("Sarvam STT exception:", err);
+    return null;
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -29,11 +106,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const apiKey = process.env.SARVAM_API_KEY?.trim();
+    // Check if any STT provider is configured
+    const hasGroq = !!process.env.GROQ_API_KEY?.trim();
+    const hasSarvam = !!process.env.SARVAM_API_KEY?.trim();
 
-    if (!apiKey) {
+    if (!hasGroq && !hasSarvam) {
       return NextResponse.json(
-        { error: "sarvam_not_configured", message: "Sarvam AI API key not configured. Using browser speech recognition." },
+        { error: "stt_not_configured", message: "No STT provider configured. Using browser speech recognition." },
         { status: 501 }
       );
     }
@@ -42,7 +121,6 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData();
     const audioFile = formData.get("file");
     const language = (formData.get("language") as string) || "unknown";
-    const model = (formData.get("model") as string) || "saaras:v3";
 
     if (!audioFile || !(audioFile instanceof Blob)) {
       return NextResponse.json(
@@ -59,47 +137,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Forward to Sarvam AI
-    const sarvamForm = new FormData();
+    // Determine safe filename
     const originalName = (audioFile as File).name || "audio.webm";
-    const safeName = /\.(webm|wav|mp3|m4a|mp4|ogg)$/i.test(originalName) ? originalName : "audio.webm";
-    sarvamForm.append("file", audioFile, safeName);
-    sarvamForm.append("model", model);
-    sarvamForm.append("language_code", language === "unknown" ? "unknown" : language);
-    sarvamForm.append("with_timestamps", "false");
+    const safeName = /\.(webm|wav|mp3|m4a|mp4|ogg|flac)$/i.test(originalName) ? originalName : "audio.webm";
 
-    const sarvamResponse = await fetch(SARVAM_API_URL, {
-      method: "POST",
-      headers: {
-        "api-subscription-key": apiKey,
-      },
-      body: sarvamForm,
-    });
+    // Try Groq Whisper first (fast, accurate for English)
+    let result = await transcribeWithGroq(audioFile, safeName);
 
-    if (!sarvamResponse.ok) {
-      const errorText = await sarvamResponse.text().catch(() => "Unknown error");
-      console.error(`Sarvam STT error (${sarvamResponse.status}):`, errorText);
+    // Fallback to Sarvam if Groq failed or returned empty
+    if (!result || !result.transcript) {
+      result = await transcribeWithSarvam(audioFile, safeName, language);
+    }
 
-      // Pass through rate limiting
-      if (sarvamResponse.status === 429) {
-        return NextResponse.json(
-          { error: "rate_limited", message: "Speech recognition rate limited. Please wait a moment." },
-          { status: 429 }
-        );
-      }
-
+    // Both failed — tell client to use browser fallback
+    if (!result) {
       return NextResponse.json(
-        { error: "sarvam_error", message: `Speech recognition failed (${sarvamResponse.status}).` },
+        { error: "stt_all_failed", message: "All STT providers failed. Falling back to browser." },
         { status: 502 }
       );
     }
 
-    const result = await sarvamResponse.json();
-
     return NextResponse.json({
-      transcript: result.transcript || "",
-      language_code: result.language_code || language,
-      confidence: result.language_probability || null,
+      transcript: result.transcript,
+      language_code: (result as { language_code?: string }).language_code || language,
+      provider: result.provider,
+      confidence: null,
     });
   } catch (err) {
     console.error("Speech-to-text error:", err);

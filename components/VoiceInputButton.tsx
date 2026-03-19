@@ -169,6 +169,13 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
         setInterimText("Transcribing...");
 
         try {
+          // Validate audio blob before sending
+          if (!audioBlob || audioBlob.size === 0) {
+            console.error("[Voice] Empty audio blob");
+            setErrorMsg("No audio recorded");
+            return;
+          }
+
           const formData = new FormData();
           const extension = actualMimeType.includes("webm")
             ? "webm"
@@ -176,17 +183,18 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
             ? "mp4"
             : "wav";
           formData.append("file", audioBlob, `recording.${extension}`);
-          formData.append("model", "saaras:v3");
           formData.append("language", "unknown"); // auto-detect
 
           const res = await fetch("/api/speech-to-text", {
             method: "POST",
             body: formData,
+            credentials: "same-origin",
+            // Do NOT set Content-Type — browser sets it with boundary
           });
 
-          if (res.status === 501) {
-            // Sarvam not configured — fall back to browser STT
-            console.log("[Voice] Sarvam not configured, falling back to Web Speech API");
+          if (res.status === 501 || res.status === 502) {
+            // STT not configured or all providers failed — fall back to browser STT
+            console.log("[Voice] Server STT unavailable, falling back to Web Speech API");
             setBackend("browser");
             setInterimText("");
             setIsListening(false);
@@ -200,7 +208,9 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
 
           if (!res.ok) {
             const data = await res.json().catch(() => ({}));
-            if (res.status >= 500) {
+            if (res.status >= 500 || data.error === "stt_all_failed") {
+              // Server-side STT failed — fall back to browser
+              console.log("[Voice] Server STT failed, falling back to Web Speech API");
               setBackend("browser");
               setTimeout(() => {
                 startBrowserRecognitionRef.current?.();

@@ -12,6 +12,7 @@
     "@e2b/code-interpreter": "^2.3.3",
     "@supabase/supabase-js": "^2.97.0",
     "@tavily/core": "^0.7.2",
+    "@upstash/redis": "^1.37.0",
     "clsx": "^2.1.1",
     "e2b": "^2.14.1",
     "framer-motion": "^11.15.0",

@@ -65,6 +65,21 @@ function stripToolMsgs(input: OpenAI.Chat.ChatCompletionMessageParam[]) {
   });
 }
 
+// ── Parse Retry-After header ──────────────────────────────────────────
+function parseRetryAfterMs(err: unknown): number | undefined {
+  const headers = (err as { headers?: Record<string, string> })?.headers;
+  if (!headers) return undefined;
+  const retryAfter = headers["retry-after"] || headers["Retry-After"];
+  if (!retryAfter) return undefined;
+  // Value can be seconds or HTTP-date
+  const seconds = parseInt(retryAfter, 10);
+  if (!isNaN(seconds)) return seconds * 1000;
+  // Try parsing as date
+  const date = Date.parse(retryAfter);
+  if (!isNaN(date)) return Math.max(0, date - Date.now());
+  return undefined;
+}
+
 // ── Main Fallback Function ────────────────────────────────────────────
 export async function callWithFallback(params: FallbackParams): Promise<FallbackResult> {
   const {
@@ -82,10 +97,22 @@ export async function callWithFallback(params: FallbackParams): Promise<Fallback
   const otherModels = ALL_MODEL_IDS.filter(m => !modelsFromPriority.includes(m) && (m !== "sarvam-m" || canUseSarvam) && getClientForModel(m) !== null);
   let modelsToTry = [...modelsFromPriority, ...otherModels];
 
+  // Pre-fetch cooldown states for sorting (async)
+  const cooldownStates = await Promise.all(
+    modelsToTry.map(async m => ({
+      model: m,
+      coolingDown: await isProviderCoolingDown(MODEL_MAP[m]?.provider),
+      groqExhausted: MODEL_MAP[m]?.provider === "groq" ? await isGroqDailyBudgetExhausted() : false,
+    }))
+  );
+
   // Sort: penalize rate-limited and budget-exhausted providers
+  const cooldownMap = new Map(cooldownStates.map(s => [s.model, s]));
   modelsToTry.sort((a, b) => {
-    const aCost = (isProviderCoolingDown(MODEL_MAP[a]?.provider) ? 1 : 0) + (MODEL_MAP[a]?.provider === "groq" && isGroqDailyBudgetExhausted() ? 2 : 0);
-    const bCost = (isProviderCoolingDown(MODEL_MAP[b]?.provider) ? 1 : 0) + (MODEL_MAP[b]?.provider === "groq" && isGroqDailyBudgetExhausted() ? 2 : 0);
+    const aState = cooldownMap.get(a)!;
+    const bState = cooldownMap.get(b)!;
+    const aCost = (aState.coolingDown ? 1 : 0) + (aState.groqExhausted ? 2 : 0);
+    const bCost = (bState.coolingDown ? 1 : 0) + (bState.groqExhausted ? 2 : 0);
     return aCost - bCost;
   });
 
@@ -119,10 +146,10 @@ export async function callWithFallback(params: FallbackParams): Promise<Fallback
       const useTools = modelConfig.supportsTools && tools.length > 0;
       let filteredMsgs = msgs;
 
-      // Groq truncation (except Qwen3/QwQ with 128K context)
+      // Groq truncation (except Qwen3/QwQ/Llama-4 with 128K context)
       const needsGroqTruncation = 
         modelConfig.provider === "groq" && 
-        !["qwen3-32b", "qwq-32b"].includes(tryModelId);
+        !["qwen3-32b", "qwq-32b", "llama-4-scout", "llama-3.3-70b"].includes(tryModelId);
       
       if (needsGroqTruncation) {
         filteredMsgs = filteredMsgs.map(m => {
@@ -199,7 +226,7 @@ export async function callWithFallback(params: FallbackParams): Promise<Fallback
         resolvedModelId = tryModelId;
       }
       if (modelConfig.provider === "groq" && response.usage)
-        addGroqTokenUsage((response.usage.prompt_tokens || 0) + (response.usage.completion_tokens || 0));
+        await addGroqTokenUsage((response.usage.prompt_tokens || 0) + (response.usage.completion_tokens || 0));
 
       return { response, activeModelId: resolvedModelId };
     } catch (err: unknown) {
@@ -211,8 +238,10 @@ export async function callWithFallback(params: FallbackParams): Promise<Fallback
       modelsAttempted++;
 
       if (st === 429 || em.includes("rate limit")) {
-        markProviderRateLimited(modelConfig.provider);
-        if (modelConfig.provider === "groq" && em.includes("tokens per day")) addGroqTokenUsage(85_000);
+        // Parse Retry-After header for smarter cooldown
+        const retryAfterMs = parseRetryAfterMs(err);
+        await markProviderRateLimited(modelConfig.provider, retryAfterMs);
+        if (modelConfig.provider === "groq" && em.includes("tokens per day")) await addGroqTokenUsage(85_000);
       }
 
       if (isLast) throw err;

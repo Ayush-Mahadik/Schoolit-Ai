@@ -252,9 +252,14 @@ export async function POST(req: NextRequest) {
   };
   const looksLikePlainTextRequest = !wantsCode && !/```|<\/?[a-z][^>]*>|https?:\/\/[^\s]+/i.test(message);
   const sarvamSubjectEligible = ["english", "general", "sst", "social_science", "hindi"].includes(rawSubject || subject);
+  
+  // Async cooldown checks
+  const githubCoolingDown = await isProviderCoolingDown("github");
+  const groqExhausted = await isGroqDailyBudgetExhausted();
+  
   const allowSarvamFallback = (
     ["fast", "balanced"].includes(thinkingMode) &&
-    isProviderCoolingDown("github") &&
+    githubCoolingDown &&
     isSarvamSafe(sarvamFlags) &&
     looksLikePlainTextRequest &&
     (sarvamSubjectEligible || containsDevanagari) &&
@@ -263,14 +268,24 @@ export async function POST(req: NextRequest) {
 
   // ── Smart Auto-Routing by Thinking Mode ─────────────────────────────
   const priorityList = THINKING_MODE_MODEL_PRIORITY[thinkingMode] || THINKING_MODE_MODEL_PRIORITY.balanced;
+  
+  // Pre-fetch cooldown states for all priority models
+  const cooldownStates = await Promise.all(
+    priorityList.map(async m => ({
+      model: m,
+      coolingDown: await isProviderCoolingDown(MODEL_MAP[m]?.provider),
+    }))
+  );
+  const cooldownMap = new Map(cooldownStates.map(s => [s.model, s.coolingDown]));
+  
   const modelId = allowSarvamFallback
     ? "sarvam-m"
     : priorityList.find(m => {
         const cfg = MODEL_MAP[m];
         if (m === "sarvam-m") return false;
         if (!cfg || !getClientForModel(m)) return false;
-        if (isProviderCoolingDown(cfg.provider)) return false;
-        if (cfg.provider === "groq" && isGroqDailyBudgetExhausted()) return false;
+        if (cooldownMap.get(m)) return false;
+        if (cfg.provider === "groq" && groqExhausted) return false;
         return true;
       }) || priorityList.find(m => m !== "sarvam-m" && getClientForModel(m) !== null) || "gpt-4.1";
   const maxTokens = Math.min(thinkingModeMax, MODEL_COMPLETION_CAPS[modelId] || thinkingModeMax);
@@ -307,12 +322,12 @@ export async function POST(req: NextRequest) {
   }
 
   // Build system prompt (cached when no file/memory context)
-  const _cacheKey = `${persona}|${subject}|${chainOfThought}|${isAdmin}`;
+  const _cacheKey = `${persona}|${subject}|${thinkingMode}|${isAdmin}`;
   const _cached = _promptCache.get(_cacheKey);
   const usePromptCache = !fileContext && !memoryContext && _cached && Date.now() - _cached.at < PROMPT_CACHE_TTL;
   const systemPrompt = usePromptCache
     ? _cached.prompt
-    : buildSystemPrompt(persona, subject, chainOfThought, fileContext, memoryContext || undefined, isAdmin);
+    : buildSystemPrompt(persona, subject, chainOfThought, fileContext, memoryContext || undefined, isAdmin, thinkingMode);
   if (!fileContext && !memoryContext) {
     _promptCache.set(_cacheKey, { prompt: systemPrompt, at: Date.now() });
   }

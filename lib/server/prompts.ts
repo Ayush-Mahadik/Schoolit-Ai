@@ -137,6 +137,19 @@ export const SUBJECT_CONTEXTS: Record<string, string> = {
     "Adapt your response to match whatever the student is asking about.",
 };
 
+// ── Short subject contexts for fast/balanced modes (reduce token usage) ──
+export const SUBJECT_CONTEXTS_SHORT: Record<string, string> = {
+  math: "CBSE Class 9 Math. NCERT aligned. Use LaTeX for equations. Show step-by-step working.",
+  physics: "CBSE Class 9 Physics. NCERT + SI units. Use LaTeX for formulas.",
+  chemistry: "CBSE Class 9 Chemistry. NCERT. Balance equations. Show mole calculations.",
+  biology: "CBSE Class 9 Biology. NCERT. Use proper terminology. Describe diagrams.",
+  cs: "CBSE Class 9 CS/IT. Python focus. Include code examples.",
+  english: "CBSE Class 9 English. Beehive + Moments. Use PEE framework for literature.",
+  sst: "CBSE Class 9 Social Studies. History, Geography, Civics, Economics. NCERT based.",
+  sanskrit: "CBSE Class 9 Sanskrit. Grammar + Literature. Use देवनागरी.",
+  general: "Indian school curriculum. CBSE/NCERT aligned.",
+};
+
 // ── Admin context (only injected for admin users) ────────────────────
 // NOTE: No PII is hardcoded here. Admin identity comes from the session.
 export const ADMIN_CONTEXT = `
@@ -254,7 +267,8 @@ export function buildSystemPrompt(
   chainOfThought: boolean = true,
   fileContext?: string,
   memoryContext?: string,
-  isAdmin: boolean = false
+  isAdmin: boolean = false,
+  thinkingMode: "fast" | "balanced" | "deep" = "balanced"
 ): string {
   const parts = [BASE_SYSTEM_PROMPT];
 
@@ -263,35 +277,39 @@ export function buildSystemPrompt(
     parts.push(ADMIN_CONTEXT);
   }
 
-  // Inject current date/time so AI has real-time awareness
-  const now = new Date();
-  const istOffset = 5.5 * 60 * 60 * 1000;
-  const istDate = new Date(now.getTime() + istOffset);
-  const dateStr = istDate.toLocaleDateString("en-IN", {
-    weekday: "long", year: "numeric", month: "long", day: "numeric",
-    timeZone: "Asia/Kolkata",
-  });
-  const timeStr = istDate.toLocaleTimeString("en-IN", {
-    hour: "2-digit", minute: "2-digit", hour12: true,
-    timeZone: "Asia/Kolkata",
-  });
-  parts.push(
-    `\n## Current Date & Time:\n` +
-    `- **Date**: ${dateStr}\n` +
-    `- **Time (IST)**: ${timeStr}\n` +
-    `- **ISO**: ${now.toISOString()}\n` +
-    `Use this for scheduling, time-sensitive answers, and real-time context. ` +
-    `When discussing "today", "tomorrow", "this week", etc., use this date as reference.`
-  );
+  // Only inject date/time for deep mode or when context seems time-related
+  if (thinkingMode === "deep") {
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istDate = new Date(now.getTime() + istOffset);
+    const dateStr = istDate.toLocaleDateString("en-IN", {
+      weekday: "long", year: "numeric", month: "long", day: "numeric",
+      timeZone: "Asia/Kolkata",
+    });
+    const timeStr = istDate.toLocaleTimeString("en-IN", {
+      hour: "2-digit", minute: "2-digit", hour12: true,
+      timeZone: "Asia/Kolkata",
+    });
+    parts.push(
+      `\n## Current Date & Time:\n` +
+      `- **Date**: ${dateStr}\n` +
+      `- **Time (IST)**: ${timeStr}\n` +
+      `- **ISO**: ${now.toISOString()}\n` +
+      `Use this for scheduling, time-sensitive answers, and real-time context.`
+    );
+  }
 
-  const subjectCtx = SUBJECT_CONTEXTS[subject.toLowerCase()] || SUBJECT_CONTEXTS.general;
+  // Use short subject context for fast mode, full for balanced/deep
+  const subjectCtx = thinkingMode === "fast"
+    ? (SUBJECT_CONTEXTS_SHORT[subject.toLowerCase()] || SUBJECT_CONTEXTS_SHORT.general)
+    : (SUBJECT_CONTEXTS[subject.toLowerCase()] || SUBJECT_CONTEXTS.general);
   parts.push(`\n## Current Subject:\n${subjectCtx}`);
 
   const persona = PERSONAS[style] || PERSONAS.balanced;
   parts.push(`\n## Teaching Style — ${persona.name}:\n${persona.promptModifier}`);
 
   // Only inject deep reasoning mode in deep thinking mode
-  if (chainOfThought) {
+  if (chainOfThought && thinkingMode === "deep") {
     parts.push(CHAIN_OF_THOUGHT_ADDENDUM);
   }
 

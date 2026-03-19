@@ -270,10 +270,19 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
       const timeLeft = 54_000 - (Date.now() - wallClockStart);
       if (timeLeft > 12_000) {
         const primaryProvider = MODEL_MAP[activeModelId]?.provider;
-        const candidates = priorityList.filter(m => {
+        
+        // Pre-fetch cooldown states for candidate models
+        const candidateModels = priorityList.filter(m => {
           const cfg = MODEL_MAP[m];
-          return cfg && cfg.provider !== primaryProvider && cfg.supportsTools && getClientForModel(m) !== null && !isProviderCoolingDown(cfg.provider);
+          return cfg && cfg.provider !== primaryProvider && cfg.supportsTools && getClientForModel(m) !== null;
         });
+        const cooldownStates = await Promise.all(
+          candidateModels.map(async m => ({
+            model: m,
+            coolingDown: await isProviderCoolingDown(MODEL_MAP[m]?.provider),
+          }))
+        );
+        const candidates = cooldownStates.filter(s => !s.coolingDown).map(s => s.model);
         const allCandidates = candidates.length > 0 ? candidates : ALL_MODEL_IDS.filter(m => m !== activeModelId && getClientForModel(m) !== null);
 
         if (allCandidates.length > 0) {
@@ -314,6 +323,9 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
     const modelsUsed = reviewModelUsed
       ? `${MODEL_NAMES[activeModelId] || activeModelId} + ${MODEL_NAMES[reviewModelUsed] || reviewModelUsed}`
       : MODEL_NAMES[activeModelId] || activeModelId;
+
+    // Debug log for conversation tracking
+    console.log("[Save] conversationId:", conversationId, "messages:", messages.length);
 
     await writeEvent('result', { data: buildPayload(c, {
       response: finalText,

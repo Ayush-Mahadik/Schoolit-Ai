@@ -115,6 +115,7 @@ function generateConversationSummary(messages: Message[]): string {
 
 interface ConversationHistoryProps {
   currentMessages: Message[];
+  conversationId?: string | null;  // Server-assigned conversation ID
   onLoadConversation?: (id: string, messages: Message[]) => void;
   onNewChat?: () => void;
 }
@@ -141,6 +142,7 @@ function formatTimeAgo(timestamp: number): string {
  */
 export function ConversationHistory({
   currentMessages,
+  conversationId: externalConversationId,
   onLoadConversation,
   onNewChat,
 }: ConversationHistoryProps) {
@@ -223,6 +225,13 @@ export function ConversationHistory({
     }
   }, [sessionStatus, loadConversations]);
 
+  // Sync activeId with external conversation ID
+  useEffect(() => {
+    if (externalConversationId && externalConversationId !== activeId) {
+      setActiveId(externalConversationId);
+    }
+  }, [externalConversationId, activeId]);
+
   // Reload fresh data when panel opens
   useEffect(() => {
     if (isOpen && isAuthenticated) {
@@ -246,7 +255,8 @@ export function ConversationHistory({
 
     const title = generateSmartTitle(currentMessages);
     const preview = generateConversationSummary(currentMessages);
-    const conversationId = activeId || `conv-${Date.now()}`;
+    // Use server-assigned conversation ID, then activeId, then generate new one
+    const conversationId = externalConversationId || activeId || `conv-${Date.now()}`;
     const subject = "general";
 
     // Deduplication: skip if a very similar conversation was saved in the last 30s
