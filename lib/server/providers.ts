@@ -128,7 +128,7 @@ export const THINKING_MODE_TOKENS: Record<string, number> = {
 export const THINKING_MODE_MODEL_PRIORITY: Record<string, string[]> = {
   fast:     ["llama-4-scout", "gpt-4.1", "llama-3.3-70b", "gemini-2.0-flash", "gpt-4o", "llama-3.1-8b", "sarvam-m"],
   balanced: ["gpt-4o", "llama-4-scout", "llama-3.3-70b", "qwen3-32b", "gemini-2.0-flash", "gpt-4.1", "llama-3.1-8b", "sarvam-m"],
-  deep:     ["gpt-5", "gpt-oss-120b", "qwq-32b", "qwen3-32b", "gpt-4.1", "gpt-4o", "llama-3.3-70b", "gemini-2.0-flash", "llama-3.1-8b"],
+  deep:     ["gpt-5", "qwen3-32b", "gpt-4o", "gpt-4.1", "gemini-2.0-flash", "llama-3.3-70b", "llama-3.1-8b", "gpt-oss-120b", "qwq-32b"],
 };
 
 // Tool status labels

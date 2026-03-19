@@ -979,7 +979,9 @@ function SmartSuggestions({ lastMessage, onSend, subject }: { lastMessage: Messa
       if (!items.includes(pick)) items.push(pick);
     }
 
-    return items.slice(0, 3);
+    // Deduplicate suggestions
+    const uniqueSuggestions = Array.from(new Set(items.slice(0, 3)));
+    return uniqueSuggestions;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastMessage.id]);
 
@@ -992,7 +994,7 @@ function SmartSuggestions({ lastMessage, onSend, subject }: { lastMessage: Messa
     >
       {suggestions.map((s, i) => (
         <button
-          key={i}
+          key={`${i}-${s}`}
           onClick={() => onSend(s)}
           className="text-xs px-3 py-1.5 rounded-full glass-subtle hover:bg-glass-medium hover:border-brand-500/30 text-slate-400 hover:text-white transition-all duration-150"
         >

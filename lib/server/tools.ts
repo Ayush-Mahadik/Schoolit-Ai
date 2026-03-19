@@ -734,6 +734,7 @@ export const TOOL_DEFINITIONS: { type: "function"; function: { name: string; des
         "curriculum changes, and important circulars. Use this when the student asks about " +
         "'CBSE updates', 'exam dates', 'date sheet', 'syllabus changes', 'board announcements', " +
         "'CBSE news', 'circular', 'term papers schedule', or any official CBSE information. " +
+        "Automatically falls back to web search if CBSE site is down. " +
         "Searches cbse.gov.in, cbseacademic.nic.in, and education news sources.",
       parameters: {
         type: "object",
@@ -3188,6 +3189,33 @@ async function executeCbseNotifications(
     }
 
     if (results.length === 0) {
+      // Auto-fallback to web_search when scraping fails
+      console.log("[CBSE] Scraping failed, falling back to web_search");
+      try {
+        const searchFallback = await executeWebSearch({
+          query: `CBSE 2026 ${query} site:cbse.gov.in OR site:cbseacademic.nic.in`,
+          max_results: 5,
+        });
+        
+        if (searchFallback.result && typeof searchFallback.result === 'object') {
+          const searchData = searchFallback.result as Record<string, unknown>;
+          return {
+            result: {
+              found: true,
+              query,
+              category,
+              source: "web_search_fallback",
+              note: "Fetched via Tavily AI web search — CBSE site temporarily unavailable",
+              notifications: searchData.results || [],
+              answer: searchData.answer || null,
+            },
+            sources: searchFallback.sources || [],
+          };
+        }
+      } catch (fallbackErr) {
+        console.warn("[CBSE] Web search fallback also failed:", fallbackErr);
+      }
+
       return {
         result: {
           message: `Could not fetch CBSE notifications for "${query}". The CBSE website may be temporarily unavailable. Try a web search instead.`,
