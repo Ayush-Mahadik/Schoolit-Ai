@@ -160,6 +160,7 @@ export function ConversationHistory({
 
   // ── Load conversations from cloud when authenticated ────────────────
   const loadConversations = useCallback(async () => {
+    if (sessionStatus === "loading") return;
     if (!isAuthenticated || !userEmail) {
       setConversations([]);
       setCloudStatus("idle");
@@ -220,7 +221,7 @@ export function ConversationHistory({
 
   // Reload when session resolves
   useEffect(() => {
-    if (sessionStatus !== "loading") {
+    if (sessionStatus === "authenticated") {
       loadConversations();
     }
   }, [sessionStatus, loadConversations]);

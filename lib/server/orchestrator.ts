@@ -114,7 +114,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
       for (const f of c.flowcharts) partial += `\n\n\`\`\`mermaid\n${f.mermaidCode}\n\`\`\``;
       await writeEvent('status', { message: 'Time limit reached...' });
       await writeEvent('result', { data: buildPayload(c, {
-        response: partial || "Request took too long. Try a simpler query.",
+        response: partial || "I need more time to answer this fully. Try breaking your question into smaller parts or switch to Fast mode.",
         conversation_id: conversationId, thinking: null, animation_url: null,
         model: activeModelId,
       })});
@@ -339,7 +339,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 
   // Max rounds exceeded
   await writeEvent('result', { data: buildPayload(c, {
-    response: "Multiple research steps completed but couldn't fully resolve. Please rephrase.",
+    response: "I've researched this thoroughly but need you to rephrase the question. Try asking more specifically or break it into smaller parts.",
     conversation_id: conversationId,
     model: activeModelId,
   })});

@@ -38,6 +38,7 @@ async function transcribeWithGroq(audioFile: Blob, fileName: string): Promise<{ 
         "Authorization": `Bearer ${apiKey}`,
       },
       body: formData,
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {
@@ -75,6 +76,7 @@ async function transcribeWithSarvam(audioFile: Blob, fileName: string, language:
         "api-subscription-key": apiKey,
       },
       body: sarvamForm,
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {

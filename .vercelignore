@@ -1,0 +1,6 @@
+# Vercel build exclusions
+CLAUDE.md
+.claude/
+*.bak
+commits.json
+supabase/.temp/

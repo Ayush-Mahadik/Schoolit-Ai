@@ -443,17 +443,18 @@ export async function POST(req: NextRequest) {
     let userError = "Something went wrong. Please try again.";
     let hint = "";
 
-    if (sc === 429 || msg.includes("rate")) { userError = "All AI providers are temporarily rate-limited. Please wait 30 seconds."; hint = "rate_limited"; }
-    else if (sc === 401 || msg.includes("api_key") || msg.includes("unauthorized")) { userError = "API auth failed. Contact admin."; hint = "auth_error"; }
-    else if (sc === 403) { userError = "Access denied."; hint = "forbidden"; }
-    else if (msg.includes("quota") || msg.includes("exceeded")) { userError = "API quota exceeded."; hint = "quota_exceeded"; }
-    else if (msg.includes("connect") || msg.includes("network")) { userError = "Cannot reach AI service."; hint = "network_error"; }
-    else if (msg.includes("timeout")) { userError = "Request took too long. Try Fast mode."; hint = "timeout"; }
-    else if (sc === 404 || msg.includes("not found") || msg.includes("decommissioned")) { userError = "AI model unavailable. Try again."; hint = "model_not_found"; }
-    else if (msg.includes("content_filter") || msg.includes("safety")) { userError = "Content flagged. Please rephrase."; hint = "content_filter"; }
-    else if (sc === 400 || msg.includes("bad request")) { userError = "Request rejected. Try different wording."; hint = "bad_request"; }
-    else if (sc === 413) { userError = "Request too large. Reduce attachments."; hint = "payload_too_large"; }
-    else if (sc && sc >= 500) { userError = "AI service issues. Try again."; hint = "server_error"; }
+    if (sc === 429 || msg.includes("rate")) { userError = "I'm getting too many requests right now. Please wait a moment and try again."; hint = "rate_limited"; }
+    else if (sc === 401 || msg.includes("api_key") || msg.includes("unauthorized")) { userError = "API authentication failed. Please contact support."; hint = "auth_error"; }
+    else if (sc === 403) { userError = "Access denied. Please check your permissions."; hint = "forbidden"; }
+    else if (msg.includes("quota") || msg.includes("exceeded")) { userError = "API quota has been exceeded. Please try again later."; hint = "quota_exceeded"; }
+    else if (msg.includes("connect") || msg.includes("network")) { userError = "Cannot reach the AI service. Please check your connection."; hint = "network_error"; }
+    else if (msg.includes("timeout")) { userError = "That took too long to process. Try asking in Fast mode instead."; hint = "timeout"; }
+    else if (sc === 404 || msg.includes("not found") || msg.includes("decommissioned")) { userError = "The AI model is temporarily unavailable. Please try again."; hint = "model_not_found"; }
+    else if (msg.includes("content_filter") || msg.includes("safety")) { userError = "Your message was flagged by content filters. Please rephrase."; hint = "content_filter"; }
+    else if (sc === 400 || msg.includes("bad request")) { userError = "The request was rejected. Try different wording."; hint = "bad_request"; }
+    else if (sc === 413 || msg.includes("too large")) { userError = "Your message is too long. Try breaking it into smaller questions."; hint = "payload_too_large"; }
+    else if (msg.includes("context") && msg.includes("length")) { userError = "Your conversation is very long. Start a new chat for best results."; hint = "context_length"; }
+    else if (sc && sc >= 500) { userError = "AI service is experiencing issues. Please try again in a few moments."; hint = "server_error"; }
 
     console.error(`[${hint || "unknown"}] ${rawMsg.slice(0, 200)}`);
 

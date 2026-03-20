@@ -12,3 +12,7 @@ supabase/.temp/
 commits.json
 
 .env.vercel.local
+
+# Claude Code
+CLAUDE.md
+.claude/
